@@ -4,6 +4,11 @@ import com.aicampus.ai.service.DashScopeClient;
 import com.aicampus.common.api.ApiResponse;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
+import com.aicampus.common.dto.InterviewFeedback;
+import com.aicampus.common.dto.InterviewFeedbackRequest;
+import com.aicampus.common.dto.InterviewQuestion;
+import com.aicampus.common.dto.InterviewQuestionRequest;
+import java.util.List;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,5 +29,14 @@ public class AiController {
     public ApiResponse<AiAnalyzeResponse> analyze(@RequestBody AiAnalyzeRequest request) {
         return ApiResponse.ok(dashScopeClient.analyze(request));
     }
-}
 
+    @PostMapping("/interview/questions")
+    public ApiResponse<List<InterviewQuestion>> interviewQuestions(@RequestBody InterviewQuestionRequest request) {
+        return ApiResponse.ok(dashScopeClient.generateInterviewQuestions(request));
+    }
+
+    @PostMapping("/interview/feedback")
+    public ApiResponse<InterviewFeedback> interviewFeedback(@RequestBody InterviewFeedbackRequest request) {
+        return ApiResponse.ok(dashScopeClient.generateInterviewFeedback(request));
+    }
+}

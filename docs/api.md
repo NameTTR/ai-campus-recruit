@@ -35,6 +35,16 @@
 - `GET /api/matches/student/{studentId}`：学生匹配结果。
 - `GET /api/matches/job/{jobId}`：岗位候选人匹配结果。
 
+## AI Interview
+
+- `POST /api/ai/interview/questions`：基于学生、简历和目标岗位生成模拟面试题。
+  - 请求体：`studentId`、`resumeId`、`jobId`、`targetRole`、`skills`。
+  - 返回：`InterviewQuestion[]`，每项包含 `questionId`、`category`、`difficulty`、`question`、`referencePoints`。
+- `POST /api/ai/interview/feedback`：提交模拟面试回答并生成结构化反馈。
+  - 请求体：`studentId`、`questionId`、`question`、`answer`、`targetRole`。
+  - 返回：`InterviewFeedback`，包含 `score`、`strengths`、`gaps`、`suggestions`、`summary`、`mocked`。
+  - 未配置 `DASHSCOPE_API_KEY` 或模型调用失败时，返回确定性的演示反馈，且 `mocked=true`。
+
 ## Delivery
 
 - `POST /api/deliveries`：投递岗位。

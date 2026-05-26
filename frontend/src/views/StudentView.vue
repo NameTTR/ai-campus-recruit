@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Brain, BriefcaseBusiness, FileUp, Send } from 'lucide-vue-next'
 import {
   analyzeResume,
   createDelivery,
+  generateInterviewQuestions,
   getProfile,
   listDeliveries,
   listJobs,
   matchResumeJob,
+  submitInterviewFeedback,
   uploadResume,
   type DeliveryRecord,
   type DeliveryStatus,
+  type InterviewFeedback,
+  type InterviewQuestion,
   type JobSummary,
   type MatchResult,
   type ResumeSummary,
@@ -24,6 +28,18 @@ const jobs = ref<JobSummary[]>([])
 const match = ref<MatchResult>()
 const deliveries = ref<DeliveryRecord[]>([])
 const selectedFile = ref<File>()
+const interviewQuestions = ref<InterviewQuestion[]>([])
+const selectedQuestionId = ref('')
+const interviewAnswer = ref('')
+const interviewFeedback = ref<InterviewFeedback>()
+const interviewQuestionsLoading = ref(false)
+const interviewFeedbackLoading = ref(false)
+
+const hasInterviewContext = computed(() => Boolean(match.value || deliveries.value.length))
+const interviewJobId = computed(() => match.value?.jobId || deliveries.value[0]?.jobId || jobs.value[0]?.jobId || 'J001')
+const interviewJob = computed(() => jobs.value.find((job) => job.jobId === interviewJobId.value))
+const interviewRole = computed(() => interviewJob.value?.title || profile.value?.targetPosition || 'Java 后端实习生')
+const selectedQuestion = computed(() => interviewQuestions.value.find((question) => question.questionId === selectedQuestionId.value))
 
 onMounted(async () => {
   profile.value = await getProfile()
@@ -52,13 +68,74 @@ async function runAnalyze() {
 
 async function runMatch(jobId: string) {
   match.value = await matchResumeJob(resume.value?.resumeId || 'R001', jobId)
+  resetInterview()
   ElMessage.success('匹配结果已生成')
 }
 
 async function deliver(jobId: string) {
   const record = await createDelivery(resume.value?.resumeId || 'R001', jobId)
   deliveries.value = [record, ...deliveries.value]
+  resetInterview()
   ElMessage.success('投递成功')
+}
+
+function resetInterview() {
+  interviewQuestions.value = []
+  selectedQuestionId.value = ''
+  interviewAnswer.value = ''
+  interviewFeedback.value = undefined
+}
+
+function selectInterviewQuestion() {
+  interviewAnswer.value = ''
+  interviewFeedback.value = undefined
+}
+
+async function runInterviewQuestions() {
+  if (!hasInterviewContext.value) {
+    ElMessage.warning('请先完成岗位匹配或投递')
+    return
+  }
+  interviewQuestionsLoading.value = true
+  interviewFeedback.value = undefined
+  interviewAnswer.value = ''
+  try {
+    interviewQuestions.value = await generateInterviewQuestions({
+      studentId: profile.value?.userId || 'S001',
+      resumeId: resume.value?.resumeId || 'R001',
+      jobId: interviewJobId.value,
+      targetRole: interviewRole.value,
+      skills: resume.value?.skills || profile.value?.skills || []
+    })
+    selectedQuestionId.value = interviewQuestions.value[0]?.questionId || ''
+    ElMessage.success('模拟面试题已生成')
+  } finally {
+    interviewQuestionsLoading.value = false
+  }
+}
+
+async function submitInterviewAnswer() {
+  if (!selectedQuestion.value) {
+    ElMessage.warning('请选择面试题')
+    return
+  }
+  if (!interviewAnswer.value.trim()) {
+    ElMessage.warning('请输入回答内容')
+    return
+  }
+  interviewFeedbackLoading.value = true
+  try {
+    interviewFeedback.value = await submitInterviewFeedback({
+      studentId: profile.value?.userId || 'S001',
+      questionId: selectedQuestion.value.questionId,
+      question: selectedQuestion.value.question,
+      answer: interviewAnswer.value.trim(),
+      targetRole: interviewRole.value
+    })
+    ElMessage.success('回答反馈已生成')
+  } finally {
+    interviewFeedbackLoading.value = false
+  }
 }
 
 function statusText(status: DeliveryStatus) {
@@ -162,6 +239,101 @@ function statusTagType(status: DeliveryStatus) {
       </div>
     </section>
 
+    <section class="panel interview-panel">
+      <h2 class="panel-title">
+        AI 模拟面试
+        <Brain :size="19" />
+      </h2>
+      <div class="interview-toolbar">
+        <span class="interview-target">目标岗位：{{ interviewRole }}</span>
+        <el-button
+          type="primary"
+          :disabled="!hasInterviewContext"
+          :loading="interviewQuestionsLoading"
+          @click="runInterviewQuestions"
+        >
+          <Brain :size="17" />
+          生成面试题
+        </el-button>
+      </div>
+
+      <el-empty v-if="!hasInterviewContext" description="完成岗位匹配或投递后可开始模拟面试" />
+      <el-empty v-else-if="interviewQuestions.length === 0" description="暂无模拟面试题" />
+      <div v-else class="interview-grid">
+        <el-radio-group v-model="selectedQuestionId" class="question-options" @change="selectInterviewQuestion">
+          <el-radio
+            v-for="question in interviewQuestions"
+            :key="question.questionId"
+            :value="question.questionId"
+            class="question-option"
+          >
+            <span class="question-copy">
+              <span class="question-labels">
+                <el-tag size="small">{{ question.category }}</el-tag>
+                <el-tag size="small" type="info">{{ question.difficulty }}</el-tag>
+              </span>
+              <strong>{{ question.question }}</strong>
+            </span>
+          </el-radio>
+        </el-radio-group>
+
+        <div v-if="selectedQuestion" class="answer-column">
+          <div class="reference-points">
+            <strong>答题要点</strong>
+            <ul class="plain-list">
+              <li v-for="item in selectedQuestion.referencePoints" :key="item">{{ item }}</li>
+            </ul>
+          </div>
+          <el-input
+            v-model="interviewAnswer"
+            type="textarea"
+            :rows="5"
+            maxlength="1000"
+            show-word-limit
+            placeholder="输入你的回答"
+          />
+          <div class="actions">
+            <el-button
+              type="primary"
+              :disabled="!interviewAnswer.trim()"
+              :loading="interviewFeedbackLoading"
+              @click="submitInterviewAnswer"
+            >
+              <Send :size="17" />
+              提交回答
+            </el-button>
+          </div>
+
+          <div v-if="interviewFeedback" class="feedback">
+            <div class="feedback-head">
+              <div class="feedback-score">{{ interviewFeedback.score }}</div>
+              <p>{{ interviewFeedback.summary }}</p>
+            </div>
+            <div class="feedback-lists">
+              <div>
+                <strong>优势</strong>
+                <ul class="plain-list">
+                  <li v-for="item in interviewFeedback.strengths" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+              <div>
+                <strong>不足</strong>
+                <ul class="plain-list">
+                  <li v-for="item in interviewFeedback.gaps" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+              <div>
+                <strong>建议</strong>
+                <ul class="plain-list">
+                  <li v-for="item in interviewFeedback.suggestions" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="panel">
       <h2 class="panel-title">投递记录</h2>
       <el-table :data="deliveries" style="width: 100%">
@@ -177,3 +349,140 @@ function statusTagType(status: DeliveryStatus) {
     </section>
   </section>
 </template>
+
+<style scoped>
+.interview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.interview-target {
+  color: #475467;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.interview-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.1fr);
+  gap: 18px;
+}
+
+.question-options {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  align-content: start;
+}
+
+.question-option {
+  width: 100%;
+  height: auto;
+  min-height: 84px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #dde5ed;
+  border-radius: 8px;
+  background: #ffffff;
+  align-items: flex-start;
+}
+
+.question-option.is-checked {
+  border-color: #0f766e;
+  background: #f1f8f6;
+}
+
+:deep(.question-option .el-radio__input) {
+  margin-top: 3px;
+}
+
+:deep(.question-option .el-radio__label) {
+  display: block;
+  width: calc(100% - 24px);
+  padding-left: 10px;
+  color: #18212f;
+  white-space: normal;
+}
+
+.question-copy {
+  display: grid;
+  gap: 8px;
+  word-break: break-word;
+}
+
+.question-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.answer-column {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  align-content: start;
+}
+
+.reference-points {
+  display: grid;
+  gap: 8px;
+}
+
+.feedback {
+  display: grid;
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #dde5ed;
+}
+
+.feedback-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.feedback-head p {
+  margin: 0;
+  color: #475467;
+  line-height: 1.55;
+}
+
+.feedback-score {
+  display: grid;
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border-radius: 8px;
+  background: #e6f2ef;
+  color: #0f766e;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.feedback-lists {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.feedback-lists strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 920px) {
+  .interview-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .interview-grid,
+  .feedback-lists {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

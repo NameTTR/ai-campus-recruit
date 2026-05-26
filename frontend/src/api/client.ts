@@ -51,6 +51,39 @@ export interface MatchResult {
   suggestions: string[]
 }
 
+export interface InterviewQuestionRequest {
+  studentId: string
+  resumeId: string
+  jobId: string
+  targetRole: string
+  skills: string[]
+}
+
+export interface InterviewQuestion {
+  questionId: string
+  category: string
+  difficulty: string
+  question: string
+  referencePoints: string[]
+}
+
+export interface InterviewFeedbackRequest {
+  studentId: string
+  questionId: string
+  question: string
+  answer: string
+  targetRole: string
+}
+
+export interface InterviewFeedback {
+  score: number
+  strengths: string[]
+  gaps: string[]
+  suggestions: string[]
+  summary: string
+  mocked: boolean
+}
+
 export type DeliveryStatus = 'SUBMITTED' | 'VIEWED' | 'INTERVIEW' | 'OFFER' | 'REJECTED'
 
 export interface DeliveryRecord {
@@ -129,6 +162,39 @@ const fallbackMatch: MatchResult = {
   strengths: ['技能栈与岗位要求高度一致', '项目经历覆盖后端接口、缓存和数据库'],
   gaps: ['微服务项目经验需要进一步强化', '简历中缺少可验证成果指标'],
   suggestions: ['补充微服务部署图', '把项目难点写成 STAR 结构', '准备 RocketMQ 与 Redis 场景题']
+}
+
+const fallbackInterviewQuestions: InterviewQuestion[] = [
+  {
+    questionId: 'IQ-001',
+    category: '项目深挖',
+    difficulty: '中等',
+    question: '请结合一个项目说明你如何使用 Java 解决核心业务问题，并说明你的个人贡献。',
+    referencePoints: ['项目背景和目标', '技术方案与取舍', '个人负责模块', '量化结果或复盘']
+  },
+  {
+    questionId: 'IQ-002',
+    category: '技术基础',
+    difficulty: '中等',
+    question: '如果接口响应突然变慢，你会如何从应用、数据库和缓存三个层面排查？',
+    referencePoints: ['先查看监控与日志', '分析 SQL 与索引', '检查缓存命中率', '补充压测复现方式']
+  },
+  {
+    questionId: 'IQ-003',
+    category: '行为面试',
+    difficulty: '基础',
+    question: '请讲一次你在团队协作中推动问题解决的经历。',
+    referencePoints: ['使用 STAR 结构', '说明阻塞点', '突出沟通动作', '总结复盘']
+  }
+]
+
+const fallbackInterviewFeedback: InterviewFeedback = {
+  score: 82,
+  strengths: ['回答能够围绕题目展开，体现基本岗位理解', '提到了项目和技术关键词，便于继续追问'],
+  gaps: ['缺少可验证的数据结果', '技术取舍和个人贡献还不够具体'],
+  suggestions: ['按 STAR 结构重组回答', '补充接口耗时、数据量或并发量等指标', '说明遇到的困难与最终复盘'],
+  summary: '当前回答基础完整，补充细节与量化结果后更适合正式面试。',
+  mocked: true
 }
 
 const fallbackDeliveries: DeliveryRecord[] = [
@@ -258,6 +324,20 @@ export function matchResumeJob(resumeId = 'R001', jobId = 'J001') {
     method: 'POST',
     body: JSON.stringify({ resumeId, jobId, studentId: 'S001' })
   }, fallbackMatch)
+}
+
+export function generateInterviewQuestions(payload: InterviewQuestionRequest) {
+  return request<InterviewQuestion[]>('/api/ai/interview/questions', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, fallbackInterviewQuestions)
+}
+
+export function submitInterviewFeedback(payload: InterviewFeedbackRequest) {
+  return request<InterviewFeedback>('/api/ai/interview/feedback', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, fallbackInterviewFeedback)
 }
 
 export function createDelivery(resumeId = 'R001', jobId = 'J001') {

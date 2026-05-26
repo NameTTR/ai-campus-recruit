@@ -1,98 +1,116 @@
-# 当前开发 Codex 任务：v0.2 投递审核与状态看板
+# Current Codex Worker Task: v0.3 AI Interview Coach
 
-## 角色
+## Role
 
-你是开发 Codex worker。主控 Codex 负责规划、验收、提交和推送；你负责实现本任务。
+You are the implementation Codex worker.
+The primary Codex session is the caller, planner, reviewer, release owner, committer, and pusher.
+Do not run `git commit` or `git push`.
+Do not revert user edits or unrelated changes.
 
-不要 revert 用户或主控 Codex 的无关改动。修改前先看现有代码模式。
+## Goal
 
-## 目标
+Implement v0.3: an AI interview coach loop for the campus recruitment platform.
+After a student has matched or delivered a job application, the student can generate mock interview questions and submit an answer for structured AI feedback.
 
-实现 v0.2：补齐学生、企业、学校三端的投递审核闭环。
+This version should stay small and demo-ready:
+- Backend exposes AI interview question and answer feedback APIs.
+- Frontend student page has a usable mock interview panel.
+- Frontend keeps offline fallback data so the demo works when backend is unavailable.
+- Docs and tests are updated.
 
-学生投递岗位后：
+## Write Scope
 
-- 企业端可以查看投递列表。
-- 企业端可以推进投递状态。
-- 学生端能看到中文状态。
-- 学校端能看到状态分布和待处理数量。
-
-## 写入范围
+Only edit these paths:
 
 - `backend/common/src/main/java/com/aicampus/common/dto/**`
-- `backend/delivery-service/src/main/java/**`
-- `backend/delivery-service/src/test/java/**`
-- `backend/user-service/src/main/java/**`
-- `backend/user-service/src/test/java/**`
+- `backend/ai-service/src/main/java/**`
+- `backend/ai-service/src/test/java/**`
 - `frontend/src/api/client.ts`
-- `frontend/src/views/StudentView.vue`
-- `frontend/src/views/CompanyView.vue`
-- `frontend/src/views/AdminView.vue`
 - `frontend/src/api/client.test.ts`
+- `frontend/src/views/StudentView.vue`
 - `docs/api.md`
 - `docs/requirements.md`
-- `docs/releases/v0.2.md`
+- `docs/releases/v0.3.md`
 
-## 后端要求
+## Backend Requirements
 
-1. `delivery-service` 增加企业查看投递接口：
-   - `GET /api/deliveries/company?companyId=C001`
-   - 返回投递记录列表。
+1. Add DTOs in `common`, using Java records:
+   - `InterviewQuestionRequest`
+     - `studentId`
+     - `resumeId`
+     - `jobId`
+     - `targetRole`
+     - `skills`
+   - `InterviewQuestion`
+     - `questionId`
+     - `category`
+     - `difficulty`
+     - `question`
+     - `referencePoints`
+   - `InterviewFeedbackRequest`
+     - `studentId`
+     - `questionId`
+     - `question`
+     - `answer`
+     - `targetRole`
+   - `InterviewFeedback`
+     - `score`
+     - `strengths`
+     - `gaps`
+     - `suggestions`
+     - `summary`
+     - `mocked`
 
-2. `delivery-service` 增加投递状态统计接口：
-   - `GET /api/deliveries/statistics`
-   - 返回总数、各状态数量、待处理数。
-   - 可在 common 新增 DTO，例如 `DeliveryStatistics`。
+2. Add APIs in `ai-service`:
+   - `POST /api/ai/interview/questions`
+     - returns `ApiResponse<List<InterviewQuestion>>`
+   - `POST /api/ai/interview/feedback`
+     - returns `ApiResponse<InterviewFeedback>`
 
-3. `PUT /api/deliveries/{id}/status?status=INTERVIEW` 继续可用。
+3. Extend `DashScopeClient` or add a small service class using the existing pattern:
+   - If `dashscope.api-key` is empty, return deterministic mock data.
+   - If calling DashScope fails, fall back to deterministic mock data.
+   - Never hardcode secrets.
+   - Keep public responses wrapped in `ApiResponse<T>`.
 
-4. `user-service` 的 `/api/admin/dashboard` 增强返回待处理投递数等看板字段。
+4. Add or update ai-service tests:
+   - question generation returns multiple questions.
+   - feedback returns score, suggestions, and `mocked=true` when no key is configured.
+   - existing `/api/ai/analyze` test still passes.
 
-## 前端要求
+## Frontend Requirements
 
-1. `CompanyView.vue` 增加“投递审核”区域：
-   - 展示企业投递列表。
-   - 支持状态更新为 `VIEWED` / `INTERVIEW` / `OFFER` / `REJECTED`。
+1. Update `frontend/src/api/client.ts`:
+   - Add TypeScript interfaces matching backend DTOs.
+   - Add `generateInterviewQuestions(...)`.
+   - Add `submitInterviewFeedback(...)`.
+   - Add deterministic fallback data.
 
-2. `StudentView.vue` 投递记录状态显示中文：
-   - `SUBMITTED`：已投递
-   - `VIEWED`：已查看
-   - `INTERVIEW`：面试中
-   - `OFFER`：已录用
-   - `REJECTED`：未通过
+2. Update `frontend/src/views/StudentView.vue`:
+   - Add an "AI mock interview" panel in the current student workflow.
+   - User can generate interview questions.
+   - User can select a question, type an answer, submit it, and see score/strengths/gaps/suggestions.
+   - Keep layout responsive and consistent with existing page style.
 
-3. `AdminView.vue` 增加投递状态分布和待处理数展示。
+3. Update `frontend/src/api/client.test.ts`:
+   - Cover fallback question generation.
+   - Cover fallback feedback.
 
-4. `client.ts` 必须有 fallback，后端不启动时页面仍可演示。
+## Documentation Requirements
 
-## 文档要求
+1. Add `docs/releases/v0.3.md`:
+   - version goal
+   - feature list
+   - new APIs
+   - acceptance scenarios
 
-1. 新增 `docs/releases/v0.2.md`：
-   - 版本目标
-   - 功能清单
-   - 新增接口
-   - 验收场景
-
-2. 更新：
+2. Update:
    - `docs/api.md`
    - `docs/requirements.md`
 
-## 测试要求
+## Verification Commands
 
-后端：
-
-- `delivery-service` 测试覆盖：
-  - 企业投递列表
-  - 投递统计
-  - 状态更新
-
-- `user-service` 测试适配 dashboard 新字段。
-
-前端：
-
-- `client.test.ts` 覆盖企业投递列表或投递统计 fallback。
-
-## 验证命令
+Run these before reporting done:
 
 ```powershell
 cd D:\Study\homework\fenbushixitong\exfinal1\backend
@@ -103,14 +121,13 @@ npm run test:unit
 npm run build
 ```
 
-## 最终汇报
+## Final Report
 
-完成后在窗口里汇报：
+When complete, report in the worker window:
 
-- 修改文件
-- 测试命令
-- 测试结果
-- 遗留风险
+- changed files
+- verification commands
+- results
+- remaining risks
 
-不要执行 `git commit` 或 `git push`，由主控 Codex 完成。
-
+Again: do not run `git commit` or `git push`.
