@@ -11,6 +11,7 @@ import {
   matchResumeJob,
   uploadResume,
   type DeliveryRecord,
+  type DeliveryStatus,
   type JobSummary,
   type MatchResult,
   type ResumeSummary,
@@ -58,6 +59,28 @@ async function deliver(jobId: string) {
   const record = await createDelivery(resume.value?.resumeId || 'R001', jobId)
   deliveries.value = [record, ...deliveries.value]
   ElMessage.success('投递成功')
+}
+
+function statusText(status: DeliveryStatus) {
+  const labels: Record<DeliveryStatus, string> = {
+    SUBMITTED: '已投递',
+    VIEWED: '已查看',
+    INTERVIEW: '面试中',
+    OFFER: '已录用',
+    REJECTED: '未通过'
+  }
+  return labels[status]
+}
+
+function statusTagType(status: DeliveryStatus) {
+  const types: Record<DeliveryStatus, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
+    SUBMITTED: 'info',
+    VIEWED: 'primary',
+    INTERVIEW: 'warning',
+    OFFER: 'success',
+    REJECTED: 'danger'
+  }
+  return types[status]
 }
 </script>
 
@@ -144,10 +167,13 @@ async function deliver(jobId: string) {
       <el-table :data="deliveries" style="width: 100%">
         <el-table-column prop="deliveryId" label="编号" width="120" />
         <el-table-column prop="jobId" label="岗位" />
-        <el-table-column prop="status" label="状态" width="140" />
+        <el-table-column label="状态" width="140">
+          <template #default="{ row }">
+            <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="createdAt" label="时间" />
       </el-table>
     </section>
   </section>
 </template>
-

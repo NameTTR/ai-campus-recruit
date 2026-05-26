@@ -48,7 +48,9 @@ class UserControllerTest {
     void dashboardReturnsStats() throws Exception {
         mockMvc.perform(get("/api/admin/dashboard"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.averageMatchScore").value(82));
+                .andExpect(jsonPath("$.data.averageMatchScore").value(82))
+                .andExpect(jsonPath("$.data.pendingDeliveryCount").value(72))
+                .andExpect(jsonPath("$.data.deliveryStatusCounts.SUBMITTED").value(72))
+                .andExpect(jsonPath("$.data.deliveryStatusCounts.INTERVIEW").value(84));
     }
 }
-

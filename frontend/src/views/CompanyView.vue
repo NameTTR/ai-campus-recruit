@@ -2,10 +2,22 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Bot, ClipboardList, Plus } from 'lucide-vue-next'
-import { analyzeJob, createJob, listJobs, matchResumeJob, type JobSummary, type MatchResult } from '../api/client'
+import {
+  analyzeJob,
+  createJob,
+  listCompanyDeliveries,
+  listJobs,
+  matchResumeJob,
+  updateDeliveryStatus,
+  type DeliveryRecord,
+  type DeliveryStatus,
+  type JobSummary,
+  type MatchResult
+} from '../api/client'
 
 const jobs = ref<JobSummary[]>([])
 const candidate = ref<MatchResult>()
+const deliveries = ref<DeliveryRecord[]>([])
 const form = reactive({
   title: 'Java 后端实习生',
   city: '杭州',
@@ -13,9 +25,16 @@ const form = reactive({
   requiredSkills: 'Java,Spring Boot,MySQL,Redis',
   description: '参与招聘平台、数据看板和中台接口开发。'
 })
+const reviewStatuses: Array<{ status: Exclude<DeliveryStatus, 'SUBMITTED'>, label: string }> = [
+  { status: 'VIEWED', label: '已查看' },
+  { status: 'INTERVIEW', label: '面试中' },
+  { status: 'OFFER', label: '已录用' },
+  { status: 'REJECTED', label: '未通过' }
+]
 
 onMounted(async () => {
   jobs.value = await listJobs()
+  deliveries.value = await listCompanyDeliveries('C001')
 })
 
 async function publish() {
@@ -39,6 +58,34 @@ async function runAnalyze(jobId: string) {
 
 async function loadCandidate(jobId: string) {
   candidate.value = await matchResumeJob('R001', jobId)
+}
+
+async function changeDeliveryStatus(delivery: DeliveryRecord, status: DeliveryStatus) {
+  const updated = await updateDeliveryStatus(delivery, status)
+  deliveries.value = deliveries.value.map((item) => item.deliveryId === updated.deliveryId ? updated : item)
+  ElMessage.success('投递状态已更新')
+}
+
+function statusText(status: DeliveryStatus) {
+  const labels: Record<DeliveryStatus, string> = {
+    SUBMITTED: '已投递',
+    VIEWED: '已查看',
+    INTERVIEW: '面试中',
+    OFFER: '已录用',
+    REJECTED: '未通过'
+  }
+  return labels[status]
+}
+
+function statusTagType(status: DeliveryStatus) {
+  const types: Record<DeliveryStatus, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
+    SUBMITTED: 'info',
+    VIEWED: 'primary',
+    INTERVIEW: 'warning',
+    OFFER: 'success',
+    REJECTED: 'danger'
+  }
+  return types[status]
 }
 </script>
 
@@ -117,6 +164,38 @@ async function loadCandidate(jobId: string) {
         </article>
       </div>
     </section>
+
+    <section class="panel">
+      <h2 class="panel-title">
+        投递审核
+        <ClipboardList :size="19" />
+      </h2>
+      <el-table :data="deliveries" style="width: 100%">
+        <el-table-column prop="deliveryId" label="编号" width="110" />
+        <el-table-column prop="studentId" label="学生" width="110" />
+        <el-table-column prop="jobId" label="岗位" width="110" />
+        <el-table-column label="状态" width="130">
+          <template #default="{ row }">
+            <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="推进状态" min-width="320">
+          <template #default="{ row }">
+            <div class="actions">
+              <el-button
+                v-for="item in reviewStatuses"
+                :key="item.status"
+                size="small"
+                :plain="row.status !== item.status"
+                :type="statusTagType(item.status)"
+                @click="changeDeliveryStatus(row, item.status)"
+              >
+                {{ item.label }}
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
   </section>
 </template>
-

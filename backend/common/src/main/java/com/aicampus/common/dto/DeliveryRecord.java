@@ -8,8 +8,8 @@ public record DeliveryRecord(
         String studentId,
         String resumeId,
         String jobId,
+        String companyId,
         DeliveryStatus status,
         LocalDateTime createdAt
 ) {
 }
-

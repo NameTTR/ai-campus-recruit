@@ -3,7 +3,9 @@ package com.aicampus.user.controller;
 import com.aicampus.common.api.ApiResponse;
 import com.aicampus.common.dto.DashboardStats;
 import com.aicampus.common.dto.UserProfile;
+import com.aicampus.common.enums.DeliveryStatus;
 import com.aicampus.common.enums.Role;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -40,7 +42,13 @@ public class UserController {
 
     @GetMapping("/api/admin/dashboard")
     public ApiResponse<DashboardStats> dashboard() {
-        return ApiResponse.ok(new DashboardStats(128, 24, 56, 312, 82));
+        EnumMap<DeliveryStatus, Long> deliveryStatusCounts = new EnumMap<>(DeliveryStatus.class);
+        deliveryStatusCounts.put(DeliveryStatus.SUBMITTED, 72L);
+        deliveryStatusCounts.put(DeliveryStatus.VIEWED, 96L);
+        deliveryStatusCounts.put(DeliveryStatus.INTERVIEW, 84L);
+        deliveryStatusCounts.put(DeliveryStatus.OFFER, 28L);
+        deliveryStatusCounts.put(DeliveryStatus.REJECTED, 32L);
+        return ApiResponse.ok(new DashboardStats(128, 24, 56, 312, 82,
+                deliveryStatusCounts, deliveryStatusCounts.get(DeliveryStatus.SUBMITTED)));
     }
 }
-

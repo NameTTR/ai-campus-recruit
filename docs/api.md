@@ -38,10 +38,16 @@
 ## Delivery
 
 - `POST /api/deliveries`：投递岗位。
+  - 请求体：`studentId`、`resumeId`、`jobId`。
+  - 返回：`DeliveryRecord`，包含 `deliveryId`、`studentId`、`resumeId`、`jobId`、`companyId`、`status`、`createdAt`。
 - `GET /api/deliveries/my`：我的投递。
-- `PUT /api/deliveries/{id}/status`：更新投递状态。
+- `GET /api/deliveries/company?companyId=C001`：企业查看本企业投递列表。
+- `GET /api/deliveries/statistics`：投递状态统计。
+  - 返回：`totalCount`、`statusCounts`、`pendingCount`。
+- `PUT /api/deliveries/{id}/status?status=INTERVIEW`：更新投递状态。
+  - 支持状态：`SUBMITTED`、`VIEWED`、`INTERVIEW`、`OFFER`、`REJECTED`。
 
 ## Admin
 
 - `GET /api/admin/dashboard`：学校端统计看板。
-
+  - 返回：`studentCount`、`companyCount`、`jobCount`、`deliveryCount`、`averageMatchScore`、`deliveryStatusCounts`、`pendingDeliveryCount`。

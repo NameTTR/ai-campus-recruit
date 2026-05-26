@@ -51,13 +51,22 @@ export interface MatchResult {
   suggestions: string[]
 }
 
+export type DeliveryStatus = 'SUBMITTED' | 'VIEWED' | 'INTERVIEW' | 'OFFER' | 'REJECTED'
+
 export interface DeliveryRecord {
   deliveryId: string
   studentId: string
   resumeId: string
   jobId: string
-  status: string
+  companyId: string
+  status: DeliveryStatus
   createdAt: string
+}
+
+export interface DeliveryStatistics {
+  totalCount: number
+  statusCounts: Record<DeliveryStatus, number>
+  pendingCount: number
 }
 
 export interface DashboardStats {
@@ -66,6 +75,8 @@ export interface DashboardStats {
   jobCount: number
   deliveryCount: number
   averageMatchScore: number
+  deliveryStatusCounts: Record<DeliveryStatus, number>
+  pendingDeliveryCount: number
 }
 
 interface ApiResponse<T> {
@@ -118,6 +129,68 @@ const fallbackMatch: MatchResult = {
   strengths: ['技能栈与岗位要求高度一致', '项目经历覆盖后端接口、缓存和数据库'],
   gaps: ['微服务项目经验需要进一步强化', '简历中缺少可验证成果指标'],
   suggestions: ['补充微服务部署图', '把项目难点写成 STAR 结构', '准备 RocketMQ 与 Redis 场景题']
+}
+
+const fallbackDeliveries: DeliveryRecord[] = [
+  {
+    deliveryId: 'D001',
+    studentId: 'S001',
+    resumeId: 'R001',
+    jobId: 'J001',
+    companyId: 'C001',
+    status: 'SUBMITTED',
+    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    deliveryId: 'D002',
+    studentId: 'S002',
+    resumeId: 'R002',
+    jobId: 'J001',
+    companyId: 'C001',
+    status: 'VIEWED',
+    createdAt: new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    deliveryId: 'D003',
+    studentId: 'S003',
+    resumeId: 'R003',
+    jobId: 'J002',
+    companyId: 'C001',
+    status: 'INTERVIEW',
+    createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    deliveryId: 'D004',
+    studentId: 'S004',
+    resumeId: 'R004',
+    jobId: 'J003',
+    companyId: 'C002',
+    status: 'OFFER',
+    createdAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    deliveryId: 'D005',
+    studentId: 'S005',
+    resumeId: 'R005',
+    jobId: 'J002',
+    companyId: 'C001',
+    status: 'REJECTED',
+    createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
+  }
+]
+
+const fallbackDeliveryStatusCounts: Record<DeliveryStatus, number> = {
+  SUBMITTED: 1,
+  VIEWED: 1,
+  INTERVIEW: 1,
+  OFFER: 1,
+  REJECTED: 1
+}
+
+const fallbackDeliveryStatistics: DeliveryStatistics = {
+  totalCount: fallbackDeliveries.length,
+  statusCounts: fallbackDeliveryStatusCounts,
+  pendingCount: fallbackDeliveryStatusCounts.SUBMITTED
 }
 
 async function request<T>(path: string, init: RequestInit, fallback: T): Promise<T> {
@@ -196,20 +269,31 @@ export function createDelivery(resumeId = 'R001', jobId = 'J001') {
     studentId: 'S001',
     resumeId,
     jobId,
+    companyId: fallbackJobs.find((job) => job.jobId === jobId)?.companyId || 'C001',
     status: 'SUBMITTED',
     createdAt: new Date().toISOString()
   })
 }
 
 export function listDeliveries() {
-  return request<DeliveryRecord[]>('/api/deliveries/my', { method: 'GET' }, [{
-    deliveryId: 'D001',
-    studentId: 'S001',
-    resumeId: 'R001',
-    jobId: 'J001',
-    status: 'SUBMITTED',
-    createdAt: new Date().toISOString()
-  }])
+  return request<DeliveryRecord[]>('/api/deliveries/my', { method: 'GET' },
+    fallbackDeliveries.filter((delivery) => delivery.studentId === 'S001'))
+}
+
+export function listCompanyDeliveries(companyId = 'C001') {
+  return request<DeliveryRecord[]>(`/api/deliveries/company?companyId=${encodeURIComponent(companyId)}`, { method: 'GET' },
+    fallbackDeliveries.filter((delivery) => delivery.companyId === companyId))
+}
+
+export function updateDeliveryStatus(delivery: DeliveryRecord, status: DeliveryStatus) {
+  const updated = { ...delivery, status }
+  return request<DeliveryRecord>(`/api/deliveries/${delivery.deliveryId}/status?status=${status}`, {
+    method: 'PUT'
+  }, updated)
+}
+
+export function getDeliveryStatistics() {
+  return request<DeliveryStatistics>('/api/deliveries/statistics', { method: 'GET' }, fallbackDeliveryStatistics)
 }
 
 export function getDashboard() {
@@ -218,7 +302,14 @@ export function getDashboard() {
     companyCount: 24,
     jobCount: 56,
     deliveryCount: 312,
-    averageMatchScore: 82
+    averageMatchScore: 82,
+    deliveryStatusCounts: {
+      SUBMITTED: 72,
+      VIEWED: 96,
+      INTERVIEW: 84,
+      OFFER: 28,
+      REJECTED: 32
+    },
+    pendingDeliveryCount: 72
   })
 }
-
