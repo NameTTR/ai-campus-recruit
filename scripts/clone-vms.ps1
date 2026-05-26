@@ -1,5 +1,5 @@
 param(
-    [string]$VmrunPath = "C:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe",
+    [string]$VmrunPath = "D:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe",
     [string]$SourceVmx = "D:\Virtual_Machines\Ubuntu18_64_2\Ubuntu 64 位.vmx",
     [string]$TargetRoot = "D:\Virtual_Machines"
 )
@@ -27,4 +27,3 @@ foreach ($target in $targets) {
     New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
     & $VmrunPath clone $SourceVmx $target.Path full "-cloneName=$($target.Name)"
 }
-
