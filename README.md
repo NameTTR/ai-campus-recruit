@@ -24,6 +24,26 @@ npm run dev
 
 后端可先分别启动 `ai-service`、`auth-service`、`resume-service`、`job-service`、`match-service`、`delivery-service` 和 `gateway-service`。
 
+也可以直接启动本地开发环境：
+
+```powershell
+.\scripts\start-local-dev.ps1
+```
+
+访问：
+
+- 前端：`http://localhost:5173`
+- 网关：`http://localhost:8080`
+
+## GitHub
+
+本机已安装 GitHub CLI。首次推送前先登录：
+
+```powershell
+gh auth login
+gh repo create ai-campus-recruit --public --source . --remote origin --push
+```
+
 ## Demo Accounts
 
 - 学生：`student / 123456`
@@ -41,4 +61,3 @@ DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 ```
 
 未配置 Key 时，`ai-service` 会返回可演示的 mock 结果。
-
