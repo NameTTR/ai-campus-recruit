@@ -9,7 +9,6 @@ D:\Virtual_Machines\Ubuntu18_64_2
 目标目录：
 
 ```text
-D:\Virtual_Machines\ai-recruit-vm1
 D:\Virtual_Machines\ai-recruit-vm2
 D:\Virtual_Machines\ai-recruit-vm3
 ```
@@ -29,3 +28,5 @@ D:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe
 ```
 
 克隆后分别修改主机名和静态 IP。
+
+默认保留源虚拟机 `Ubuntu18_64_2` 作为 VM1，只克隆 VM2 和 VM3。

@@ -1,6 +1,7 @@
 param(
     [string]$VmrunPath = "D:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe",
-    [string]$SourceVmx = "D:\Virtual_Machines\Ubuntu18_64_2\Ubuntu 64 位.vmx",
+    [string]$SourceDir = "D:\Virtual_Machines\Ubuntu18_64_2",
+    [string]$SourceVmx = "",
     [string]$TargetRoot = "D:\Virtual_Machines"
 )
 
@@ -8,12 +9,15 @@ if (-not (Test-Path -LiteralPath $VmrunPath)) {
     throw "vmrun.exe not found: $VmrunPath"
 }
 
-if (-not (Test-Path -LiteralPath $SourceVmx)) {
+if ([string]::IsNullOrWhiteSpace($SourceVmx)) {
+    $SourceVmx = Get-ChildItem -LiteralPath $SourceDir -Filter *.vmx | Select-Object -First 1 -ExpandProperty FullName
+}
+
+if (-not $SourceVmx -or -not (Test-Path -LiteralPath $SourceVmx)) {
     throw "source vmx not found: $SourceVmx"
 }
 
 $targets = @(
-    @{ Name = "ai-recruit-vm1"; Path = Join-Path $TargetRoot "ai-recruit-vm1\ai-recruit-vm1.vmx" },
     @{ Name = "ai-recruit-vm2"; Path = Join-Path $TargetRoot "ai-recruit-vm2\ai-recruit-vm2.vmx" },
     @{ Name = "ai-recruit-vm3"; Path = Join-Path $TargetRoot "ai-recruit-vm3\ai-recruit-vm3.vmx" }
 )
