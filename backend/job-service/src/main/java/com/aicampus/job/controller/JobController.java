@@ -52,12 +52,12 @@ public class JobController {
     }
 
     @GetMapping("/{id}")
-    public ApiResponse<JobSummary> detail(@PathVariable String id) {
+    public ApiResponse<JobSummary> detail(@PathVariable("id") String id) {
         return ApiResponse.ok(jobs.getOrDefault(id, jobs.get("J001")));
     }
 
     @PostMapping("/{id}/analyze")
-    public ApiResponse<JobSummary> analyze(@PathVariable String id) {
+    public ApiResponse<JobSummary> analyze(@PathVariable("id") String id) {
         JobSummary current = jobs.getOrDefault(id, jobs.get("J001"));
         String aiSummary = callAi(current);
         JobSummary analyzed = new JobSummary(current.jobId(), current.companyId(), current.companyName(),
@@ -92,4 +92,3 @@ public class JobController {
         return values == null || values.isEmpty() ? List.of("Java", "Spring Boot") : values;
     }
 }
-

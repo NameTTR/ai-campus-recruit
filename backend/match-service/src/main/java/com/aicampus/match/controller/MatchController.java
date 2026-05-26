@@ -43,14 +43,14 @@ public class MatchController {
     }
 
     @GetMapping("/student/{studentId}")
-    public ApiResponse<List<MatchResult>> byStudent(@PathVariable String studentId) {
+    public ApiResponse<List<MatchResult>> byStudent(@PathVariable("studentId") String studentId) {
         return ApiResponse.ok(matches.values().stream()
                 .filter(match -> match.studentId().equals(studentId))
                 .toList());
     }
 
     @GetMapping("/job/{jobId}")
-    public ApiResponse<List<MatchResult>> byJob(@PathVariable String jobId) {
+    public ApiResponse<List<MatchResult>> byJob(@PathVariable("jobId") String jobId) {
         return ApiResponse.ok(matches.values().stream()
                 .filter(match -> match.jobId().equals(jobId))
                 .toList());
@@ -65,4 +65,3 @@ public class MatchController {
         return value == null || value.isBlank() ? defaultValue : value;
     }
 }
-

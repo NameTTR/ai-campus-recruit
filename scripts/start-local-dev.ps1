@@ -17,7 +17,7 @@ foreach ($service in $services) {
     Start-Process powershell -WindowStyle Hidden -ArgumentList @(
         "-NoExit",
         "-Command",
-        "Set-Location '$Backend'; mvn -s settings.xml.example -pl $service spring-boot:run"
+        "Set-Location '$Backend'; mvn -s settings.xml.example -pl $service -am spring-boot:run"
     )
 }
 
@@ -30,4 +30,3 @@ Start-Process powershell -WindowStyle Hidden -ArgumentList @(
 Write-Host "Local dev processes started."
 Write-Host "Frontend: http://localhost:5173"
 Write-Host "Gateway:  http://localhost:8080"
-

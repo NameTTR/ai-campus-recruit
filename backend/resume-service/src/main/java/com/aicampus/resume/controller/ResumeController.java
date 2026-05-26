@@ -47,12 +47,12 @@ public class ResumeController {
     }
 
     @GetMapping("/{id}")
-    public ApiResponse<ResumeSummary> detail(@PathVariable String id) {
+    public ApiResponse<ResumeSummary> detail(@PathVariable("id") String id) {
         return ApiResponse.ok(resumes.getOrDefault(id, resumes.get("R001")));
     }
 
     @PostMapping("/{id}/analyze")
-    public ApiResponse<ResumeSummary> analyze(@PathVariable String id) {
+    public ApiResponse<ResumeSummary> analyze(@PathVariable("id") String id) {
         ResumeSummary current = resumes.getOrDefault(id, resumes.get("R001"));
         String diagnosis = callAi(current);
         ResumeSummary analyzed = new ResumeSummary(current.resumeId(), current.studentId(), current.fileName(),
@@ -79,4 +79,3 @@ public class ResumeController {
         return "建议补充项目规模、性能指标、团队协作和线上部署经验。";
     }
 }
-

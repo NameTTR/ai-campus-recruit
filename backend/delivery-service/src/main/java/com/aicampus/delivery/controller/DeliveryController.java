@@ -41,7 +41,7 @@ public class DeliveryController {
     }
 
     @GetMapping("/my")
-    public ApiResponse<List<DeliveryRecord>> my(@RequestParam(defaultValue = "S001") String studentId) {
+    public ApiResponse<List<DeliveryRecord>> my(@RequestParam(value = "studentId", defaultValue = "S001") String studentId) {
         return ApiResponse.ok(deliveries.values().stream()
                 .filter(delivery -> delivery.studentId().equals(studentId))
                 .toList());
@@ -53,7 +53,7 @@ public class DeliveryController {
     }
 
     @PutMapping("/{id}/status")
-    public ApiResponse<DeliveryRecord> updateStatus(@PathVariable String id, @RequestParam DeliveryStatus status) {
+    public ApiResponse<DeliveryRecord> updateStatus(@PathVariable("id") String id, @RequestParam("status") DeliveryStatus status) {
         DeliveryRecord current = deliveries.getOrDefault(id, deliveries.get("D001"));
         DeliveryRecord updated = new DeliveryRecord(current.deliveryId(), current.studentId(), current.resumeId(),
                 current.jobId(), status, current.createdAt());
@@ -65,4 +65,3 @@ public class DeliveryController {
         return value == null || value.isBlank() ? defaultValue : value;
     }
 }
-

@@ -50,6 +50,18 @@ gh repo create ai-campus-recruit --public --source . --remote origin --push
 - 企业：`company / 123456`
 - 学校管理员：`admin / 123456`
 
+## Verification
+
+```powershell
+cd backend
+mvn -s settings.xml.example test
+cd ..\frontend
+npm run test:unit
+npm run build
+cd ..
+docker compose config --quiet
+```
+
 ## AI Configuration
 
 真实调用阿里云百炼时配置：
