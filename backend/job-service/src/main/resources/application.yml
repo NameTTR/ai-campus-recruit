@@ -1,0 +1,25 @@
+server:
+  port: 8104
+
+spring:
+  application:
+    name: job-service
+  cloud:
+    nacos:
+      discovery:
+        enabled: ${NACOS_ENABLED:false}
+        server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
+
+services:
+  ai: ${AI_SERVICE_URI:http://localhost:8106}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+

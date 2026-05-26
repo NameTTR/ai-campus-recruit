@@ -1,0 +1,257 @@
+name: ai-campus-recruit
+
+networks:
+  recruit-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
+  nacos-data:
+  minio-data:
+
+services:
+  mysql:
+    image: docker.m.daocloud.io/library/mysql:8.4
+    container_name: recruit-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ai_campus_recruit}
+      MYSQL_ROOT_HOST: "%"
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - recruit-net
+
+  redis:
+    image: docker.m.daocloud.io/library/redis:7.4-alpine
+    container_name: recruit-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - recruit-net
+
+  nacos:
+    image: docker.m.daocloud.io/nacos/nacos-server:v2.4.3
+    container_name: recruit-nacos
+    environment:
+      MODE: standalone
+      PREFER_HOST_MODE: hostname
+      NACOS_AUTH_ENABLE: "false"
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    volumes:
+      - nacos-data:/home/nacos/data
+    networks:
+      - recruit-net
+
+  minio:
+    image: docker.m.daocloud.io/minio/minio:RELEASE.2025-01-20T14-49-07Z
+    container_name: recruit-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - recruit-net
+
+  rocketmq-namesrv:
+    image: docker.m.daocloud.io/apache/rocketmq:5.3.0
+    container_name: recruit-rocketmq-namesrv
+    command: sh mqnamesrv
+    ports:
+      - "9876:9876"
+    networks:
+      - recruit-net
+
+  rocketmq-broker:
+    image: docker.m.daocloud.io/apache/rocketmq:5.3.0
+    container_name: recruit-rocketmq-broker
+    command: sh mqbroker -n rocketmq-namesrv:9876
+    depends_on:
+      - rocketmq-namesrv
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    networks:
+      - recruit-net
+
+  ai-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: ai-service
+    container_name: recruit-ai-service
+    environment:
+      NACOS_ENABLED: "true"
+      NACOS_SERVER_ADDR: nacos:8848
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_MODEL: ${DASHSCOPE_MODEL:-qwen-plus}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+    depends_on:
+      - nacos
+    ports:
+      - "8106:8106"
+    networks:
+      - recruit-net
+
+  auth-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: auth-service
+    container_name: recruit-auth-service
+    environment:
+      NACOS_ENABLED: "true"
+      NACOS_SERVER_ADDR: nacos:8848
+    depends_on:
+      - nacos
+    ports:
+      - "8101:8101"
+    networks:
+      - recruit-net
+
+  user-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: user-service
+    container_name: recruit-user-service
+    environment:
+      NACOS_ENABLED: "true"
+      NACOS_SERVER_ADDR: nacos:8848
+    depends_on:
+      - nacos
+    ports:
+      - "8102:8102"
+    networks:
+      - recruit-net
+
+  resume-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: resume-service
+    container_name: recruit-resume-service
+    environment:
+      NACOS_ENABLED: "true"
+      NACOS_SERVER_ADDR: nacos:8848
+      AI_SERVICE_URI: http://ai-service:8106
+    depends_on:
+      - nacos
+      - ai-service
+    ports:
+      - "8103:8103"
+    networks:
+      - recruit-net
+
+  job-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: job-service
+    container_name: recruit-job-service
+    environment:
+      NACOS_ENABLED: "true"
+      NACOS_SERVER_ADDR: nacos:8848
+      AI_SERVICE_URI: http://ai-service:8106
+    depends_on:
+      - nacos
+      - ai-service
+    ports:
+      - "8104:8104"
+    networks:
+      - recruit-net
+
+  match-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: match-service
+    container_name: recruit-match-service
+    environment:
+      NACOS_ENABLED: "true"
+      NACOS_SERVER_ADDR: nacos:8848
+    depends_on:
+      - nacos
+    ports:
+      - "8105:8105"
+    networks:
+      - recruit-net
+
+  delivery-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: delivery-service
+    container_name: recruit-delivery-service
+    environment:
+      NACOS_ENABLED: "true"
+      NACOS_SERVER_ADDR: nacos:8848
+    depends_on:
+      - nacos
+    ports:
+      - "8107:8107"
+    networks:
+      - recruit-net
+
+  gateway-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: gateway-service
+    container_name: recruit-gateway-service
+    environment:
+      NACOS_ENABLED: "true"
+      NACOS_SERVER_ADDR: nacos:8848
+      AUTH_SERVICE_URI: http://auth-service:8101
+      USER_SERVICE_URI: http://user-service:8102
+      RESUME_SERVICE_URI: http://resume-service:8103
+      JOB_SERVICE_URI: http://job-service:8104
+      MATCH_SERVICE_URI: http://match-service:8105
+      AI_SERVICE_URI: http://ai-service:8106
+      DELIVERY_SERVICE_URI: http://delivery-service:8107
+    depends_on:
+      - auth-service
+      - user-service
+      - resume-service
+      - job-service
+      - match-service
+      - delivery-service
+    ports:
+      - "8080:8080"
+    networks:
+      - recruit-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: recruit-frontend
+    depends_on:
+      - gateway-service
+    ports:
+      - "80:80"
+    networks:
+      - recruit-net
+
