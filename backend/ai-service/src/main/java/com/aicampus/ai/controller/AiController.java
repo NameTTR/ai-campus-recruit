@@ -9,6 +9,7 @@ import com.aicampus.common.dto.InterviewFeedback;
 import com.aicampus.common.dto.InterviewFeedbackRequest;
 import com.aicampus.common.dto.InterviewQuestion;
 import com.aicampus.common.dto.InterviewQuestionRequest;
+import com.aicampus.common.dto.InterviewRecord;
 import io.swagger.v3.oas.annotations.Operation;
 import java.util.List;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @CrossOrigin
@@ -50,5 +52,11 @@ public class AiController {
     @PostMapping("/interview/feedback")
     public ApiResponse<InterviewFeedback> interviewFeedback(@RequestBody InterviewFeedbackRequest request) {
         return ApiResponse.ok(aiCoachService.generateInterviewFeedback(request));
+    }
+
+    @Operation(summary = "List interview feedback records")
+    @GetMapping("/interview/records")
+    public ApiResponse<List<InterviewRecord>> interviewRecords(@RequestParam String studentId) {
+        return ApiResponse.ok(aiCoachService.listInterviewRecords(studentId));
     }
 }

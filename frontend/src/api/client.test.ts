@@ -3,6 +3,7 @@ import {
   generateInterviewQuestions,
   getAiStatus,
   getDeliveryStatistics,
+  listInterviewRecords,
   listCompanyDeliveries,
   login,
   matchResumeJob,
@@ -65,6 +66,14 @@ describe('api fallback behavior', () => {
     expect(result.configured).toBe(false)
     expect(result.capabilities.length).toBeGreaterThan(0)
     expect(result.fallbackReason).toContain('DASHSCOPE_API_KEY')
+  })
+
+  it('returns interview record fallback when gateway is offline', async () => {
+    const result = await listInterviewRecords('S001')
+
+    expect(result.length).toBeGreaterThan(0)
+    expect(result[0].score).toBeGreaterThan(0)
+    expect(result[0].suggestions.length).toBeGreaterThan(0)
   })
 
   it('returns company delivery fallback when gateway is offline', async () => {

@@ -93,6 +93,20 @@ export interface AiModuleStatus {
   fallbackReason: string | null
 }
 
+export interface InterviewRecord {
+  recordId: string
+  studentId: string
+  targetRole: string
+  questionId: string
+  question: string
+  answer: string
+  score: number
+  summary: string
+  suggestions: string[]
+  mocked: boolean
+  createdAt: string
+}
+
 export type DeliveryStatus = 'SUBMITTED' | 'VIEWED' | 'INTERVIEW' | 'OFFER' | 'REJECTED'
 
 export interface DeliveryRecord {
@@ -214,6 +228,22 @@ const fallbackAiModuleStatus: AiModuleStatus = {
   capabilities: ['resume-analysis', 'job-analysis', 'match-analysis', 'interview-question-generation', 'interview-feedback'],
   fallbackReason: 'AI service is offline or DASHSCOPE_API_KEY is not configured'
 }
+
+const fallbackInterviewRecords: InterviewRecord[] = [
+  {
+    recordId: 'IR-DEMO-001',
+    studentId: 'S001',
+    targetRole: 'Java 后端实习生',
+    questionId: 'IQ-002',
+    question: '如果接口响应突然变慢，你会如何从应用、数据库和缓存三个层面排查？',
+    answer: '先查看监控和日志，再分析 SQL、索引和缓存命中率，最后通过压测复现。',
+    score: 82,
+    summary: '回答覆盖主要排查路径，继续补充指标和工具细节会更完整。',
+    suggestions: ['补充具体监控指标', '说明慢 SQL 定位工具', '对比优化前后的响应时间'],
+    mocked: true,
+    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  }
+]
 
 const fallbackDeliveries: DeliveryRecord[] = [
   {
@@ -360,6 +390,12 @@ export function submitInterviewFeedback(payload: InterviewFeedbackRequest) {
 
 export function getAiStatus() {
   return request<AiModuleStatus>('/api/ai/status', { method: 'GET' }, fallbackAiModuleStatus)
+}
+
+export function listInterviewRecords(studentId = 'S001') {
+  return request<InterviewRecord[]>(`/api/ai/interview/records?studentId=${encodeURIComponent(studentId)}`, {
+    method: 'GET'
+  }, fallbackInterviewRecords.filter((record) => record.studentId === studentId))
 }
 
 export function createDelivery(resumeId = 'R001', jobId = 'J001') {

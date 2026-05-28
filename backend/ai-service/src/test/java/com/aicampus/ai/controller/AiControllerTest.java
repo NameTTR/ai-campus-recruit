@@ -67,13 +67,23 @@ class AiControllerTest {
     }
 
     @Test
-    void interviewFeedbackUsesMockWhenDashScopeKeyIsMissing() throws Exception {
+    void interviewRecordsInitiallyReturnsArray() throws Exception {
+        mockMvc.perform(get("/api/ai/interview/records")
+                        .param("studentId", "S-EMPTY-RECORDS"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void interviewFeedbackSavesMockRecordWhenDashScopeKeyIsMissing() throws Exception {
         mockMvc.perform(post("/api/ai/interview/feedback")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "studentId": "S001",
-                                  "questionId": "IQ-001",
+                                  "studentId": "S-RECORD-001",
+                                  "questionId": "IQ-RECORD-001",
                                   "question": "请说明你如何排查接口响应变慢。",
                                   "answer": "我会先查看日志和监控，再检查慢 SQL、索引和缓存命中率，最后补充压测复现。",
                                   "targetRole": "Java 后端实习生"
@@ -84,5 +94,17 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data.mocked").value(true))
                 .andExpect(jsonPath("$.data.score").isNumber())
                 .andExpect(jsonPath("$.data.suggestions[0]").isNotEmpty());
+
+        mockMvc.perform(get("/api/ai/interview/records")
+                        .param("studentId", "S-RECORD-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data[0].studentId").value("S-RECORD-001"))
+                .andExpect(jsonPath("$.data[0].questionId").value("IQ-RECORD-001"))
+                .andExpect(jsonPath("$.data[0].score").isNumber())
+                .andExpect(jsonPath("$.data[0].suggestions[0]").isNotEmpty())
+                .andExpect(jsonPath("$.data[0].mocked").value(true));
     }
 }

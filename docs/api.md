@@ -50,6 +50,9 @@
   - 请求体：`studentId`、`questionId`、`question`、`answer`、`targetRole`。
   - 返回：`InterviewFeedback`，包含 `score`、`strengths`、`gaps`、`suggestions`、`summary`、`mocked`。
   - 未配置 `DASHSCOPE_API_KEY` 或模型调用失败时，返回确定性的演示反馈，且 `mocked=true`。
+- `GET /api/ai/interview/records?studentId=S001`：查看学生模拟面试历史记录。
+  - 返回：`InterviewRecord[]`，每项包含 `recordId`、`studentId`、`targetRole`、`questionId`、`question`、`answer`、`score`、`summary`、`suggestions`、`mocked`、`createdAt`。
+  - 当前 MVP 使用内存存储，服务重启后记录会清空。
 
 ## Delivery
 

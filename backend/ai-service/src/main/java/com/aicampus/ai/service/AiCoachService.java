@@ -7,11 +7,18 @@ import com.aicampus.common.dto.InterviewFeedback;
 import com.aicampus.common.dto.InterviewFeedbackRequest;
 import com.aicampus.common.dto.InterviewQuestion;
 import com.aicampus.common.dto.InterviewQuestionRequest;
+import com.aicampus.common.dto.InterviewRecord;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -32,6 +39,7 @@ public class AiCoachService {
 
     private final DashScopeClient dashScopeClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Map<String, List<InterviewRecord>> interviewRecords = new ConcurrentHashMap<>();
 
     public AiCoachService(DashScopeClient dashScopeClient) {
         this.dashScopeClient = dashScopeClient;
@@ -63,19 +71,47 @@ public class AiCoachService {
     }
 
     public InterviewFeedback generateInterviewFeedback(InterviewFeedbackRequest request) {
+        InterviewFeedback feedback;
         if (!dashScopeClient.isConfigured()) {
-            return mockInterviewFeedback(request);
+            feedback = mockInterviewFeedback(request);
+        } else {
+            try {
+                String content = dashScopeClient.complete(SYSTEM_PROMPT, buildInterviewFeedbackPrompt(request), true);
+                feedback = parseInterviewFeedback(content);
+            } catch (RuntimeException ex) {
+                feedback = mockInterviewFeedback(request);
+            }
         }
-        try {
-            String content = dashScopeClient.complete(SYSTEM_PROMPT, buildInterviewFeedbackPrompt(request), true);
-            return parseInterviewFeedback(content);
-        } catch (RuntimeException ex) {
-            return mockInterviewFeedback(request);
-        }
+        saveInterviewRecord(request, feedback);
+        return feedback;
     }
 
     public AiModuleStatus status() {
         return dashScopeClient.status();
+    }
+
+    public List<InterviewRecord> listInterviewRecords(String studentId) {
+        String key = valueOr(studentId, "");
+        return interviewRecords.getOrDefault(key, List.of()).stream()
+                .sorted(Comparator.comparing(InterviewRecord::createdAt).reversed())
+                .toList();
+    }
+
+    private void saveInterviewRecord(InterviewFeedbackRequest request, InterviewFeedback feedback) {
+        String studentId = valueOr(request == null ? null : request.studentId(), "S001");
+        InterviewRecord record = new InterviewRecord(
+                "IR-" + UUID.randomUUID(),
+                studentId,
+                valueOr(request == null ? null : request.targetRole(), "未知岗位"),
+                valueOr(request == null ? null : request.questionId(), "IQ-UNKNOWN"),
+                valueOr(request == null ? null : request.question(), ""),
+                valueOr(request == null ? null : request.answer(), ""),
+                feedback.score(),
+                valueOr(feedback.summary(), ""),
+                safeList(feedback.suggestions(), DEFAULT_SUGGESTIONS),
+                feedback.mocked(),
+                Instant.now());
+        interviewRecords.computeIfAbsent(studentId, ignored -> new CopyOnWriteArrayList<>()).add(record);
     }
 
     private String buildAnalyzePrompt(AiAnalyzeRequest request) {

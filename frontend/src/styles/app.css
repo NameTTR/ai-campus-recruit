@@ -274,3 +274,46 @@ textarea {
   }
 }
 
+@media (max-width: 640px) {
+  .side-nav {
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .main-view {
+    padding: 14px;
+  }
+
+  .page {
+    gap: 14px;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .page-title {
+    font-size: 24px;
+  }
+
+  .panel {
+    padding: 14px;
+    overflow-x: auto;
+  }
+
+  .actions {
+    align-items: stretch;
+  }
+
+  .actions .el-button {
+    margin-left: 0;
+  }
+
+  input[type="file"] {
+    max-width: 100%;
+  }
+}

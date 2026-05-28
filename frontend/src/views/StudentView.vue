@@ -1,21 +1,25 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Brain, BriefcaseBusiness, FileUp, Send } from 'lucide-vue-next'
+import { Brain, BriefcaseBusiness, Clock3, FileUp, RefreshCw, Send } from 'lucide-vue-next'
 import {
   analyzeResume,
   createDelivery,
   generateInterviewQuestions,
+  getAiStatus,
   getProfile,
   listDeliveries,
+  listInterviewRecords,
   listJobs,
   matchResumeJob,
   submitInterviewFeedback,
   uploadResume,
+  type AiModuleStatus,
   type DeliveryRecord,
   type DeliveryStatus,
   type InterviewFeedback,
   type InterviewQuestion,
+  type InterviewRecord,
   type JobSummary,
   type MatchResult,
   type ResumeSummary,
@@ -34,17 +38,38 @@ const interviewAnswer = ref('')
 const interviewFeedback = ref<InterviewFeedback>()
 const interviewQuestionsLoading = ref(false)
 const interviewFeedbackLoading = ref(false)
+const aiStatus = ref<AiModuleStatus>()
+const aiStatusLoading = ref(false)
+const interviewRecords = ref<InterviewRecord[]>([])
+const interviewRecordsLoading = ref(false)
+
+const capabilityLabels: Record<string, string> = {
+  'resume-analysis': '简历诊断',
+  'job-analysis': '岗位分析',
+  'match-analysis': '人岗匹配',
+  'interview-question-generation': '面试出题',
+  'interview-feedback': '回答反馈'
+}
 
 const hasInterviewContext = computed(() => Boolean(match.value || deliveries.value.length))
 const interviewJobId = computed(() => match.value?.jobId || deliveries.value[0]?.jobId || jobs.value[0]?.jobId || 'J001')
 const interviewJob = computed(() => jobs.value.find((job) => job.jobId === interviewJobId.value))
 const interviewRole = computed(() => interviewJob.value?.title || profile.value?.targetPosition || 'Java 后端实习生')
 const selectedQuestion = computed(() => interviewQuestions.value.find((question) => question.questionId === selectedQuestionId.value))
+const aiStatusTagType = computed<'success' | 'warning'>(() => (aiStatus.value?.configured ? 'success' : 'warning'))
+const aiStatusText = computed(() => (aiStatus.value?.configured ? '真实 AI' : '离线演示'))
+const aiProviderText = computed(() => {
+  if (!aiStatus.value) {
+    return '状态检测中'
+  }
+  return `${aiStatus.value.provider} · ${aiStatus.value.model}`
+})
 
 onMounted(async () => {
   profile.value = await getProfile()
   jobs.value = await listJobs()
   deliveries.value = await listDeliveries()
+  await Promise.all([refreshAiStatus(), refreshInterviewRecords()])
 })
 
 function onFileChange(event: Event) {
@@ -132,9 +157,28 @@ async function submitInterviewAnswer() {
       answer: interviewAnswer.value.trim(),
       targetRole: interviewRole.value
     })
+    await refreshInterviewRecords()
     ElMessage.success('回答反馈已生成')
   } finally {
     interviewFeedbackLoading.value = false
+  }
+}
+
+async function refreshAiStatus() {
+  aiStatusLoading.value = true
+  try {
+    aiStatus.value = await getAiStatus()
+  } finally {
+    aiStatusLoading.value = false
+  }
+}
+
+async function refreshInterviewRecords() {
+  interviewRecordsLoading.value = true
+  try {
+    interviewRecords.value = await listInterviewRecords(profile.value?.userId || 'S001')
+  } finally {
+    interviewRecordsLoading.value = false
   }
 }
 
@@ -158,6 +202,23 @@ function statusTagType(status: DeliveryStatus) {
     REJECTED: 'danger'
   }
   return types[status]
+}
+
+function capabilityText(capability: string) {
+  return capabilityLabels[capability] || capability
+}
+
+function formatTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
 }
 </script>
 
@@ -244,6 +305,34 @@ function statusTagType(status: DeliveryStatus) {
         AI 模拟面试
         <Brain :size="19" />
       </h2>
+      <div class="ai-status-strip">
+        <div class="ai-status-main">
+          <span class="status-dot" :class="{ active: aiStatus?.configured }" />
+          <div>
+            <strong>{{ aiStatusText }}</strong>
+            <span>{{ aiProviderText }}</span>
+          </div>
+        </div>
+        <div class="ai-status-meta">
+          <el-tag :type="aiStatusTagType">{{ aiStatus?.configured ? '模型在线' : '降级可用' }}</el-tag>
+          <el-button size="small" :loading="aiStatusLoading" @click="refreshAiStatus">
+            <RefreshCw :size="15" />
+            刷新
+          </el-button>
+        </div>
+        <div class="capability-row">
+          <el-tag
+            v-for="capability in aiStatus?.capabilities || []"
+            :key="capability"
+            size="small"
+            effect="plain"
+          >
+            {{ capabilityText(capability) }}
+          </el-tag>
+        </div>
+        <p v-if="aiStatus?.fallbackReason" class="fallback-reason">{{ aiStatus.fallbackReason }}</p>
+      </div>
+
       <div class="interview-toolbar">
         <span class="interview-target">目标岗位：{{ interviewRole }}</span>
         <el-button
@@ -258,7 +347,7 @@ function statusTagType(status: DeliveryStatus) {
       </div>
 
       <el-empty v-if="!hasInterviewContext" description="完成岗位匹配或投递后可开始模拟面试" />
-      <el-empty v-else-if="interviewQuestions.length === 0" description="暂无模拟面试题" />
+      <el-empty v-else-if="interviewQuestions.length === 0" class="compact-empty" description="暂无模拟面试题" />
       <div v-else class="interview-grid">
         <el-radio-group v-model="selectedQuestionId" class="question-options" @change="selectInterviewQuestion">
           <el-radio
@@ -334,6 +423,95 @@ function statusTagType(status: DeliveryStatus) {
       </div>
     </section>
 
+    <section class="panel interview-history-panel">
+      <div class="panel-title history-title">
+        <span>
+          面试记录
+          <Clock3 :size="19" />
+        </span>
+        <el-button size="small" :loading="interviewRecordsLoading" @click="refreshInterviewRecords">
+          <RefreshCw :size="15" />
+          刷新
+        </el-button>
+      </div>
+      <el-table
+        v-loading="interviewRecordsLoading"
+        class="history-table"
+        :data="interviewRecords"
+        style="width: 100%"
+        empty-text="暂无面试记录"
+      >
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <div class="record-detail">
+              <div>
+                <strong>题目</strong>
+                <p>{{ row.question }}</p>
+              </div>
+              <div>
+                <strong>回答</strong>
+                <p>{{ row.answer }}</p>
+              </div>
+              <div>
+                <strong>建议</strong>
+                <ul class="plain-list">
+                  <li v-for="item in row.suggestions" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="时间" width="120">
+          <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column prop="targetRole" label="岗位" width="150" />
+        <el-table-column label="评分" width="88">
+          <template #default="{ row }">
+            <span class="history-score">{{ row.score }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="模式" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.mocked ? 'warning' : 'success'">{{ row.mocked ? '演示' : '真实' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="summary" label="总结" min-width="260" />
+      </el-table>
+      <div v-loading="interviewRecordsLoading" class="history-cards">
+        <el-empty v-if="interviewRecords.length === 0" class="compact-empty" description="暂无面试记录" />
+        <article v-for="record in interviewRecords" v-else :key="record.recordId" class="history-card">
+          <div class="history-card-head">
+            <span class="history-score">{{ record.score }}</span>
+            <div>
+              <strong>{{ record.targetRole }}</strong>
+              <span>{{ formatTime(record.createdAt) }}</span>
+            </div>
+            <el-tag :type="record.mocked ? 'warning' : 'success'">{{ record.mocked ? '演示' : '真实' }}</el-tag>
+          </div>
+          <p>{{ record.summary }}</p>
+          <details>
+            <summary>查看题目与建议</summary>
+            <div class="record-detail compact">
+              <div>
+                <strong>题目</strong>
+                <p>{{ record.question }}</p>
+              </div>
+              <div>
+                <strong>回答</strong>
+                <p>{{ record.answer }}</p>
+              </div>
+              <div>
+                <strong>建议</strong>
+                <ul class="plain-list">
+                  <li v-for="item in record.suggestions" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+            </div>
+          </details>
+        </article>
+      </div>
+    </section>
+
     <section class="panel">
       <h2 class="panel-title">投递记录</h2>
       <el-table :data="deliveries" style="width: 100%">
@@ -351,6 +529,70 @@ function statusTagType(status: DeliveryStatus) {
 </template>
 
 <style scoped>
+.ai-status-strip {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 12px 16px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid #dde5ed;
+  border-radius: 8px;
+  background: #f8fafb;
+}
+
+.ai-status-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ai-status-main strong,
+.ai-status-main span {
+  display: block;
+}
+
+.ai-status-main span {
+  margin-top: 2px;
+  color: #667085;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.status-dot {
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d97706;
+}
+
+.status-dot.active {
+  background: #0f766e;
+}
+
+.ai-status-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.capability-row {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fallback-reason {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #b45309;
+  font-size: 13px;
+}
+
 .interview-toolbar {
   display: flex;
   align-items: center;
@@ -474,7 +716,109 @@ function statusTagType(status: DeliveryStatus) {
   margin-bottom: 8px;
 }
 
+.compact-empty {
+  --el-empty-padding: 18px 0 22px;
+}
+
+.compact-empty :deep(.el-empty__image) {
+  width: 112px;
+}
+
+.history-title span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-score {
+  display: inline-grid;
+  width: 38px;
+  height: 30px;
+  place-items: center;
+  border-radius: 8px;
+  background: #e6f2ef;
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.record-detail {
+  display: grid;
+  gap: 12px;
+  padding: 8px 18px 12px 48px;
+}
+
+.record-detail strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.record-detail p {
+  margin: 0;
+  color: #475467;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.history-cards {
+  display: none;
+}
+
+.history-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dde5ed;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.history-card + .history-card {
+  margin-top: 10px;
+}
+
+.history-card-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.history-card-head strong,
+.history-card-head span {
+  display: block;
+}
+
+.history-card-head span {
+  margin-top: 2px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.history-card p {
+  margin: 0;
+  color: #475467;
+  line-height: 1.55;
+}
+
+.history-card summary {
+  color: #0f766e;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.record-detail.compact {
+  padding: 10px 0 0;
+}
+
 @media (max-width: 920px) {
+  .ai-status-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-status-meta {
+    justify-content: flex-start;
+  }
+
   .interview-toolbar {
     align-items: stretch;
     flex-direction: column;
@@ -483,6 +827,21 @@ function statusTagType(status: DeliveryStatus) {
   .interview-grid,
   .feedback-lists {
     grid-template-columns: 1fr;
+  }
+
+  .record-detail {
+    padding-left: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .history-table {
+    display: none;
+  }
+
+  .history-cards {
+    display: grid;
+    gap: 10px;
   }
 }
 </style>
