@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   generateInterviewQuestions,
   getAiStatus,
+  getProfile,
   getDeliveryStatistics,
   listInterviewRecords,
   listCompanyDeliveries,
@@ -14,7 +15,35 @@ describe('api fallback behavior', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.restoreAllMocks()
+    vi.unstubAllEnvs()
+    vi.stubEnv('VITE_API_BASE_URL', '')
+    vi.stubEnv('VITE_API_PROXY_TARGET', '')
+    vi.stubEnv('VITE_AI_PROXY_TARGET', '')
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))))
+  })
+
+  it('uses fallback data without calling an unconfigured development gateway', async () => {
+    const result = await getProfile()
+
+    expect(result.userId).toBe('S001')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('uses configured api base url when provided', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080/')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: { userId: 'S900', displayName: 'Test', role: 'STUDENT', school: 'A', major: 'B', skills: [], targetPosition: 'C' }
+      })
+    } as Response)
+
+    const result = await getProfile()
+
+    expect(result.userId).toBe('S900')
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/students/profile', expect.any(Object))
   })
 
   it('returns role-aware login fallback when gateway is offline', async () => {

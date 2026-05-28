@@ -461,21 +461,21 @@ function formatTime(value: string) {
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="时间" width="120">
+        <el-table-column label="时间" width="108">
           <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column prop="targetRole" label="岗位" width="150" />
-        <el-table-column label="评分" width="88">
+        <el-table-column prop="targetRole" label="岗位" min-width="120" />
+        <el-table-column label="评分" width="72">
           <template #default="{ row }">
             <span class="history-score">{{ row.score }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="模式" width="100">
+        <el-table-column label="模式" width="84">
           <template #default="{ row }">
             <el-tag :type="row.mocked ? 'warning' : 'success'">{{ row.mocked ? '演示' : '真实' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="summary" label="总结" min-width="260" />
+        <el-table-column prop="summary" label="总结" min-width="180" />
       </el-table>
       <div v-loading="interviewRecordsLoading" class="history-cards">
         <el-empty v-if="interviewRecords.length === 0" class="compact-empty" description="暂无面试记录" />
@@ -514,15 +514,15 @@ function formatTime(value: string) {
 
     <section class="panel">
       <h2 class="panel-title">投递记录</h2>
-      <el-table :data="deliveries" style="width: 100%">
-        <el-table-column prop="deliveryId" label="编号" width="120" />
-        <el-table-column prop="jobId" label="岗位" />
-        <el-table-column label="状态" width="140">
+      <el-table class="delivery-table" :data="deliveries" style="width: 100%">
+        <el-table-column prop="deliveryId" label="编号" width="96" />
+        <el-table-column prop="jobId" label="岗位" min-width="90" />
+        <el-table-column label="状态" width="104">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="createdAt" label="时间" />
+        <el-table-column prop="createdAt" label="时间" min-width="150" />
       </el-table>
     </section>
   </section>
@@ -534,6 +534,7 @@ function formatTime(value: string) {
   grid-template-columns: minmax(220px, 1fr) auto;
   gap: 12px 16px;
   align-items: center;
+  min-width: 0;
   margin-bottom: 16px;
   padding: 12px;
   border: 1px solid #dde5ed;
@@ -577,6 +578,7 @@ function formatTime(value: string) {
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
+  min-width: 0;
 }
 
 .capability-row {
@@ -598,6 +600,7 @@ function formatTime(value: string) {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+  min-width: 0;
   margin-bottom: 16px;
 }
 
@@ -609,14 +612,16 @@ function formatTime(value: string) {
 
 .interview-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.1fr);
+  grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.1fr);
   gap: 18px;
+  min-width: 0;
 }
 
 .question-options {
   display: grid;
   gap: 10px;
   width: 100%;
+  min-width: 0;
   align-content: start;
 }
 
@@ -624,6 +629,7 @@ function formatTime(value: string) {
   width: 100%;
   height: auto;
   min-height: 84px;
+  min-width: 0;
   margin: 0;
   padding: 12px;
   border: 1px solid #dde5ed;
@@ -644,6 +650,7 @@ function formatTime(value: string) {
 :deep(.question-option .el-radio__label) {
   display: block;
   width: calc(100% - 24px);
+  min-width: 0;
   padding-left: 10px;
   color: #18212f;
   white-space: normal;
@@ -652,7 +659,9 @@ function formatTime(value: string) {
 .question-copy {
   display: grid;
   gap: 8px;
+  min-width: 0;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .question-labels {
@@ -676,6 +685,8 @@ function formatTime(value: string) {
 .feedback {
   display: grid;
   gap: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
   padding-top: 16px;
   border-top: 1px solid #dde5ed;
 }
@@ -684,12 +695,15 @@ function formatTime(value: string) {
   display: flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
 }
 
 .feedback-head p {
+  min-width: 0;
   margin: 0;
   color: #475467;
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .feedback-score {
@@ -709,11 +723,24 @@ function formatTime(value: string) {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+  min-width: 0;
+}
+
+.feedback-lists > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .feedback-lists strong {
   display: block;
   margin-bottom: 8px;
+}
+
+.feedback-lists .plain-list {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .compact-empty {
@@ -763,6 +790,17 @@ function formatTime(value: string) {
   display: none;
 }
 
+.history-table,
+.delivery-table {
+  min-width: 0;
+}
+
+:deep(.history-table .cell),
+:deep(.delivery-table .cell) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .history-card {
   display: grid;
   gap: 10px;
@@ -781,6 +819,7 @@ function formatTime(value: string) {
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
+  min-width: 0;
 }
 
 .history-card-head strong,
@@ -829,12 +868,6 @@ function formatTime(value: string) {
     grid-template-columns: 1fr;
   }
 
-  .record-detail {
-    padding-left: 12px;
-  }
-}
-
-@media (max-width: 640px) {
   .history-table {
     display: none;
   }
@@ -842,6 +875,18 @@ function formatTime(value: string) {
   .history-cards {
     display: grid;
     gap: 10px;
+  }
+
+  .record-detail {
+    padding-left: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .ai-status-meta,
+  .feedback-head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

@@ -141,6 +141,29 @@ interface ApiResponse<T> {
   data: T
 }
 
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, '')
+}
+
+function getEnvValue(key: string) {
+  return (import.meta.env[key] || '').trim()
+}
+
+function resolveRequestPath(path: string) {
+  const apiBaseUrl = getEnvValue('VITE_API_BASE_URL')
+  return apiBaseUrl ? `${trimTrailingSlash(apiBaseUrl)}${path}` : path
+}
+
+function shouldUseApi(path: string) {
+  if (!import.meta.env.DEV) {
+    return true
+  }
+  if (getEnvValue('VITE_API_BASE_URL') || getEnvValue('VITE_API_PROXY_TARGET')) {
+    return true
+  }
+  return path.startsWith('/api/ai') && Boolean(getEnvValue('VITE_AI_PROXY_TARGET'))
+}
+
 const fallbackProfile: UserProfile = {
   userId: 'S001',
   displayName: '张同学',
@@ -308,8 +331,12 @@ const fallbackDeliveryStatistics: DeliveryStatistics = {
 }
 
 async function request<T>(path: string, init: RequestInit, fallback: T): Promise<T> {
+  if (!shouldUseApi(path)) {
+    return fallback
+  }
+
   try {
-    const response = await fetch(path, {
+    const response = await fetch(resolveRequestPath(path), {
       ...init,
       headers: {
         ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),

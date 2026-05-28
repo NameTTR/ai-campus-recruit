@@ -15,6 +15,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 button,
@@ -120,8 +121,10 @@ textarea {
 .page {
   display: grid;
   gap: 20px;
+  width: 100%;
   max-width: 1240px;
   margin: 0 auto;
+  min-width: 0;
 }
 
 .page-header {
@@ -145,6 +148,7 @@ textarea {
 .grid {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .grid.two {
@@ -157,6 +161,7 @@ textarea {
 
 .panel,
 .item-card {
+  min-width: 0;
   border: 1px solid #dde5ed;
   border-radius: 8px;
   background: #ffffff;
@@ -205,12 +210,22 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
 }
 
 .plain-list {
   margin: 0;
   padding-left: 18px;
   color: #475467;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.plain-list li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .plain-list li + li {
@@ -221,6 +236,15 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  min-width: 0;
+}
+
+.actions > * {
+  min-width: 0;
+}
+
+input[type="file"] {
+  max-width: 100%;
 }
 
 .score {
