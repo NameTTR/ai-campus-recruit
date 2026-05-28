@@ -84,6 +84,15 @@ export interface InterviewFeedback {
   mocked: boolean
 }
 
+export interface AiModuleStatus {
+  provider: string
+  model: string
+  configured: boolean
+  baseUrl: string
+  capabilities: string[]
+  fallbackReason: string | null
+}
+
 export type DeliveryStatus = 'SUBMITTED' | 'VIEWED' | 'INTERVIEW' | 'OFFER' | 'REJECTED'
 
 export interface DeliveryRecord {
@@ -195,6 +204,15 @@ const fallbackInterviewFeedback: InterviewFeedback = {
   suggestions: ['按 STAR 结构重组回答', '补充接口耗时、数据量或并发量等指标', '说明遇到的困难与最终复盘'],
   summary: '当前回答基础完整，补充细节与量化结果后更适合正式面试。',
   mocked: true
+}
+
+const fallbackAiModuleStatus: AiModuleStatus = {
+  provider: 'dashscope',
+  model: 'qwen-plus',
+  configured: false,
+  baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  capabilities: ['resume-analysis', 'job-analysis', 'match-analysis', 'interview-question-generation', 'interview-feedback'],
+  fallbackReason: 'AI service is offline or DASHSCOPE_API_KEY is not configured'
 }
 
 const fallbackDeliveries: DeliveryRecord[] = [
@@ -338,6 +356,10 @@ export function submitInterviewFeedback(payload: InterviewFeedbackRequest) {
     method: 'POST',
     body: JSON.stringify(payload)
   }, fallbackInterviewFeedback)
+}
+
+export function getAiStatus() {
+  return request<AiModuleStatus>('/api/ai/status', { method: 'GET' }, fallbackAiModuleStatus)
 }
 
 export function createDelivery(resumeId = 'R001', jobId = 'J001') {

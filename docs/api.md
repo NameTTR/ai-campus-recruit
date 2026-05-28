@@ -37,6 +37,12 @@
 
 ## AI Interview
 
+- `GET /api/ai/status`：查看 AI 模块配置与能力状态。
+  - 返回：`AiModuleStatus`，包含 `provider`、`model`、`configured`、`baseUrl`、`capabilities`、`fallbackReason`。
+  - 不返回任何 API Key；`configured=false` 时表示会进入离线演示降级。
+- `POST /api/ai/analyze`：通用 AI 分析接口，供简历诊断、岗位分析和匹配分析复用。
+  - 请求体：`taskType`、`content`、`context`。
+  - 返回：`AiAnalyzeResponse`，包含 `taskType`、`provider`、`content`、`mocked`。
 - `POST /api/ai/interview/questions`：基于学生、简历和目标岗位生成模拟面试题。
   - 请求体：`studentId`、`resumeId`、`jobId`、`targetRole`、`skills`。
   - 返回：`InterviewQuestion[]`，每项包含 `questionId`、`category`、`difficulty`、`question`、`referencePoints`。

@@ -1,5 +1,7 @@
 package com.aicampus.ai.controller;
 
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -20,6 +22,17 @@ import org.springframework.test.web.servlet.MockMvc;
 class AiControllerTest {
     @Autowired
     private MockMvc mockMvc;
+
+    @Test
+    void statusShowsDashScopeFallbackWhenKeyIsMissing() throws Exception {
+        mockMvc.perform(get("/api/ai/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.configured").value(false))
+                .andExpect(jsonPath("$.data.provider").value("dashscope"))
+                .andExpect(jsonPath("$.data.capabilities[0]").isNotEmpty())
+                .andExpect(jsonPath("$.data.fallbackReason").value("DASHSCOPE_API_KEY is not configured"));
+    }
 
     @Test
     void analyzeUsesMockWhenDashScopeKeyIsMissing() throws Exception {
@@ -46,8 +59,10 @@ class AiControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(3)))
                 .andExpect(jsonPath("$.data[0].question").isNotEmpty())
                 .andExpect(jsonPath("$.data[1].question").isNotEmpty())
+                .andExpect(jsonPath("$.data[2].question").isNotEmpty())
                 .andExpect(jsonPath("$.data[0].referencePoints[0]").isNotEmpty());
     }
 

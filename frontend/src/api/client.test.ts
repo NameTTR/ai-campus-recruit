@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   generateInterviewQuestions,
+  getAiStatus,
   getDeliveryStatistics,
   listCompanyDeliveries,
   login,
@@ -55,6 +56,15 @@ describe('api fallback behavior', () => {
     expect(result.mocked).toBe(true)
     expect(result.score).toBeGreaterThan(0)
     expect(result.suggestions.length).toBeGreaterThan(0)
+  })
+
+  it('returns ai module status fallback when gateway is offline', async () => {
+    const result = await getAiStatus()
+
+    expect(result.provider).toBe('dashscope')
+    expect(result.configured).toBe(false)
+    expect(result.capabilities.length).toBeGreaterThan(0)
+    expect(result.fallbackReason).toContain('DASHSCOPE_API_KEY')
   })
 
   it('returns company delivery fallback when gateway is offline', async () => {
