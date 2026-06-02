@@ -3,6 +3,7 @@ package com.aicampus.ai.service;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.AiModuleStatus;
+import com.aicampus.common.dto.CandidateScreenRecord;
 import com.aicampus.common.dto.CandidateScreenRequest;
 import com.aicampus.common.dto.CandidateScreenResult;
 import com.aicampus.common.dto.InterviewFeedback;
@@ -56,6 +57,7 @@ public class AiCoachService {
     private final DashScopeClient dashScopeClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, List<InterviewRecord>> interviewRecords = new ConcurrentHashMap<>();
+    private final List<CandidateScreenRecord> candidateScreenRecords = new CopyOnWriteArrayList<>();
 
     public AiCoachService(DashScopeClient dashScopeClient) {
         this.dashScopeClient = dashScopeClient;
@@ -103,15 +105,19 @@ public class AiCoachService {
     }
 
     public CandidateScreenResult screenCandidate(CandidateScreenRequest request) {
+        CandidateScreenResult result;
         if (!dashScopeClient.isConfigured()) {
-            return mockCandidateScreen(request);
+            result = mockCandidateScreen(request);
+        } else {
+            try {
+                String content = dashScopeClient.complete(SYSTEM_PROMPT, buildCandidateScreenPrompt(request), true);
+                result = parseCandidateScreenResult(content, request);
+            } catch (RuntimeException ex) {
+                result = mockCandidateScreen(request);
+            }
         }
-        try {
-            String content = dashScopeClient.complete(SYSTEM_PROMPT, buildCandidateScreenPrompt(request), true);
-            return parseCandidateScreenResult(content, request);
-        } catch (RuntimeException ex) {
-            return mockCandidateScreen(request);
-        }
+        saveCandidateScreenRecord(request, result);
+        return result;
     }
 
     public AiModuleStatus status() {
@@ -123,6 +129,34 @@ public class AiCoachService {
         return interviewRecords.getOrDefault(key, List.of()).stream()
                 .sorted(Comparator.comparing(InterviewRecord::createdAt).reversed())
                 .toList();
+    }
+
+    public List<CandidateScreenRecord> listCandidateScreenRecords(String companyId, String deliveryId) {
+        String companyFilter = blankToNull(companyId);
+        String deliveryFilter = blankToNull(deliveryId);
+        return candidateScreenRecords.stream()
+                .filter(record -> companyFilter == null || companyFilter.equals(record.companyId()))
+                .filter(record -> deliveryFilter == null || deliveryFilter.equals(record.deliveryId()))
+                .sorted(Comparator.comparing(CandidateScreenRecord::createdAt).reversed())
+                .toList();
+    }
+
+    private void saveCandidateScreenRecord(CandidateScreenRequest request, CandidateScreenResult result) {
+        CandidateScreenRecord record = new CandidateScreenRecord(
+                "CS-" + UUID.randomUUID(),
+                companyId(request),
+                valueOr(result.deliveryId(), deliveryId(request)),
+                valueOr(result.studentId(), studentId(request)),
+                valueOr(result.jobId(), jobId(request)),
+                result.score(),
+                valueOr(result.recommendation(), ""),
+                safeList(result.strengths(), DEFAULT_SCREEN_STRENGTHS),
+                safeList(result.risks(), DEFAULT_SCREEN_RISKS),
+                safeList(result.interviewQuestions(), List.of()),
+                safeList(result.nextActions(), DEFAULT_SCREEN_ACTIONS),
+                result.mocked(),
+                Instant.now());
+        candidateScreenRecords.add(record);
     }
 
     private void saveInterviewRecord(InterviewFeedbackRequest request, InterviewFeedback feedback) {
@@ -471,6 +505,10 @@ public class AiCoachService {
         return valueOr(request == null ? null : request.deliveryId(), "D001");
     }
 
+    private static String companyId(CandidateScreenRequest request) {
+        return valueOr(request == null ? null : request.companyId(), "C001");
+    }
+
     private static String studentId(CandidateScreenRequest request) {
         return valueOr(request == null ? null : request.studentId(), "S001");
     }
@@ -491,6 +529,10 @@ public class AiCoachService {
 
     private static String valueOr(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static int clamp(int score) {

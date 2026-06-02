@@ -4,6 +4,7 @@ import {
   getAiStatus,
   getProfile,
   getDeliveryStatistics,
+  listCandidateScreenRecords,
   listInterviewRecords,
   listCompanyDeliveries,
   login,
@@ -95,6 +96,7 @@ describe('api fallback behavior', () => {
       studentId: 'S100',
       resumeId: 'R100',
       jobId: 'J100',
+      companyId: 'C001',
       targetRole: 'Java 后端实习生',
       skills: ['Java', 'Spring Boot'],
       projects: ['招聘平台'],
@@ -136,6 +138,7 @@ describe('api fallback behavior', () => {
       studentId: 'S200',
       resumeId: 'R200',
       jobId: 'J200',
+      companyId: 'C001',
       targetRole: 'Java 后端实习生',
       skills: ['Java'],
       projects: ['招聘平台'],
@@ -147,6 +150,46 @@ describe('api fallback behavior', () => {
     expect(result.mocked).toBe(false)
     expect(result.score).toBe(91)
     expect(fetch).toHaveBeenCalledWith('/api/ai/candidates/screen', expect.any(Object))
+  })
+
+  it('returns candidate screen history fallback when ai proxy is not configured', async () => {
+    const result = await listCandidateScreenRecords('C001')
+
+    expect(result.length).toBeGreaterThan(0)
+    expect(result[0].screeningId).toBe('CS-DEMO-001')
+    expect(result[0].companyId).toBe('C001')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls ai candidate screen history endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: [{
+          screeningId: 'CS200',
+          companyId: 'C001',
+          deliveryId: 'D200',
+          studentId: 'S200',
+          jobId: 'J200',
+          score: 91,
+          recommendation: '优先进入技术一面',
+          strengths: ['技能匹配'],
+          risks: ['需要确认项目深度'],
+          interviewQuestions: ['请说明缓存设计。'],
+          nextActions: ['安排一面'],
+          mocked: false,
+          createdAt: '2026-06-02T01:00:00Z'
+        }]
+      })
+    } as Response)
+
+    const result = await listCandidateScreenRecords('C001', 'D200')
+
+    expect(result[0].screeningId).toBe('CS200')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/candidates/screenings?companyId=C001&deliveryId=D200', expect.any(Object))
   })
 
   it('returns ai module status fallback when gateway is offline', async () => {

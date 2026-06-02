@@ -5,6 +5,7 @@ import com.aicampus.common.api.ApiResponse;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.AiModuleStatus;
+import com.aicampus.common.dto.CandidateScreenRecord;
 import com.aicampus.common.dto.CandidateScreenRequest;
 import com.aicampus.common.dto.CandidateScreenResult;
 import com.aicampus.common.dto.InterviewFeedback;
@@ -60,6 +61,14 @@ public class AiController {
     @PostMapping("/candidates/screen")
     public ApiResponse<CandidateScreenResult> screenCandidate(@RequestBody CandidateScreenRequest request) {
         return ApiResponse.ok(aiCoachService.screenCandidate(request));
+    }
+
+    @Operation(summary = "List candidate screening records")
+    @GetMapping("/candidates/screenings")
+    public ApiResponse<List<CandidateScreenRecord>> candidateScreeningRecords(
+            @RequestParam(required = false) String companyId,
+            @RequestParam(required = false) String deliveryId) {
+        return ApiResponse.ok(aiCoachService.listCandidateScreenRecords(companyId, deliveryId));
     }
 
     @Operation(summary = "List interview feedback records")

@@ -5,11 +5,13 @@ import { Bot, ClipboardList, Plus } from 'lucide-vue-next'
 import {
   analyzeJob,
   createJob,
+  listCandidateScreenRecords,
   listCompanyDeliveries,
   listJobs,
   matchResumeJob,
   screenCandidate,
   updateDeliveryStatus,
+  type CandidateScreenRecord,
   type CandidateScreenResult,
   type DeliveryRecord,
   type DeliveryStatus,
@@ -20,7 +22,7 @@ import {
 const jobs = ref<JobSummary[]>([])
 const candidate = ref<MatchResult>()
 const deliveries = ref<DeliveryRecord[]>([])
-const screeningResults = ref<Record<string, CandidateScreenResult>>({})
+const screeningRecords = ref<CandidateScreenRecord[]>([])
 const screeningLoading = ref<Record<string, boolean>>({})
 const form = reactive({
   title: 'Java 后端实习生',
@@ -35,13 +37,18 @@ const reviewStatuses: Array<{ status: Exclude<DeliveryStatus, 'SUBMITTED'>, labe
   { status: 'OFFER', label: '已录用' },
   { status: 'REJECTED', label: '未通过' }
 ]
-const screeningCards = computed(() => deliveries.value
-  .map((delivery) => screeningResults.value[delivery.deliveryId])
-  .filter((result): result is CandidateScreenResult => Boolean(result)))
+const screeningCards = computed(() => [...screeningRecords.value]
+  .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()))
 
 onMounted(async () => {
-  jobs.value = await listJobs()
-  deliveries.value = await listCompanyDeliveries('C001')
+  const [jobList, deliveryList, screeningList] = await Promise.all([
+    listJobs(),
+    listCompanyDeliveries('C001'),
+    listCandidateScreenRecords('C001')
+  ])
+  jobs.value = jobList
+  deliveries.value = deliveryList
+  screeningRecords.value = screeningList
 })
 
 async function publish() {
@@ -75,6 +82,7 @@ async function changeDeliveryStatus(delivery: DeliveryRecord, status: DeliverySt
 
 async function runCandidateScreen(delivery: DeliveryRecord) {
   const job = jobs.value.find((item) => item.jobId === delivery.jobId)
+  const requestedAt = Date.now()
   screeningLoading.value = { ...screeningLoading.value, [delivery.deliveryId]: true }
   try {
     const result = await screenCandidate({
@@ -82,6 +90,7 @@ async function runCandidateScreen(delivery: DeliveryRecord) {
       studentId: delivery.studentId,
       resumeId: delivery.resumeId,
       jobId: delivery.jobId,
+      companyId: delivery.companyId,
       targetRole: job?.title || 'Java 后端实习生',
       skills: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker'],
       projects: ['校园二手交易系统', '在线考试平台'],
@@ -89,11 +98,37 @@ async function runCandidateScreen(delivery: DeliveryRecord) {
       resumeSummary: '软件工程本科，具备 Java Web 项目、数据库设计和缓存实践经历。',
       jobDescription: job?.description || '参与招聘平台、数据看板和中台接口开发。'
     })
-    screeningResults.value = { ...screeningResults.value, [delivery.deliveryId]: result }
+    const localRecord = upsertLocalScreeningRecord(delivery, result)
+    await refreshCandidateScreenRecords(localRecord, requestedAt)
     ElMessage.success('AI 筛选建议已生成')
   } finally {
     screeningLoading.value = { ...screeningLoading.value, [delivery.deliveryId]: false }
   }
+}
+
+async function refreshCandidateScreenRecords(localRecord?: CandidateScreenRecord, requestedAt = 0) {
+  const records = await listCandidateScreenRecords('C001')
+  if (!localRecord) {
+    screeningRecords.value = records
+    return
+  }
+  const hasFreshServerRecord = records.some((record) =>
+    record.deliveryId === localRecord.deliveryId && new Date(record.createdAt).getTime() >= requestedAt - 10_000)
+  screeningRecords.value = hasFreshServerRecord ? records : [localRecord, ...records]
+}
+
+function upsertLocalScreeningRecord(delivery: DeliveryRecord, result: CandidateScreenResult) {
+  const record: CandidateScreenRecord = {
+    screeningId: `CS-LOCAL-${Date.now()}`,
+    companyId: delivery.companyId,
+    ...result,
+    createdAt: new Date().toISOString()
+  }
+  screeningRecords.value = [
+    record,
+    ...screeningRecords.value.filter((item) => item.screeningId !== record.screeningId)
+  ]
+  return record
 }
 
 function statusText(status: DeliveryStatus) {
@@ -116,6 +151,19 @@ function statusTagType(status: DeliveryStatus) {
     REJECTED: 'danger'
   }
   return types[status]
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
 }
 </script>
 
@@ -271,17 +319,20 @@ function statusTagType(status: DeliveryStatus) {
 
     <section class="panel">
       <h2 class="panel-title">
-        AI 候选人筛选
+        AI 候选人筛选历史
         <Bot :size="19" />
       </h2>
-      <el-empty v-if="screeningCards.length === 0" description="点击投递记录中的 AI 筛选生成建议" />
+      <el-empty v-if="screeningCards.length === 0" description="点击投递记录中的 AI 筛选生成历史记录" />
       <div v-else class="screening-grid">
-        <article v-for="result in screeningCards" :key="result.deliveryId" class="item-card screening-card">
+        <article v-for="result in screeningCards" :key="result.screeningId" class="item-card screening-card">
           <div class="screening-head">
             <span class="screening-score">{{ result.score }}</span>
             <div>
               <strong>{{ result.recommendation }}</strong>
-              <span>{{ result.studentId }} · {{ result.jobId }} · {{ result.mocked ? '演示' : '真实 AI' }}</span>
+              <span>
+                {{ result.deliveryId }} · {{ result.studentId }} · {{ result.jobId }} ·
+                {{ result.mocked ? '演示' : '真实 AI' }} · {{ formatDateTime(result.createdAt) }}
+              </span>
             </div>
           </div>
           <div class="screening-columns">

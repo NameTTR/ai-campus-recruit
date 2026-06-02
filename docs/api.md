@@ -44,9 +44,14 @@
   - 请求体：`taskType`、`content`、`context`。
   - 返回：`AiAnalyzeResponse`，包含 `taskType`、`provider`、`content`、`mocked`。
 - `POST /api/ai/candidates/screen`：基于投递、简历摘要、项目经历和岗位要求生成候选人初筛结果。
-  - 请求体：`deliveryId`、`studentId`、`resumeId`、`jobId`、`targetRole`、`skills`、`projects`、`jobRequirements`、`resumeSummary`、`jobDescription`。
+  - 请求体：`deliveryId`、`companyId`、`studentId`、`resumeId`、`jobId`、`targetRole`、`skills`、`projects`、`jobRequirements`、`resumeSummary`、`jobDescription`。
   - 返回：`CandidateScreenResult`，包含 `deliveryId`、`studentId`、`jobId`、`score`、`recommendation`、`strengths`、`risks`、`interviewQuestions`、`nextActions`、`mocked`。
   - 未配置 `DASHSCOPE_API_KEY` 或模型调用失败时，返回确定性的演示初筛结果，且 `mocked=true`。
+  - 生成结果会写入当前 AI 服务进程内的筛选历史记录。
+- `GET /api/ai/candidates/screenings?companyId=C001&deliveryId=D001`：查询 AI 候选人初筛历史。
+  - 查询参数：`companyId`、`deliveryId` 均可选；为空时不过滤。
+  - 返回：`CandidateScreenRecord[]`，每项包含 `screeningId`、`companyId`、`deliveryId`、`studentId`、`jobId`、`score`、`recommendation`、`strengths`、`risks`、`interviewQuestions`、`nextActions`、`mocked`、`createdAt`。
+  - 当前 MVP 使用内存存储，服务重启后记录会清空；后续版本迁移到 MySQL/Redis。
 - `POST /api/ai/interview/questions`：基于学生、简历和目标岗位生成模拟面试题。
   - 请求体：`studentId`、`resumeId`、`jobId`、`targetRole`、`skills`。
   - 返回：`InterviewQuestion[]`，每项包含 `questionId`、`category`、`difficulty`、`question`、`referencePoints`。

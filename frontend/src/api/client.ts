@@ -56,6 +56,7 @@ export interface CandidateScreenRequest {
   studentId: string
   resumeId: string
   jobId: string
+  companyId?: string
   targetRole: string
   skills: string[]
   projects: string[]
@@ -75,6 +76,12 @@ export interface CandidateScreenResult {
   interviewQuestions: string[]
   nextActions: string[]
   mocked: boolean
+}
+
+export interface CandidateScreenRecord extends CandidateScreenResult {
+  screeningId: string
+  companyId: string
+  createdAt: string
 }
 
 export interface InterviewQuestionRequest {
@@ -248,6 +255,15 @@ const fallbackCandidateScreen: CandidateScreenResult = {
   nextActions: ['安排 30 分钟技术一面', '重点追问 Redis、MySQL 索引和接口设计', '要求候选人补充项目指标与部署方式'],
   mocked: true
 }
+
+const fallbackCandidateScreenRecords: CandidateScreenRecord[] = [
+  {
+    screeningId: 'CS-DEMO-001',
+    companyId: 'C001',
+    ...fallbackCandidateScreen,
+    createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  }
+]
 
 const fallbackInterviewQuestions: InterviewQuestion[] = [
   {
@@ -450,6 +466,21 @@ export function screenCandidate(payload: CandidateScreenRequest) {
     studentId: payload.studentId,
     jobId: payload.jobId
   })
+}
+
+export function listCandidateScreenRecords(companyId = 'C001', deliveryId?: string) {
+  const params = new URLSearchParams()
+  if (companyId) {
+    params.set('companyId', companyId)
+  }
+  if (deliveryId) {
+    params.set('deliveryId', deliveryId)
+  }
+  const query = params.toString()
+  const path = `/api/ai/candidates/screenings${query ? `?${query}` : ''}`
+  return request<CandidateScreenRecord[]>(path, { method: 'GET' },
+    fallbackCandidateScreenRecords.filter((record) =>
+      (!companyId || record.companyId === companyId) && (!deliveryId || record.deliveryId === deliveryId)))
 }
 
 export function generateInterviewQuestions(payload: InterviewQuestionRequest) {

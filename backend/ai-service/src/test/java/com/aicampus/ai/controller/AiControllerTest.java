@@ -125,6 +125,65 @@ class AiControllerTest {
     }
 
     @Test
+    void candidateScreeningRecordsInitiallyReturnsEmptyArrayForUnknownCompany() throws Exception {
+        mockMvc.perform(get("/api/ai/candidates/screenings")
+                        .param("companyId", "C-HISTORY-EMPTY"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void candidateScreeningSavesRecordThatCanBeQueried() throws Exception {
+        screenCandidate("C-HISTORY-001", "D-HISTORY-001", "S-HISTORY-001", "J-HISTORY-001");
+
+        mockMvc.perform(get("/api/ai/candidates/screenings")
+                        .param("companyId", "C-HISTORY-001")
+                        .param("deliveryId", "D-HISTORY-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].screeningId").isNotEmpty())
+                .andExpect(jsonPath("$.data[0].companyId").value("C-HISTORY-001"))
+                .andExpect(jsonPath("$.data[0].deliveryId").value("D-HISTORY-001"))
+                .andExpect(jsonPath("$.data[0].studentId").value("S-HISTORY-001"))
+                .andExpect(jsonPath("$.data[0].jobId").value("J-HISTORY-001"))
+                .andExpect(jsonPath("$.data[0].score").value(greaterThanOrEqualTo(80)))
+                .andExpect(jsonPath("$.data[0].recommendation").isNotEmpty())
+                .andExpect(jsonPath("$.data[0].strengths.length()").value(greaterThanOrEqualTo(2)))
+                .andExpect(jsonPath("$.data[0].risks.length()").value(greaterThanOrEqualTo(2)))
+                .andExpect(jsonPath("$.data[0].interviewQuestions.length()").value(greaterThanOrEqualTo(2)))
+                .andExpect(jsonPath("$.data[0].nextActions.length()").value(greaterThanOrEqualTo(2)))
+                .andExpect(jsonPath("$.data[0].mocked").value(true))
+                .andExpect(jsonPath("$.data[0].createdAt").isNotEmpty());
+    }
+
+    @Test
+    void candidateScreeningRecordsCanBeFilteredByCompanyIdAndDeliveryId() throws Exception {
+        screenCandidate("C-HISTORY-FILTER-A", "D-HISTORY-FILTER-A-1", "S-HISTORY-FILTER-A-1", "J-HISTORY-FILTER-A-1");
+        screenCandidate("C-HISTORY-FILTER-A", "D-HISTORY-FILTER-A-2", "S-HISTORY-FILTER-A-2", "J-HISTORY-FILTER-A-2");
+        screenCandidate("C-HISTORY-FILTER-B", "D-HISTORY-FILTER-B-1", "S-HISTORY-FILTER-B-1", "J-HISTORY-FILTER-B-1");
+
+        mockMvc.perform(get("/api/ai/candidates/screenings")
+                        .param("companyId", "C-HISTORY-FILTER-A"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].companyId").value("C-HISTORY-FILTER-A"))
+                .andExpect(jsonPath("$.data[1].companyId").value("C-HISTORY-FILTER-A"));
+
+        mockMvc.perform(get("/api/ai/candidates/screenings")
+                        .param("deliveryId", "D-HISTORY-FILTER-B-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].companyId").value("C-HISTORY-FILTER-B"))
+                .andExpect(jsonPath("$.data[0].deliveryId").value("D-HISTORY-FILTER-B-1"));
+    }
+
+    @Test
     void interviewQuestionGenerationReturnsMultipleQuestions() throws Exception {
         mockMvc.perform(post("/api/ai/interview/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -186,6 +245,31 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data[0].score").isNumber())
                 .andExpect(jsonPath("$.data[0].suggestions[0]").isNotEmpty())
                 .andExpect(jsonPath("$.data[0].mocked").value(true));
+    }
+
+    private void screenCandidate(String companyId, String deliveryId, String studentId, String jobId) throws Exception {
+        mockMvc.perform(post("/api/ai/candidates/screen")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "companyId": "%s",
+                                  "deliveryId": "%s",
+                                  "studentId": "%s",
+                                  "resumeId": "R-HISTORY-001",
+                                  "jobId": "%s",
+                                  "targetRole": "Java Backend Intern",
+                                  "skills": ["Java", "Spring Boot", "MySQL", "Redis"],
+                                  "projects": ["Campus recruitment platform"],
+                                  "jobRequirements": ["Java", "Spring Boot", "MySQL", "Redis"],
+                                  "resumeSummary": "Java backend project experience",
+                                  "jobDescription": "Build backend APIs and database features"
+                                }
+                                """.formatted(companyId, deliveryId, studentId, jobId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.deliveryId").value(deliveryId))
+                .andExpect(jsonPath("$.data.studentId").value(studentId))
+                .andExpect(jsonPath("$.data.jobId").value(jobId));
     }
 
     private static final class StubDashScopeClient extends DashScopeClient {
