@@ -51,6 +51,32 @@ export interface MatchResult {
   suggestions: string[]
 }
 
+export interface CandidateScreenRequest {
+  deliveryId: string
+  studentId: string
+  resumeId: string
+  jobId: string
+  targetRole: string
+  skills: string[]
+  projects: string[]
+  jobRequirements: string[]
+  resumeSummary: string
+  jobDescription: string
+}
+
+export interface CandidateScreenResult {
+  deliveryId: string
+  studentId: string
+  jobId: string
+  score: number
+  recommendation: string
+  strengths: string[]
+  risks: string[]
+  interviewQuestions: string[]
+  nextActions: string[]
+  mocked: boolean
+}
+
 export interface InterviewQuestionRequest {
   studentId: string
   resumeId: string
@@ -210,6 +236,19 @@ const fallbackMatch: MatchResult = {
   suggestions: ['补充微服务部署图', '把项目难点写成 STAR 结构', '准备 RocketMQ 与 Redis 场景题']
 }
 
+const fallbackCandidateScreen: CandidateScreenResult = {
+  deliveryId: 'D001',
+  studentId: 'S001',
+  jobId: 'J001',
+  score: 86,
+  recommendation: '建议进入一面',
+  strengths: ['Java Web 技术栈与岗位要求匹配', '项目经历覆盖接口开发、数据库和缓存场景', '求职方向与岗位职责一致'],
+  risks: ['简历缺少可量化的项目结果', '微服务、消息队列和线上排障经验需要继续确认'],
+  interviewQuestions: ['请说明你在项目中如何设计缓存 key，并避免缓存穿透。', '如果接口响应变慢，你会如何定位 SQL、缓存和应用层瓶颈？', '请举例说明一次你负责的后端模块，以及最终交付结果。'],
+  nextActions: ['安排 30 分钟技术一面', '重点追问 Redis、MySQL 索引和接口设计', '要求候选人补充项目指标与部署方式'],
+  mocked: true
+}
+
 const fallbackInterviewQuestions: InterviewQuestion[] = [
   {
     questionId: 'IQ-001',
@@ -248,7 +287,7 @@ const fallbackAiModuleStatus: AiModuleStatus = {
   model: 'qwen-plus',
   configured: false,
   baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  capabilities: ['resume-analysis', 'job-analysis', 'match-analysis', 'interview-question-generation', 'interview-feedback'],
+  capabilities: ['resume-analysis', 'job-analysis', 'match-analysis', 'candidate-screening', 'interview-question-generation', 'interview-feedback'],
   fallbackReason: 'AI service is offline or DASHSCOPE_API_KEY is not configured'
 }
 
@@ -399,6 +438,18 @@ export function matchResumeJob(resumeId = 'R001', jobId = 'J001') {
     method: 'POST',
     body: JSON.stringify({ resumeId, jobId, studentId: 'S001' })
   }, fallbackMatch)
+}
+
+export function screenCandidate(payload: CandidateScreenRequest) {
+  return request<CandidateScreenResult>('/api/ai/candidates/screen', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, {
+    ...fallbackCandidateScreen,
+    deliveryId: payload.deliveryId,
+    studentId: payload.studentId,
+    jobId: payload.jobId
+  })
 }
 
 export function generateInterviewQuestions(payload: InterviewQuestionRequest) {

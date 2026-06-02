@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Bot, ClipboardList, Plus } from 'lucide-vue-next'
 import {
@@ -8,7 +8,9 @@ import {
   listCompanyDeliveries,
   listJobs,
   matchResumeJob,
+  screenCandidate,
   updateDeliveryStatus,
+  type CandidateScreenResult,
   type DeliveryRecord,
   type DeliveryStatus,
   type JobSummary,
@@ -18,6 +20,8 @@ import {
 const jobs = ref<JobSummary[]>([])
 const candidate = ref<MatchResult>()
 const deliveries = ref<DeliveryRecord[]>([])
+const screeningResults = ref<Record<string, CandidateScreenResult>>({})
+const screeningLoading = ref<Record<string, boolean>>({})
 const form = reactive({
   title: 'Java 后端实习生',
   city: '杭州',
@@ -31,6 +35,9 @@ const reviewStatuses: Array<{ status: Exclude<DeliveryStatus, 'SUBMITTED'>, labe
   { status: 'OFFER', label: '已录用' },
   { status: 'REJECTED', label: '未通过' }
 ]
+const screeningCards = computed(() => deliveries.value
+  .map((delivery) => screeningResults.value[delivery.deliveryId])
+  .filter((result): result is CandidateScreenResult => Boolean(result)))
 
 onMounted(async () => {
   jobs.value = await listJobs()
@@ -64,6 +71,29 @@ async function changeDeliveryStatus(delivery: DeliveryRecord, status: DeliverySt
   const updated = await updateDeliveryStatus(delivery, status)
   deliveries.value = deliveries.value.map((item) => item.deliveryId === updated.deliveryId ? updated : item)
   ElMessage.success('投递状态已更新')
+}
+
+async function runCandidateScreen(delivery: DeliveryRecord) {
+  const job = jobs.value.find((item) => item.jobId === delivery.jobId)
+  screeningLoading.value = { ...screeningLoading.value, [delivery.deliveryId]: true }
+  try {
+    const result = await screenCandidate({
+      deliveryId: delivery.deliveryId,
+      studentId: delivery.studentId,
+      resumeId: delivery.resumeId,
+      jobId: delivery.jobId,
+      targetRole: job?.title || 'Java 后端实习生',
+      skills: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker'],
+      projects: ['校园二手交易系统', '在线考试平台'],
+      jobRequirements: job?.requiredSkills || ['Java', 'Spring Boot', 'MySQL', 'Redis'],
+      resumeSummary: '软件工程本科，具备 Java Web 项目、数据库设计和缓存实践经历。',
+      jobDescription: job?.description || '参与招聘平台、数据看板和中台接口开发。'
+    })
+    screeningResults.value = { ...screeningResults.value, [delivery.deliveryId]: result }
+    ElMessage.success('AI 筛选建议已生成')
+  } finally {
+    screeningLoading.value = { ...screeningLoading.value, [delivery.deliveryId]: false }
+  }
 }
 
 function statusText(status: DeliveryStatus) {
@@ -170,7 +200,7 @@ function statusTagType(status: DeliveryStatus) {
         投递审核
         <ClipboardList :size="19" />
       </h2>
-      <el-table :data="deliveries" style="width: 100%">
+      <el-table class="company-delivery-table" :data="deliveries" style="width: 100%">
         <el-table-column prop="deliveryId" label="编号" width="110" />
         <el-table-column prop="studentId" label="学生" width="110" />
         <el-table-column prop="jobId" label="岗位" width="110" />
@@ -179,9 +209,18 @@ function statusTagType(status: DeliveryStatus) {
             <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="推进状态" min-width="320">
+        <el-table-column label="操作" min-width="430">
           <template #default="{ row }">
             <div class="actions">
+              <el-button
+                size="small"
+                type="primary"
+                :loading="screeningLoading[row.deliveryId]"
+                @click="runCandidateScreen(row)"
+              >
+                <Bot :size="15" />
+                AI 筛选
+              </el-button>
               <el-button
                 v-for="item in reviewStatuses"
                 :key="item.status"
@@ -196,6 +235,202 @@ function statusTagType(status: DeliveryStatus) {
           </template>
         </el-table-column>
       </el-table>
+      <div class="delivery-review-cards">
+        <article v-for="delivery in deliveries" :key="delivery.deliveryId" class="delivery-review-card">
+          <div class="delivery-review-head">
+            <div>
+              <strong>{{ delivery.deliveryId }}</strong>
+              <span>{{ delivery.studentId }} · {{ delivery.jobId }}</span>
+            </div>
+            <el-tag :type="statusTagType(delivery.status)">{{ statusText(delivery.status) }}</el-tag>
+          </div>
+          <div class="actions">
+            <el-button
+              size="small"
+              type="primary"
+              :loading="screeningLoading[delivery.deliveryId]"
+              @click="runCandidateScreen(delivery)"
+            >
+              <Bot :size="15" />
+              AI 筛选
+            </el-button>
+            <el-button
+              v-for="item in reviewStatuses"
+              :key="item.status"
+              size="small"
+              :plain="delivery.status !== item.status"
+              :type="statusTagType(item.status)"
+              @click="changeDeliveryStatus(delivery, item.status)"
+            >
+              {{ item.label }}
+            </el-button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-title">
+        AI 候选人筛选
+        <Bot :size="19" />
+      </h2>
+      <el-empty v-if="screeningCards.length === 0" description="点击投递记录中的 AI 筛选生成建议" />
+      <div v-else class="screening-grid">
+        <article v-for="result in screeningCards" :key="result.deliveryId" class="item-card screening-card">
+          <div class="screening-head">
+            <span class="screening-score">{{ result.score }}</span>
+            <div>
+              <strong>{{ result.recommendation }}</strong>
+              <span>{{ result.studentId }} · {{ result.jobId }} · {{ result.mocked ? '演示' : '真实 AI' }}</span>
+            </div>
+          </div>
+          <div class="screening-columns">
+            <div>
+              <strong>优势</strong>
+              <ul class="plain-list">
+                <li v-for="item in result.strengths" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+            <div>
+              <strong>风险</strong>
+              <ul class="plain-list">
+                <li v-for="item in result.risks" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+            <div>
+              <strong>面试追问</strong>
+              <ul class="plain-list">
+                <li v-for="item in result.interviewQuestions" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+            <div>
+              <strong>下一步</strong>
+              <ul class="plain-list">
+                <li v-for="item in result.nextActions" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+      </div>
     </section>
   </section>
 </template>
+
+<style scoped>
+.company-delivery-table {
+  min-width: 0;
+}
+
+:deep(.company-delivery-table .cell) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.screening-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.delivery-review-cards {
+  display: none;
+}
+
+.delivery-review-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #dde5ed;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.delivery-review-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.delivery-review-head strong,
+.delivery-review-head span {
+  display: block;
+}
+
+.delivery-review-head span {
+  margin-top: 2px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.screening-card {
+  min-width: 0;
+}
+
+.screening-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.screening-head strong,
+.screening-head span {
+  display: block;
+}
+
+.screening-head span {
+  margin-top: 2px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.screening-score {
+  display: grid;
+  width: 48px;
+  height: 42px;
+  place-items: center;
+  border-radius: 8px;
+  background: #e6f2ef;
+  color: #0f766e;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.screening-columns {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.screening-columns > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.screening-columns strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 920px) {
+  .screening-columns {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .company-delivery-table {
+    display: none;
+  }
+
+  .delivery-review-cards {
+    display: grid;
+    gap: 10px;
+  }
+
+  .screening-columns {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

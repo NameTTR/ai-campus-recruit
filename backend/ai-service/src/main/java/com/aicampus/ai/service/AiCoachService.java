@@ -3,6 +3,8 @@ package com.aicampus.ai.service;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.AiModuleStatus;
+import com.aicampus.common.dto.CandidateScreenRequest;
+import com.aicampus.common.dto.CandidateScreenResult;
 import com.aicampus.common.dto.InterviewFeedback;
 import com.aicampus.common.dto.InterviewFeedbackRequest;
 import com.aicampus.common.dto.InterviewQuestion;
@@ -36,6 +38,20 @@ public class AiCoachService {
             "按 STAR 结构补充背景、任务、行动和结果",
             "加入接口耗时、数据量、并发量等量化指标",
             "说明遇到的困难以及最终复盘");
+    private static final List<String> DEFAULT_PROJECTS = List.of("校园招聘平台", "简历诊断与岗位匹配模块");
+    private static final List<String> DEFAULT_JOB_REQUIREMENTS = List.of("Java", "Spring Boot", "MySQL", "Redis");
+    private static final List<String> DEFAULT_SCREEN_STRENGTHS = List.of(
+            "Java 和 Spring Boot 基础与后端实习岗位匹配",
+            "具备 MySQL 表设计、接口开发和基础排障经验",
+            "了解 Redis 缓存思路，可继续追问缓存一致性和命中率");
+    private static final List<String> DEFAULT_SCREEN_RISKS = List.of(
+            "项目成果缺少接口耗时、数据量、并发量等量化指标",
+            "MySQL 索引优化和 Redis 高并发场景需要面试确认",
+            "个人贡献边界需要结合具体模块进一步核实");
+    private static final List<String> DEFAULT_SCREEN_ACTIONS = List.of(
+            "建议进入一面",
+            "面试重点追问 Java 基础、Spring Boot 分层设计、MySQL 索引和 Redis 缓存",
+            "要求候选人补充项目量化指标和个人负责模块");
 
     private final DashScopeClient dashScopeClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -84,6 +100,18 @@ public class AiCoachService {
         }
         saveInterviewRecord(request, feedback);
         return feedback;
+    }
+
+    public CandidateScreenResult screenCandidate(CandidateScreenRequest request) {
+        if (!dashScopeClient.isConfigured()) {
+            return mockCandidateScreen(request);
+        }
+        try {
+            String content = dashScopeClient.complete(SYSTEM_PROMPT, buildCandidateScreenPrompt(request), true);
+            return parseCandidateScreenResult(content, request);
+        } catch (RuntimeException ex) {
+            return mockCandidateScreen(request);
+        }
     }
 
     public AiModuleStatus status() {
@@ -182,6 +210,46 @@ public class AiCoachService {
                 valueOr(request == null ? null : request.answer(), "无"));
     }
 
+    private String buildCandidateScreenPrompt(CandidateScreenRequest request) {
+        return """
+                请基于简历摘要、项目经历和岗位要求完成校园招聘候选人初筛。
+                只返回 JSON 对象，不要返回 Markdown 或额外解释。
+
+                JSON 字段：
+                - deliveryId: 字符串
+                - studentId: 字符串
+                - jobId: 字符串
+                - score: 0 到 100 的整数
+                - recommendation: 一句话筛选建议
+                - strengths: 字符串数组，2 到 4 条
+                - risks: 字符串数组，2 到 4 条
+                - interviewQuestions: 字符串数组，2 到 4 条
+                - nextActions: 字符串数组，2 到 4 条
+                - mocked: false
+
+                投递编号：%s
+                学生编号：%s
+                简历编号：%s
+                岗位编号：%s
+                目标岗位：%s
+                技能：%s
+                项目经历：%s
+                岗位要求：%s
+                简历摘要：%s
+                岗位描述：%s
+                """.formatted(
+                deliveryId(request),
+                studentId(request),
+                valueOr(request == null ? null : request.resumeId(), "R001"),
+                jobId(request),
+                targetRole(request),
+                String.join("、", safeList(request == null ? null : request.skills(), DEFAULT_SKILLS)),
+                String.join("；", safeList(request == null ? null : request.projects(), DEFAULT_PROJECTS)),
+                String.join("、", safeList(request == null ? null : request.jobRequirements(), DEFAULT_JOB_REQUIREMENTS)),
+                valueOr(request == null ? null : request.resumeSummary(), "具备 Java 后端基础和校园项目经验"),
+                valueOr(request == null ? null : request.jobDescription(), "负责 Java 后端接口开发、数据库设计和缓存优化"));
+    }
+
     private List<InterviewQuestion> parseInterviewQuestions(String content) {
         JsonNode root = readJson(content);
         JsonNode questionNode = root.isArray() ? root : root.get("questions");
@@ -206,6 +274,26 @@ public class AiCoachService {
         List<String> suggestions = readStringList(root.get("suggestions"), DEFAULT_SUGGESTIONS);
         String summary = textOr(root.get("summary"), "回答可以作为初稿，补充细节和结果后会更完整。");
         return new InterviewFeedback(score, strengths, gaps, suggestions, summary, false);
+    }
+
+    private CandidateScreenResult parseCandidateScreenResult(String content, CandidateScreenRequest request) {
+        JsonNode root = readJson(content);
+        if (!root.isObject()) {
+            throw new IllegalArgumentException("Candidate screen response is not a JSON object");
+        }
+        JsonNode result = root.has("result") && root.get("result").isObject() ? root.get("result") : root;
+        CandidateScreenResult fallback = mockCandidateScreen(request);
+        return new CandidateScreenResult(
+                textOr(result.get("deliveryId"), fallback.deliveryId()),
+                textOr(result.get("studentId"), fallback.studentId()),
+                textOr(result.get("jobId"), fallback.jobId()),
+                readScore(result.get("score"), fallback.score()),
+                textOr(result.get("recommendation"), fallback.recommendation()),
+                readStringList(result.get("strengths"), fallback.strengths()),
+                readStringList(result.get("risks"), fallback.risks()),
+                readStringList(result.get("interviewQuestions"), fallback.interviewQuestions()),
+                readStringList(result.get("nextActions"), fallback.nextActions()),
+                false);
     }
 
     private JsonNode readJson(String content) {
@@ -310,6 +398,26 @@ public class AiCoachService {
                 true);
     }
 
+    private CandidateScreenResult mockCandidateScreen(CandidateScreenRequest request) {
+        List<String> skills = safeList(request == null ? null : request.skills(), DEFAULT_SKILLS);
+        String primarySkill = skills.get(0);
+        List<String> interviewQuestions = List.of(
+                "请说明一个 " + primarySkill + " 项目中你负责的核心模块、接口设计和异常处理方式。",
+                "如果接口响应变慢，你会如何结合日志、MySQL 索引和 Redis 缓存定位问题？",
+                "请补充项目上线或测试中的数据量、并发量、耗时变化以及你的个人贡献。");
+        return new CandidateScreenResult(
+                deliveryId(request),
+                studentId(request),
+                jobId(request),
+                86,
+                "建议进入一面",
+                DEFAULT_SCREEN_STRENGTHS,
+                DEFAULT_SCREEN_RISKS,
+                interviewQuestions,
+                DEFAULT_SCREEN_ACTIONS,
+                true);
+    }
+
     private List<String> readStringList(JsonNode node, List<String> fallback) {
         if (node == null || !node.isArray()) {
             return fallback;
@@ -353,6 +461,22 @@ public class AiCoachService {
 
     private static String targetRole(InterviewQuestionRequest request) {
         return valueOr(request == null ? null : request.targetRole(), "Java 后端实习生");
+    }
+
+    private static String targetRole(CandidateScreenRequest request) {
+        return valueOr(request == null ? null : request.targetRole(), "Java 后端实习生");
+    }
+
+    private static String deliveryId(CandidateScreenRequest request) {
+        return valueOr(request == null ? null : request.deliveryId(), "D001");
+    }
+
+    private static String studentId(CandidateScreenRequest request) {
+        return valueOr(request == null ? null : request.studentId(), "S001");
+    }
+
+    private static String jobId(CandidateScreenRequest request) {
+        return valueOr(request == null ? null : request.jobId(), "J001");
     }
 
     private static List<String> safeList(List<String> values, List<String> fallback) {

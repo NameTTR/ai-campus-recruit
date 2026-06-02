@@ -8,6 +8,7 @@ import {
   listCompanyDeliveries,
   login,
   matchResumeJob,
+  screenCandidate,
   submitInterviewFeedback
 } from './client'
 
@@ -86,6 +87,66 @@ describe('api fallback behavior', () => {
     expect(result.mocked).toBe(true)
     expect(result.score).toBeGreaterThan(0)
     expect(result.suggestions.length).toBeGreaterThan(0)
+  })
+
+  it('returns candidate screen fallback when ai proxy is not configured', async () => {
+    const result = await screenCandidate({
+      deliveryId: 'D100',
+      studentId: 'S100',
+      resumeId: 'R100',
+      jobId: 'J100',
+      targetRole: 'Java 后端实习生',
+      skills: ['Java', 'Spring Boot'],
+      projects: ['招聘平台'],
+      jobRequirements: ['Java', 'MySQL'],
+      resumeSummary: '具备 Java Web 项目经历。',
+      jobDescription: '参与后端接口开发。'
+    })
+
+    expect(result.deliveryId).toBe('D100')
+    expect(result.recommendation).toContain('一面')
+    expect(result.risks.length).toBeGreaterThan(0)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls ai candidate screen endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          deliveryId: 'D200',
+          studentId: 'S200',
+          jobId: 'J200',
+          score: 91,
+          recommendation: '优先进入技术一面',
+          strengths: ['技能匹配'],
+          risks: ['需要确认项目深度'],
+          interviewQuestions: ['请说明缓存设计。'],
+          nextActions: ['安排一面'],
+          mocked: false
+        }
+      })
+    } as Response)
+
+    const result = await screenCandidate({
+      deliveryId: 'D200',
+      studentId: 'S200',
+      resumeId: 'R200',
+      jobId: 'J200',
+      targetRole: 'Java 后端实习生',
+      skills: ['Java'],
+      projects: ['招聘平台'],
+      jobRequirements: ['Java'],
+      resumeSummary: 'Java 项目经历。',
+      jobDescription: '后端开发。'
+    })
+
+    expect(result.mocked).toBe(false)
+    expect(result.score).toBe(91)
+    expect(fetch).toHaveBeenCalledWith('/api/ai/candidates/screen', expect.any(Object))
   })
 
   it('returns ai module status fallback when gateway is offline', async () => {
