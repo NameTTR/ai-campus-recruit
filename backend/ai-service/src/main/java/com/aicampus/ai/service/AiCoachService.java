@@ -1,5 +1,7 @@
 package com.aicampus.ai.service;
 
+import com.aicampus.ai.service.screening.CandidateScreenRecordStore;
+import com.aicampus.ai.service.screening.InMemoryCandidateScreenRecordStore;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.AiModuleStatus;
@@ -22,6 +24,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -55,12 +58,20 @@ public class AiCoachService {
             "要求候选人补充项目量化指标和个人负责模块");
 
     private final DashScopeClient dashScopeClient;
+    private final CandidateScreenRecordStore candidateScreenRecordStore;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, List<InterviewRecord>> interviewRecords = new ConcurrentHashMap<>();
-    private final List<CandidateScreenRecord> candidateScreenRecords = new CopyOnWriteArrayList<>();
 
     public AiCoachService(DashScopeClient dashScopeClient) {
+        this(dashScopeClient, new InMemoryCandidateScreenRecordStore());
+    }
+
+    @Autowired
+    public AiCoachService(DashScopeClient dashScopeClient, CandidateScreenRecordStore candidateScreenRecordStore) {
         this.dashScopeClient = dashScopeClient;
+        this.candidateScreenRecordStore = candidateScreenRecordStore == null
+                ? new InMemoryCandidateScreenRecordStore()
+                : candidateScreenRecordStore;
     }
 
     public AiAnalyzeResponse analyze(AiAnalyzeRequest request) {
@@ -132,13 +143,7 @@ public class AiCoachService {
     }
 
     public List<CandidateScreenRecord> listCandidateScreenRecords(String companyId, String deliveryId) {
-        String companyFilter = blankToNull(companyId);
-        String deliveryFilter = blankToNull(deliveryId);
-        return candidateScreenRecords.stream()
-                .filter(record -> companyFilter == null || companyFilter.equals(record.companyId()))
-                .filter(record -> deliveryFilter == null || deliveryFilter.equals(record.deliveryId()))
-                .sorted(Comparator.comparing(CandidateScreenRecord::createdAt).reversed())
-                .toList();
+        return candidateScreenRecordStore.list(companyId, deliveryId);
     }
 
     private void saveCandidateScreenRecord(CandidateScreenRequest request, CandidateScreenResult result) {
@@ -156,7 +161,7 @@ public class AiCoachService {
                 safeList(result.nextActions(), DEFAULT_SCREEN_ACTIONS),
                 result.mocked(),
                 Instant.now());
-        candidateScreenRecords.add(record);
+        candidateScreenRecordStore.save(record);
     }
 
     private void saveInterviewRecord(InterviewFeedbackRequest request, InterviewFeedback feedback) {
@@ -529,10 +534,6 @@ public class AiCoachService {
 
     private static String valueOr(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
     }
 
     private static int clamp(int score) {

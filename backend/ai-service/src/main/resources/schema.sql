@@ -1,0 +1,17 @@
+CREATE TABLE IF NOT EXISTS ai_candidate_screen_record (
+    screening_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    company_id VARCHAR(64) NOT NULL,
+    delivery_id VARCHAR(64) NOT NULL,
+    student_id VARCHAR(64) NOT NULL,
+    job_id VARCHAR(64) NOT NULL,
+    score INT NOT NULL,
+    recommendation TEXT NOT NULL,
+    strengths TEXT NOT NULL,
+    risks TEXT NOT NULL,
+    interview_questions TEXT NOT NULL,
+    next_actions TEXT NOT NULL,
+    mocked TINYINT(1) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    KEY idx_ai_candidate_screen_record_company_delivery_created (company_id, delivery_id, created_at),
+    KEY idx_ai_candidate_screen_record_delivery_created (delivery_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

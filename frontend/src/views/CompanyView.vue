@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Bot, ClipboardList, Plus } from 'lucide-vue-next'
+import { Bot, ClipboardList, Plus, RefreshCw } from 'lucide-vue-next'
 import {
   analyzeJob,
   createJob,
@@ -24,6 +24,7 @@ const candidate = ref<MatchResult>()
 const deliveries = ref<DeliveryRecord[]>([])
 const screeningRecords = ref<CandidateScreenRecord[]>([])
 const screeningLoading = ref<Record<string, boolean>>({})
+const historyRefreshing = ref(false)
 const form = reactive({
   title: 'Java 后端实习生',
   city: '杭州',
@@ -115,6 +116,16 @@ async function refreshCandidateScreenRecords(localRecord?: CandidateScreenRecord
   const hasFreshServerRecord = records.some((record) =>
     record.deliveryId === localRecord.deliveryId && new Date(record.createdAt).getTime() >= requestedAt - 10_000)
   screeningRecords.value = hasFreshServerRecord ? records : [localRecord, ...records]
+}
+
+async function manualRefreshCandidateScreenRecords() {
+  historyRefreshing.value = true
+  try {
+    await refreshCandidateScreenRecords()
+    ElMessage.success('筛选历史已刷新')
+  } finally {
+    historyRefreshing.value = false
+  }
 }
 
 function upsertLocalScreeningRecord(delivery: DeliveryRecord, result: CandidateScreenResult) {
@@ -320,7 +331,17 @@ function formatDateTime(value: string) {
     <section class="panel">
       <h2 class="panel-title">
         AI 候选人筛选历史
-        <Bot :size="19" />
+        <span class="panel-title-actions">
+          <el-button
+            circle
+            size="small"
+            :loading="historyRefreshing"
+            @click="manualRefreshCandidateScreenRecords"
+          >
+            <RefreshCw :size="15" />
+          </el-button>
+          <Bot :size="19" />
+        </span>
       </h2>
       <el-empty v-if="screeningCards.length === 0" description="点击投递记录中的 AI 筛选生成历史记录" />
       <div v-else class="screening-grid">
@@ -370,6 +391,12 @@ function formatDateTime(value: string) {
 <style scoped>
 .company-delivery-table {
   min-width: 0;
+}
+
+.panel-title-actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
 }
 
 :deep(.company-delivery-table .cell) {

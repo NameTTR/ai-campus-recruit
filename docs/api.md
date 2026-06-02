@@ -47,11 +47,13 @@
   - 请求体：`deliveryId`、`companyId`、`studentId`、`resumeId`、`jobId`、`targetRole`、`skills`、`projects`、`jobRequirements`、`resumeSummary`、`jobDescription`。
   - 返回：`CandidateScreenResult`，包含 `deliveryId`、`studentId`、`jobId`、`score`、`recommendation`、`strengths`、`risks`、`interviewQuestions`、`nextActions`、`mocked`。
   - 未配置 `DASHSCOPE_API_KEY` 或模型调用失败时，返回确定性的演示初筛结果，且 `mocked=true`。
-  - 生成结果会写入当前 AI 服务进程内的筛选历史记录。
+  - 生成结果会写入筛选历史；默认内存存储，启用持久化后写入 MySQL。
 - `GET /api/ai/candidates/screenings?companyId=C001&deliveryId=D001`：查询 AI 候选人初筛历史。
   - 查询参数：`companyId`、`deliveryId` 均可选；为空时不过滤。
   - 返回：`CandidateScreenRecord[]`，每项包含 `screeningId`、`companyId`、`deliveryId`、`studentId`、`jobId`、`score`、`recommendation`、`strengths`、`risks`、`interviewQuestions`、`nextActions`、`mocked`、`createdAt`。
-  - 当前 MVP 使用内存存储，服务重启后记录会清空；后续版本迁移到 MySQL/Redis。
+  - 默认使用内存回退；设置 `AI_SCREENING_PERSISTENCE_ENABLED=true` 且提供 `SPRING_DATASOURCE_URL` 后写入 MySQL 表 `ai_candidate_screen_record`，查询结果通过 Redis cache-aside 缓存。
+  - Redis key 格式：`ai:screening:records:company:{companyId|ALL}:delivery:{deliveryId|ALL}`。
+  - `AI_SCREENING_DB_HEALTH_ENABLED` 默认关闭，避免 MySQL 临时不可用时影响演示接口健康状态。
 - `POST /api/ai/interview/questions`：基于学生、简历和目标岗位生成模拟面试题。
   - 请求体：`studentId`、`resumeId`、`jobId`、`targetRole`、`skills`。
   - 返回：`InterviewQuestion[]`，每项包含 `questionId`、`category`、`difficulty`、`question`、`referencePoints`。

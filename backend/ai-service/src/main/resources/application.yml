@@ -15,7 +15,18 @@ dashscope:
   model: ${DASHSCOPE_MODEL:qwen-plus}
   base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
 
+ai:
+  screening:
+    persistence:
+      enabled: ${AI_SCREENING_PERSISTENCE_ENABLED:false}
+    cache:
+      ttl: ${AI_SCREENING_CACHE_TTL:10m}
+      key-prefix: ${AI_SCREENING_CACHE_KEY_PREFIX:ai:screening:records}
+
 management:
+  health:
+    db:
+      enabled: ${AI_SCREENING_DB_HEALTH_ENABLED:false}
   endpoints:
     web:
       exposure:
@@ -24,4 +35,3 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
-
