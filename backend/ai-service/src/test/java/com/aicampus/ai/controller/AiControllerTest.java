@@ -73,6 +73,9 @@ class AiControllerTest {
                 "S-REQUEST-001",
                 "R-REQUEST-001",
                 "J-REQUEST-001",
+                "PDF",
+                "TEXT_EXTRACTED",
+                128,
                 "Java 后端实习生",
                 java.util.List.of("Java", "Spring Boot", "MySQL", "Redis"),
                 java.util.List.of("校园招聘平台"),
@@ -83,6 +86,9 @@ class AiControllerTest {
         assertThat(result.deliveryId()).isEqualTo("D-AI-001");
         assertThat(result.studentId()).isEqualTo("S-AI-001");
         assertThat(result.jobId()).isEqualTo("J-AI-001");
+        assertThat(result.resumeSourceFormat()).isEqualTo("PDF");
+        assertThat(result.resumeParseStatus()).isEqualTo("TEXT_EXTRACTED");
+        assertThat(result.resumeParsedTextLength()).isEqualTo(128);
         assertThat(result.score()).isEqualTo(91);
         assertThat(result.recommendation()).isEqualTo("建议进入一面");
         assertThat(result.strengths()).hasSize(2);
@@ -102,6 +108,9 @@ class AiControllerTest {
                                   "studentId": "S-SCREEN-001",
                                   "resumeId": "R-SCREEN-001",
                                   "jobId": "J-SCREEN-001",
+                                  "resumeSourceFormat": "DOCX",
+                                  "resumeParseStatus": "TEXT_EXTRACTED",
+                                  "resumeParsedTextLength": 256,
                                   "targetRole": "Java 后端实习生",
                                   "skills": ["Java", "Spring Boot", "MySQL", "Redis"],
                                   "projects": ["校园招聘平台", "简历诊断模块"],
@@ -115,6 +124,9 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data.deliveryId").value("D-SCREEN-001"))
                 .andExpect(jsonPath("$.data.studentId").value("S-SCREEN-001"))
                 .andExpect(jsonPath("$.data.jobId").value("J-SCREEN-001"))
+                .andExpect(jsonPath("$.data.resumeSourceFormat").value("DOCX"))
+                .andExpect(jsonPath("$.data.resumeParseStatus").value("TEXT_EXTRACTED"))
+                .andExpect(jsonPath("$.data.resumeParsedTextLength").value(256))
                 .andExpect(jsonPath("$.data.score").value(greaterThanOrEqualTo(80)))
                 .andExpect(jsonPath("$.data.recommendation").value("建议进入一面"))
                 .andExpect(jsonPath("$.data.strengths.length()").value(greaterThanOrEqualTo(2)))
@@ -150,6 +162,9 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data[0].deliveryId").value("D-HISTORY-001"))
                 .andExpect(jsonPath("$.data[0].studentId").value("S-HISTORY-001"))
                 .andExpect(jsonPath("$.data[0].jobId").value("J-HISTORY-001"))
+                .andExpect(jsonPath("$.data[0].resumeSourceFormat").value("PDF"))
+                .andExpect(jsonPath("$.data[0].resumeParseStatus").value("TEXT_EXTRACTED"))
+                .andExpect(jsonPath("$.data[0].resumeParsedTextLength").value(96))
                 .andExpect(jsonPath("$.data[0].score").value(greaterThanOrEqualTo(80)))
                 .andExpect(jsonPath("$.data[0].recommendation").isNotEmpty())
                 .andExpect(jsonPath("$.data[0].strengths.length()").value(greaterThanOrEqualTo(2)))
@@ -257,6 +272,9 @@ class AiControllerTest {
                                   "studentId": "%s",
                                   "resumeId": "R-HISTORY-001",
                                   "jobId": "%s",
+                                  "resumeSourceFormat": "PDF",
+                                  "resumeParseStatus": "TEXT_EXTRACTED",
+                                  "resumeParsedTextLength": 96,
                                   "targetRole": "Java Backend Intern",
                                   "skills": ["Java", "Spring Boot", "MySQL", "Redis"],
                                   "projects": ["Campus recruitment platform"],

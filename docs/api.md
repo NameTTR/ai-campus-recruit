@@ -46,13 +46,14 @@
   - 请求体：`taskType`、`content`、`context`。
   - 返回：`AiAnalyzeResponse`，包含 `taskType`、`provider`、`content`、`mocked`。
 - `POST /api/ai/candidates/screen`：基于投递、简历摘要、项目经历和岗位要求生成候选人初筛结果。
-  - 请求体：`deliveryId`、`companyId`、`studentId`、`resumeId`、`jobId`、`targetRole`、`skills`、`projects`、`jobRequirements`、`resumeSummary`、`jobDescription`。
-  - 返回：`CandidateScreenResult`，包含 `deliveryId`、`studentId`、`jobId`、`score`、`recommendation`、`strengths`、`risks`、`interviewQuestions`、`nextActions`、`mocked`。
+  - 请求体：`deliveryId`、`companyId`、`studentId`、`resumeId`、`jobId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`、`targetRole`、`skills`、`projects`、`jobRequirements`、`resumeSummary`、`jobDescription`。
+  - 返回：`CandidateScreenResult`，包含 `deliveryId`、`studentId`、`jobId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`、`score`、`recommendation`、`strengths`、`risks`、`interviewQuestions`、`nextActions`、`mocked`。
+  - `resumeParseStatus=TEXT_EXTRACTED` 表示初筛参考了已抽取正文；`UNPARSED` 或 `UNKNOWN` 表示简历正文证据不足，AI 会提示 HR 做人工确认。
   - 未配置 `DASHSCOPE_API_KEY` 或模型调用失败时，返回确定性的演示初筛结果，且 `mocked=true`。
   - 生成结果会写入筛选历史；默认内存存储，启用持久化后写入 MySQL。
 - `GET /api/ai/candidates/screenings?companyId=C001&deliveryId=D001`：查询 AI 候选人初筛历史。
   - 查询参数：`companyId`、`deliveryId` 均可选；为空时不过滤。
-  - 返回：`CandidateScreenRecord[]`，每项包含 `screeningId`、`companyId`、`deliveryId`、`studentId`、`jobId`、`score`、`recommendation`、`strengths`、`risks`、`interviewQuestions`、`nextActions`、`mocked`、`createdAt`。
+  - 返回：`CandidateScreenRecord[]`，每项包含 `screeningId`、`companyId`、`deliveryId`、`studentId`、`jobId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`、`score`、`recommendation`、`strengths`、`risks`、`interviewQuestions`、`nextActions`、`mocked`、`createdAt`。
   - 默认使用内存回退；设置 `AI_SCREENING_PERSISTENCE_ENABLED=true` 且提供 `SPRING_DATASOURCE_URL` 后写入 MySQL 表 `ai_candidate_screen_record`，查询结果通过 Redis cache-aside 缓存。
   - Redis key 格式：`ai:screening:records:company:{companyId|ALL}:delivery:{deliveryId|ALL}`。
   - `AI_SCREENING_DB_HEALTH_ENABLED` 默认关闭，避免 MySQL 临时不可用时影响演示接口健康状态。

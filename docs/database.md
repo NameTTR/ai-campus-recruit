@@ -10,7 +10,7 @@
 - `match_result`：匹配分数、优势、短板、建议。
 - `delivery`：投递记录和流程状态。
 - `ai_task`：AI 调用任务、输入摘要、输出、状态。
-- `ai_candidate_screen_record`：AI 候选人初筛历史，包含筛选编号、企业编号、投递编号、学生编号、岗位编号、分数、推荐结论、优势、风险、面试追问、下一步动作、mock 标记和创建时间。
+- `ai_candidate_screen_record`：AI 候选人初筛历史，包含筛选编号、企业编号、投递编号、学生编号、岗位编号、简历解析格式、解析状态、抽取正文长度、分数、推荐结论、优势、风险、面试追问、下一步动作、mock 标记和创建时间。
 
 MVP 阶段使用内存仓储保证演示闭环；接入 MySQL 时按以上表结构落库。
 
@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS ai_candidate_screen_record (
     delivery_id VARCHAR(64) NOT NULL,
     student_id VARCHAR(64) NOT NULL,
     job_id VARCHAR(64) NOT NULL,
+    resume_source_format VARCHAR(32) NOT NULL DEFAULT 'UNKNOWN',
+    resume_parse_status VARCHAR(32) NOT NULL DEFAULT 'UNKNOWN',
+    resume_parsed_text_length INT NOT NULL DEFAULT 0,
     score INT NOT NULL,
     recommendation TEXT NOT NULL,
     strengths TEXT NOT NULL,

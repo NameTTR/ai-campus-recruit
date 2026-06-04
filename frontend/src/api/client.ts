@@ -34,6 +34,15 @@ export interface ResumeSummary {
   parsedTextLength: number
 }
 
+export interface ResumeParseMetadata {
+  sourceFormat?: string
+  parseStatus?: string
+  parsedTextLength?: number
+  resumeSourceFormat?: string
+  resumeParseStatus?: string
+  resumeParsedTextLength?: number
+}
+
 export interface JobSummary {
   jobId: string
   companyId: string
@@ -46,7 +55,7 @@ export interface JobSummary {
   aiSummary: string
 }
 
-export interface MatchResult {
+export interface MatchResult extends ResumeParseMetadata {
   matchId: string
   resumeId: string
   jobId: string
@@ -69,9 +78,12 @@ export interface CandidateScreenRequest {
   jobRequirements: string[]
   resumeSummary: string
   jobDescription: string
+  resumeSourceFormat?: string
+  resumeParseStatus?: string
+  resumeParsedTextLength?: number
 }
 
-export interface CandidateScreenResult {
+export interface CandidateScreenResult extends ResumeParseMetadata {
   deliveryId: string
   studentId: string
   jobId: string
@@ -148,7 +160,7 @@ export interface InterviewRecord {
 
 export type DeliveryStatus = 'SUBMITTED' | 'VIEWED' | 'INTERVIEW' | 'OFFER' | 'REJECTED'
 
-export interface DeliveryRecord {
+export interface DeliveryRecord extends ResumeParseMetadata {
   deliveryId: string
   studentId: string
   resumeId: string
@@ -250,6 +262,9 @@ const fallbackMatch: MatchResult = {
   jobId: 'J001',
   studentId: 'S001',
   score: 88,
+  sourceFormat: 'PDF',
+  parseStatus: 'TEXT_EXTRACTED',
+  parsedTextLength: 62,
   strengths: ['技能栈与岗位要求高度一致', '项目经历覆盖后端接口、缓存和数据库'],
   gaps: ['微服务项目经验需要进一步强化', '简历中缺少可验证成果指标'],
   suggestions: ['补充微服务部署图', '把项目难点写成 STAR 结构', '准备 RocketMQ 与 Redis 场景题']
@@ -260,6 +275,9 @@ const fallbackCandidateScreen: CandidateScreenResult = {
   studentId: 'S001',
   jobId: 'J001',
   score: 86,
+  resumeSourceFormat: 'PDF',
+  resumeParseStatus: 'TEXT_EXTRACTED',
+  resumeParsedTextLength: 62,
   recommendation: '建议进入一面',
   strengths: ['Java Web 技术栈与岗位要求匹配', '项目经历覆盖接口开发、数据库和缓存场景', '求职方向与岗位职责一致'],
   risks: ['简历缺少可量化的项目结果', '微服务、消息队列和线上排障经验需要继续确认'],
@@ -343,6 +361,9 @@ const fallbackDeliveries: DeliveryRecord[] = [
     jobId: 'J001',
     companyId: 'C001',
     status: 'SUBMITTED',
+    sourceFormat: 'PDF',
+    parseStatus: 'TEXT_EXTRACTED',
+    parsedTextLength: 62,
     createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   },
   {
@@ -352,6 +373,9 @@ const fallbackDeliveries: DeliveryRecord[] = [
     jobId: 'J001',
     companyId: 'C001',
     status: 'VIEWED',
+    sourceFormat: 'DOCX',
+    parseStatus: 'UNPARSED',
+    parsedTextLength: 0,
     createdAt: new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString()
   },
   {
@@ -480,7 +504,10 @@ export function screenCandidate(payload: CandidateScreenRequest) {
     ...fallbackCandidateScreen,
     deliveryId: payload.deliveryId,
     studentId: payload.studentId,
-    jobId: payload.jobId
+    jobId: payload.jobId,
+    resumeSourceFormat: payload.resumeSourceFormat || fallbackCandidateScreen.resumeSourceFormat,
+    resumeParseStatus: payload.resumeParseStatus || fallbackCandidateScreen.resumeParseStatus,
+    resumeParsedTextLength: payload.resumeParsedTextLength ?? fallbackCandidateScreen.resumeParsedTextLength
   })
 }
 

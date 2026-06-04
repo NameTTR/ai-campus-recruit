@@ -26,6 +26,15 @@ public class CandidateScreenRecordEntity {
     @TableField("job_id")
     private String jobId;
 
+    @TableField("resume_source_format")
+    private String resumeSourceFormat;
+
+    @TableField("resume_parse_status")
+    private String resumeParseStatus;
+
+    @TableField("resume_parsed_text_length")
+    private int resumeParsedTextLength;
+
     @TableField("score")
     private int score;
 
@@ -57,6 +66,9 @@ public class CandidateScreenRecordEntity {
         entity.setDeliveryId(record.deliveryId());
         entity.setStudentId(record.studentId());
         entity.setJobId(record.jobId());
+        entity.setResumeSourceFormat(record.resumeSourceFormat());
+        entity.setResumeParseStatus(record.resumeParseStatus());
+        entity.setResumeParsedTextLength(record.resumeParsedTextLength());
         entity.setScore(record.score());
         entity.setRecommendation(record.recommendation());
         entity.setStrengths(record.strengths());
@@ -75,6 +87,9 @@ public class CandidateScreenRecordEntity {
                 deliveryId,
                 studentId,
                 jobId,
+                resumeSourceFormat,
+                resumeParseStatus,
+                resumeParsedTextLength,
                 score,
                 recommendation,
                 strengths,
@@ -123,6 +138,30 @@ public class CandidateScreenRecordEntity {
 
     public void setJobId(String jobId) {
         this.jobId = jobId;
+    }
+
+    public String getResumeSourceFormat() {
+        return resumeSourceFormat;
+    }
+
+    public void setResumeSourceFormat(String resumeSourceFormat) {
+        this.resumeSourceFormat = resumeSourceFormat;
+    }
+
+    public String getResumeParseStatus() {
+        return resumeParseStatus;
+    }
+
+    public void setResumeParseStatus(String resumeParseStatus) {
+        this.resumeParseStatus = resumeParseStatus;
+    }
+
+    public int getResumeParsedTextLength() {
+        return resumeParsedTextLength;
+    }
+
+    public void setResumeParsedTextLength(int resumeParsedTextLength) {
+        this.resumeParsedTextLength = resumeParsedTextLength;
     }
 
     public int getScore() {

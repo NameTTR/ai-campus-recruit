@@ -111,11 +111,17 @@ describe('api fallback behavior', () => {
       skills: ['Java', 'Spring Boot'],
       projects: ['招聘平台'],
       jobRequirements: ['Java', 'MySQL'],
+      resumeSourceFormat: 'PDF',
+      resumeParseStatus: 'TEXT_EXTRACTED',
+      resumeParsedTextLength: 88,
       resumeSummary: '具备 Java Web 项目经历。',
       jobDescription: '参与后端接口开发。'
     })
 
     expect(result.deliveryId).toBe('D100')
+    expect(result.resumeSourceFormat).toBe('PDF')
+    expect(result.resumeParseStatus).toBe('TEXT_EXTRACTED')
+    expect(result.resumeParsedTextLength).toBe(88)
     expect(result.recommendation).toContain('一面')
     expect(result.risks.length).toBeGreaterThan(0)
     expect(fetch).not.toHaveBeenCalled()

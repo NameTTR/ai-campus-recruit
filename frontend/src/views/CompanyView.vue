@@ -17,8 +17,15 @@ import {
   type DeliveryRecord,
   type DeliveryStatus,
   type JobSummary,
-  type MatchResult
+  type MatchResult,
+  type ResumeParseMetadata
 } from '../api/client'
+
+type ResumeParseTag = {
+  key: string
+  text: string
+  type: 'success' | 'info' | 'warning'
+}
 
 const route = useRoute()
 const jobs = ref<JobSummary[]>([])
@@ -43,6 +50,8 @@ const reviewStatuses: Array<{ status: Exclude<DeliveryStatus, 'SUBMITTED'>, labe
 const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'publish')
 const screeningCards = computed(() => [...screeningRecords.value]
   .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()))
+const hasAnyDeliveryParseMetadata = computed(() =>
+  deliveries.value.some((delivery) => hasResumeParseMetadata(delivery)))
 
 onMounted(async () => {
   const [jobList, deliveryList, screeningList] = await Promise.all([
@@ -87,6 +96,7 @@ async function changeDeliveryStatus(delivery: DeliveryRecord, status: DeliverySt
 async function runCandidateScreen(delivery: DeliveryRecord) {
   const job = jobs.value.find((item) => item.jobId === delivery.jobId)
   const requestedAt = Date.now()
+  const parseMetadata = resumeParseMetadata(delivery)
   screeningLoading.value = { ...screeningLoading.value, [delivery.deliveryId]: true }
   try {
     const result = await screenCandidate({
@@ -95,6 +105,9 @@ async function runCandidateScreen(delivery: DeliveryRecord) {
       resumeId: delivery.resumeId,
       jobId: delivery.jobId,
       companyId: delivery.companyId,
+      resumeSourceFormat: parseMetadata.resumeSourceFormat,
+      resumeParseStatus: parseMetadata.resumeParseStatus,
+      resumeParsedTextLength: parseMetadata.resumeParsedTextLength,
       targetRole: job?.title || 'Java 后端实习生',
       skills: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker'],
       projects: ['校园二手交易系统', '在线考试平台'],
@@ -135,6 +148,7 @@ function upsertLocalScreeningRecord(delivery: DeliveryRecord, result: CandidateS
   const record: CandidateScreenRecord = {
     screeningId: `CS-LOCAL-${Date.now()}`,
     companyId: delivery.companyId,
+    ...resumeParseMetadata(delivery),
     ...result,
     createdAt: new Date().toISOString()
   }
@@ -165,6 +179,70 @@ function statusTagType(status: DeliveryStatus) {
     REJECTED: 'danger'
   }
   return types[status]
+}
+
+function resumeParseMetadata(source?: ResumeParseMetadata | null): ResumeParseMetadata {
+  if (!source) {
+    return {}
+  }
+  const sourceFormat = normalizeMetadataText(source.resumeSourceFormat || source.sourceFormat)
+  const parseStatus = normalizeMetadataText(source.resumeParseStatus || source.parseStatus)
+  const parsedTextLength = normalizeParsedTextLength(source.resumeParsedTextLength ?? source.parsedTextLength)
+  return {
+    ...(sourceFormat ? { sourceFormat } : {}),
+    ...(sourceFormat ? { resumeSourceFormat: sourceFormat } : {}),
+    ...(parseStatus ? { parseStatus } : {}),
+    ...(parseStatus ? { resumeParseStatus: parseStatus } : {}),
+    ...(parsedTextLength > 0 ? { parsedTextLength } : {}),
+    ...(parsedTextLength > 0 ? { resumeParsedTextLength: parsedTextLength } : {})
+  }
+}
+
+function hasResumeParseMetadata(source?: ResumeParseMetadata | null) {
+  return resumeParseTags(source).length > 0
+}
+
+function resumeParseTags(source?: ResumeParseMetadata | null): ResumeParseTag[] {
+  const metadata = resumeParseMetadata(source)
+  const sourceFormat = normalizeMetadataText(metadata.sourceFormat)
+  const parseStatus = normalizeMetadataText(metadata.parseStatus)
+  const parsedTextLength = normalizeParsedTextLength(metadata.parsedTextLength)
+  const tags: ResumeParseTag[] = []
+
+  if (sourceFormat || parseStatus) {
+    const text = [sourceFormat, parseStatusText(parseStatus)].filter(Boolean).join(' · ')
+    tags.push({
+      key: 'parse-status',
+      text,
+      type: parseStatus === 'UNPARSED' || parseStatus === 'UNKNOWN' ? 'warning' : 'success'
+    })
+  }
+  if (parsedTextLength > 0) {
+    tags.push({
+      key: 'parsed-text-length',
+      text: `${parsedTextLength} 字`,
+      type: 'info'
+    })
+  }
+  return tags
+}
+
+function normalizeMetadataText(value?: string | null) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeParsedTextLength(value?: number | null) {
+  const parsed = Number(value || 0)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+function parseStatusText(status: string) {
+  const labels: Record<string, string> = {
+    TEXT_EXTRACTED: '已读正文',
+    UNPARSED: '未读正文',
+    SEEDED: '演示数据'
+  }
+  return labels[status] || status
 }
 
 function formatDateTime(value: string) {
@@ -226,7 +304,17 @@ function formatDateTime(value: string) {
         <div v-if="candidate" class="grid two" style="align-items: center">
           <div class="score">{{ candidate.score }}</div>
           <div>
-            <strong>候选人 S001</strong>
+            <strong>候选人 {{ candidate.studentId }}</strong>
+            <div v-if="hasResumeParseMetadata(candidate)" class="resume-parse-tags">
+              <el-tag
+                v-for="tag in resumeParseTags(candidate)"
+                :key="tag.key"
+                size="small"
+                :type="tag.type"
+              >
+                {{ tag.text }}
+              </el-tag>
+            </div>
             <ul class="plain-list">
               <li v-for="item in candidate.strengths" :key="item">{{ item }}</li>
             </ul>
@@ -271,6 +359,20 @@ function formatDateTime(value: string) {
             <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column v-if="hasAnyDeliveryParseMetadata" label="简历解析" min-width="190">
+          <template #default="{ row }">
+            <div v-if="hasResumeParseMetadata(row)" class="resume-parse-tags">
+              <el-tag
+                v-for="tag in resumeParseTags(row)"
+                :key="tag.key"
+                size="small"
+                :type="tag.type"
+              >
+                {{ tag.text }}
+              </el-tag>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" min-width="430">
           <template #default="{ row }">
             <div class="actions">
@@ -305,6 +407,16 @@ function formatDateTime(value: string) {
               <span>{{ delivery.studentId }} · {{ delivery.jobId }}</span>
             </div>
             <el-tag :type="statusTagType(delivery.status)">{{ statusText(delivery.status) }}</el-tag>
+          </div>
+          <div v-if="hasResumeParseMetadata(delivery)" class="resume-parse-tags">
+            <el-tag
+              v-for="tag in resumeParseTags(delivery)"
+              :key="tag.key"
+              size="small"
+              :type="tag.type"
+            >
+              {{ tag.text }}
+            </el-tag>
           </div>
           <div class="actions">
             <el-button
@@ -357,6 +469,16 @@ function formatDateTime(value: string) {
                 {{ result.deliveryId }} · {{ result.studentId }} · {{ result.jobId }} ·
                 {{ result.mocked ? '演示' : '真实 AI' }} · {{ formatDateTime(result.createdAt) }}
               </span>
+              <div v-if="hasResumeParseMetadata(result)" class="resume-parse-tags">
+                <el-tag
+                  v-for="tag in resumeParseTags(result)"
+                  :key="tag.key"
+                  size="small"
+                  :type="tag.type"
+                >
+                  {{ tag.text }}
+                </el-tag>
+              </div>
             </div>
           </div>
           <div class="screening-columns">
@@ -405,6 +527,18 @@ function formatDateTime(value: string) {
 :deep(.company-delivery-table .cell) {
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.resume-parse-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 6px;
+}
+
+.company-delivery-table .resume-parse-tags {
+  margin-top: 0;
 }
 
 .screening-grid {

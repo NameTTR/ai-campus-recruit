@@ -153,6 +153,9 @@ public class AiCoachService {
                 valueOr(result.deliveryId(), deliveryId(request)),
                 valueOr(result.studentId(), studentId(request)),
                 valueOr(result.jobId(), jobId(request)),
+                resumeSourceFormat(request),
+                resumeParseStatus(request),
+                resumeParsedTextLength(request),
                 result.score(),
                 valueOr(result.recommendation(), ""),
                 safeList(result.strengths(), DEFAULT_SCREEN_STRENGTHS),
@@ -270,17 +273,27 @@ public class AiCoachService {
                 学生编号：%s
                 简历编号：%s
                 岗位编号：%s
+                简历解析格式：%s
+                简历解析状态：%s
+                简历抽取正文长度：%d 字
                 目标岗位：%s
                 技能：%s
                 项目经历：%s
                 岗位要求：%s
                 简历摘要：%s
                 岗位描述：%s
+
+                判断规则：
+                - resumeParseStatus=TEXT_EXTRACTED 表示简历正文已抽取，可更信任简历摘要。
+                - resumeParseStatus=UNPARSED 或 UNKNOWN 表示正文证据不足，风险中需要提醒 HR 补充人工确认。
                 """.formatted(
                 deliveryId(request),
                 studentId(request),
                 valueOr(request == null ? null : request.resumeId(), "R001"),
                 jobId(request),
+                resumeSourceFormat(request),
+                resumeParseStatus(request),
+                resumeParsedTextLength(request),
                 targetRole(request),
                 String.join("、", safeList(request == null ? null : request.skills(), DEFAULT_SKILLS)),
                 String.join("；", safeList(request == null ? null : request.projects(), DEFAULT_PROJECTS)),
@@ -326,6 +339,9 @@ public class AiCoachService {
                 textOr(result.get("deliveryId"), fallback.deliveryId()),
                 textOr(result.get("studentId"), fallback.studentId()),
                 textOr(result.get("jobId"), fallback.jobId()),
+                resumeSourceFormat(request),
+                resumeParseStatus(request),
+                resumeParsedTextLength(request),
                 readScore(result.get("score"), fallback.score()),
                 textOr(result.get("recommendation"), fallback.recommendation()),
                 readStringList(result.get("strengths"), fallback.strengths()),
@@ -448,6 +464,9 @@ public class AiCoachService {
                 deliveryId(request),
                 studentId(request),
                 jobId(request),
+                resumeSourceFormat(request),
+                resumeParseStatus(request),
+                resumeParsedTextLength(request),
                 86,
                 "建议进入一面",
                 DEFAULT_SCREEN_STRENGTHS,
@@ -520,6 +539,18 @@ public class AiCoachService {
 
     private static String jobId(CandidateScreenRequest request) {
         return valueOr(request == null ? null : request.jobId(), "J001");
+    }
+
+    private static String resumeSourceFormat(CandidateScreenRequest request) {
+        return valueOr(request == null ? null : request.resumeSourceFormat(), "UNKNOWN");
+    }
+
+    private static String resumeParseStatus(CandidateScreenRequest request) {
+        return valueOr(request == null ? null : request.resumeParseStatus(), "UNKNOWN");
+    }
+
+    private static int resumeParsedTextLength(CandidateScreenRequest request) {
+        return Math.max(0, request == null ? 0 : request.resumeParsedTextLength());
     }
 
     private static List<String> safeList(List<String> values, List<String> fallback) {
