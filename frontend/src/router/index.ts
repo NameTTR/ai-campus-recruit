@@ -10,9 +10,12 @@ const router = createRouter({
   routes: [
     { path: '/', redirect: '/login' },
     { path: '/login', component: LoginView },
-    { path: '/student', component: StudentView },
-    { path: '/company', component: CompanyView },
-    { path: '/admin', component: AdminView }
+    { path: '/student', redirect: '/student/resume' },
+    { path: '/student/:module', component: StudentView },
+    { path: '/company', redirect: '/company/publish' },
+    { path: '/company/:module', component: CompanyView },
+    { path: '/admin', redirect: '/admin/overview' },
+    { path: '/admin/:module', component: AdminView }
   ]
 })
 

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { BarChart3, BriefcaseBusiness, Building2, GraduationCap, Send, Timer } from 'lucide-vue-next'
 import { getDashboard, type DashboardStats, type DeliveryStatus } from '../api/client'
 
+const route = useRoute()
 const stats = ref<DashboardStats>()
 const statusLabels: Record<DeliveryStatus, string> = {
   SUBMITTED: '已投递',
@@ -30,6 +32,7 @@ const statusRows = computed(() => {
     type: statusTypes[status]
   }))
 })
+const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'overview')
 
 onMounted(async () => {
   stats.value = await getDashboard()
@@ -52,7 +55,7 @@ function statusPercent(count: number) {
       </div>
     </header>
 
-    <div class="grid three">
+    <div v-if="activeModule === 'overview'" class="grid three">
       <div class="metric">
         <GraduationCap :size="22" />
         <span>学生数</span>
@@ -85,7 +88,7 @@ function statusPercent(count: number) {
       </div>
     </div>
 
-    <section class="panel">
+    <section v-if="activeModule === 'status'" class="panel module-panel">
       <h2 class="panel-title">投递状态分布</h2>
       <el-table :data="statusRows" style="width: 100%">
         <el-table-column label="状态" width="140">
@@ -102,7 +105,7 @@ function statusPercent(count: number) {
       </el-table>
     </section>
 
-    <section class="panel">
+    <section v-if="activeModule === 'guidance'" class="panel module-panel">
       <h2 class="panel-title">就业指导关注点</h2>
       <el-timeline>
         <el-timeline-item timestamp="简历质量">项目经历需要补充量化指标和部署信息</el-timeline-item>

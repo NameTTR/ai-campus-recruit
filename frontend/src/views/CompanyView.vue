@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { Bot, ClipboardList, Plus, RefreshCw } from 'lucide-vue-next'
 import {
@@ -19,6 +20,7 @@ import {
   type MatchResult
 } from '../api/client'
 
+const route = useRoute()
 const jobs = ref<JobSummary[]>([])
 const candidate = ref<MatchResult>()
 const deliveries = ref<DeliveryRecord[]>([])
@@ -38,6 +40,7 @@ const reviewStatuses: Array<{ status: Exclude<DeliveryStatus, 'SUBMITTED'>, labe
   { status: 'OFFER', label: '已录用' },
   { status: 'REJECTED', label: '未通过' }
 ]
+const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'publish')
 const screeningCards = computed(() => [...screeningRecords.value]
   .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()))
 
@@ -187,34 +190,34 @@ function formatDateTime(value: string) {
       </div>
     </header>
 
-    <div class="grid two">
-      <section class="panel">
-        <h2 class="panel-title">
-          发布岗位
-          <Plus :size="19" />
-        </h2>
-        <el-form label-position="top">
-          <el-form-item label="岗位名称">
-            <el-input v-model="form.title" />
+    <section v-if="activeModule === 'publish'" class="panel module-panel">
+      <h2 class="panel-title">
+        发布岗位
+        <Plus :size="19" />
+      </h2>
+      <el-form label-position="top">
+        <el-form-item label="岗位名称">
+          <el-input v-model="form.title" />
+        </el-form-item>
+        <div class="grid two">
+          <el-form-item label="城市">
+            <el-input v-model="form.city" />
           </el-form-item>
-          <div class="grid two">
-            <el-form-item label="城市">
-              <el-input v-model="form.city" />
-            </el-form-item>
-            <el-form-item label="薪资">
-              <el-input v-model="form.salaryRange" />
-            </el-form-item>
-          </div>
-          <el-form-item label="技能要求">
-            <el-input v-model="form.requiredSkills" />
+          <el-form-item label="薪资">
+            <el-input v-model="form.salaryRange" />
           </el-form-item>
-          <el-form-item label="岗位描述">
-            <el-input v-model="form.description" type="textarea" :rows="4" />
-          </el-form-item>
-          <el-button type="primary" @click="publish">发布</el-button>
-        </el-form>
-      </section>
+        </div>
+        <el-form-item label="技能要求">
+          <el-input v-model="form.requiredSkills" />
+        </el-form-item>
+        <el-form-item label="岗位描述">
+          <el-input v-model="form.description" type="textarea" :rows="4" />
+        </el-form-item>
+        <el-button type="primary" @click="publish">发布</el-button>
+      </el-form>
+    </section>
 
+    <div v-if="activeModule === 'jobs'" class="module-stack">
       <section class="panel">
         <h2 class="panel-title">
           候选人匹配
@@ -231,30 +234,30 @@ function formatDateTime(value: string) {
         </div>
         <el-empty v-else description="请选择岗位查看候选人" />
       </section>
+
+      <section class="panel">
+        <h2 class="panel-title">岗位列表</h2>
+        <div class="grid two">
+          <article v-for="job in jobs" :key="job.jobId" class="item-card">
+            <strong>{{ job.title }}</strong>
+            <span>{{ job.city }} · {{ job.salaryRange }}</span>
+            <div class="tag-row">
+              <el-tag v-for="skill in job.requiredSkills" :key="skill">{{ skill }}</el-tag>
+            </div>
+            <p>{{ job.aiSummary }}</p>
+            <div class="actions">
+              <el-button @click="loadCandidate(job.jobId)">候选人</el-button>
+              <el-button type="primary" @click="runAnalyze(job.jobId)">
+                <Bot :size="17" />
+                分析
+              </el-button>
+            </div>
+          </article>
+        </div>
+      </section>
     </div>
 
-    <section class="panel">
-      <h2 class="panel-title">岗位列表</h2>
-      <div class="grid two">
-        <article v-for="job in jobs" :key="job.jobId" class="item-card">
-          <strong>{{ job.title }}</strong>
-          <span>{{ job.city }} · {{ job.salaryRange }}</span>
-          <div class="tag-row">
-            <el-tag v-for="skill in job.requiredSkills" :key="skill">{{ skill }}</el-tag>
-          </div>
-          <p>{{ job.aiSummary }}</p>
-          <div class="actions">
-            <el-button @click="loadCandidate(job.jobId)">候选人</el-button>
-            <el-button type="primary" @click="runAnalyze(job.jobId)">
-              <Bot :size="17" />
-              分析
-            </el-button>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section class="panel">
+    <section v-if="activeModule === 'deliveries'" class="panel module-panel">
       <h2 class="panel-title">
         投递审核
         <ClipboardList :size="19" />
@@ -328,7 +331,7 @@ function formatDateTime(value: string) {
       </div>
     </section>
 
-    <section class="panel">
+    <section v-if="activeModule === 'screening'" class="panel module-panel">
       <h2 class="panel-title">
         AI 候选人筛选历史
         <span class="panel-title-actions">

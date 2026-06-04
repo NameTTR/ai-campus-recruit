@@ -17,7 +17,11 @@ async function submit() {
   localStorage.setItem('role', result.role)
   localStorage.setItem('displayName', result.displayName)
   ElMessage.success('登录成功')
-  const target = result.role === 'COMPANY' ? '/company' : result.role === 'ADMIN' ? '/admin' : '/student'
+  const target = result.role === 'COMPANY'
+    ? '/company/publish'
+    : result.role === 'ADMIN'
+      ? '/admin/overview'
+      : '/student/resume'
   router.push(target)
 }
 </script>

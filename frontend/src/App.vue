@@ -1,7 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Building2, GraduationCap, LogOut, ShieldCheck } from 'lucide-vue-next'
+import {
+  BarChart3,
+  Bot,
+  BriefcaseBusiness,
+  ClipboardList,
+  Clock3,
+  FileText,
+  GraduationCap,
+  LogOut,
+  Plus,
+  Send
+} from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
@@ -9,12 +20,40 @@ const router = useRouter()
 const userName = computed(() => localStorage.getItem('displayName') || '')
 const role = computed(() => localStorage.getItem('role') || '')
 const authed = computed(() => Boolean(localStorage.getItem('token')) && route.path !== '/login')
+const section = computed(() => route.path.split('/')[1] || 'student')
 
-const navItems = [
-  { path: '/student', label: '学生端', icon: GraduationCap },
-  { path: '/company', label: '企业端', icon: Building2 },
-  { path: '/admin', label: '学校端', icon: ShieldCheck }
-]
+const navGroups = {
+  student: {
+    title: '学生端模块',
+    items: [
+      { path: '/student/resume', label: '简历诊断', icon: FileText },
+      { path: '/student/jobs', label: '岗位匹配', icon: BriefcaseBusiness },
+      { path: '/student/interview', label: 'AI 模拟面试', icon: Bot },
+      { path: '/student/history', label: '面试记录', icon: Clock3 },
+      { path: '/student/deliveries', label: '投递记录', icon: Send }
+    ]
+  },
+  company: {
+    title: '企业端模块',
+    items: [
+      { path: '/company/publish', label: '发布岗位', icon: Plus },
+      { path: '/company/jobs', label: '岗位管理', icon: BriefcaseBusiness },
+      { path: '/company/deliveries', label: '投递审核', icon: ClipboardList },
+      { path: '/company/screening', label: 'AI 筛选历史', icon: Bot }
+    ]
+  },
+  admin: {
+    title: '学校端模块',
+    items: [
+      { path: '/admin/overview', label: '数据概览', icon: GraduationCap },
+      { path: '/admin/status', label: '投递状态', icon: BarChart3 },
+      { path: '/admin/guidance', label: '就业指导', icon: ClipboardList }
+    ]
+  }
+} as const
+
+const navGroup = computed(() => navGroups[section.value as keyof typeof navGroups] || navGroups.student)
+const navItems = computed(() => navGroup.value.items)
 
 function logout() {
   localStorage.clear()
@@ -34,6 +73,7 @@ function logout() {
       </div>
 
       <nav>
+        <span class="nav-section-title">{{ navGroup.title }}</span>
         <RouterLink
           v-for="item in navItems"
           :key="item.path"
@@ -57,4 +97,3 @@ function logout() {
     </main>
   </div>
 </template>
-

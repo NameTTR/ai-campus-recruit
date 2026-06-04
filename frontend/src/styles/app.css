@@ -76,6 +76,14 @@ textarea {
   gap: 8px;
 }
 
+.nav-section-title {
+  margin: 2px 0 4px;
+  padding: 0 12px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .nav-link,
 .ghost-button {
   display: flex;
@@ -170,6 +178,17 @@ textarea {
 
 .panel {
   padding: 18px;
+}
+
+.module-panel,
+.module-stack {
+  width: 100%;
+}
+
+.module-stack {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
 }
 
 .panel-title {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { Brain, BriefcaseBusiness, Clock3, FileUp, RefreshCw, Send } from 'lucide-vue-next'
 import {
@@ -27,6 +28,7 @@ import {
   type UserProfile
 } from '../api/client'
 
+const route = useRoute()
 const profile = ref<UserProfile>()
 const resume = ref<ResumeSummary>()
 const jobs = ref<JobSummary[]>([])
@@ -52,6 +54,7 @@ const capabilityLabels: Record<string, string> = {
   'interview-feedback': '回答反馈'
 }
 
+const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'resume')
 const hasInterviewContext = computed(() => Boolean(match.value || deliveries.value.length))
 const interviewJobId = computed(() => match.value?.jobId || deliveries.value[0]?.jobId || jobs.value[0]?.jobId || 'J001')
 const interviewJob = computed(() => jobs.value.find((job) => job.jobId === interviewJobId.value))
@@ -236,36 +239,36 @@ function formatTime(value: string) {
       </div>
     </header>
 
-    <div class="grid two">
-      <section class="panel">
-        <h2 class="panel-title">
-          简历诊断
-          <Brain :size="19" />
-        </h2>
-        <div class="actions">
-          <input type="file" accept=".pdf,.doc,.docx" @change="onFileChange" />
-          <el-button type="primary" @click="submitResume">
-            <FileUp :size="17" />
-            上传
-          </el-button>
-          <el-button @click="runAnalyze">
-            <Brain :size="17" />
-            诊断
-          </el-button>
+    <section v-if="activeModule === 'resume'" class="panel module-panel">
+      <h2 class="panel-title">
+        简历诊断
+        <Brain :size="19" />
+      </h2>
+      <div class="actions">
+        <input type="file" accept=".pdf,.doc,.docx" @change="onFileChange" />
+        <el-button type="primary" @click="submitResume">
+          <FileUp :size="17" />
+          上传
+        </el-button>
+        <el-button @click="runAnalyze">
+          <Brain :size="17" />
+          诊断
+        </el-button>
+      </div>
+      <div v-if="resume" class="item-card" style="margin-top: 14px">
+        <div class="resume-card-header">
+          <strong>{{ resume.fileName }}</strong>
+          <el-tag size="small" type="info">{{ resume.storageProvider }} · {{ resume.storageStatus }}</el-tag>
         </div>
-        <div v-if="resume" class="item-card" style="margin-top: 14px">
-          <div class="resume-card-header">
-            <strong>{{ resume.fileName }}</strong>
-            <el-tag size="small" type="info">{{ resume.storageProvider }} · {{ resume.storageStatus }}</el-tag>
-          </div>
-          <span>{{ resume.education }}</span>
-          <div class="tag-row">
-            <el-tag v-for="skill in resume.skills" :key="skill" type="success">{{ skill }}</el-tag>
-          </div>
-          <p>{{ resume.diagnosis }}</p>
+        <span>{{ resume.education }}</span>
+        <div class="tag-row">
+          <el-tag v-for="skill in resume.skills" :key="skill" type="success">{{ skill }}</el-tag>
         </div>
-      </section>
+        <p>{{ resume.diagnosis }}</p>
+      </div>
+    </section>
 
+    <div v-if="activeModule === 'jobs'" class="module-stack">
       <section class="panel">
         <h2 class="panel-title">
           匹配结果
@@ -282,30 +285,30 @@ function formatTime(value: string) {
         </div>
         <el-empty v-else description="暂无匹配结果" />
       </section>
+
+      <section class="panel">
+        <h2 class="panel-title">推荐岗位</h2>
+        <div class="grid two">
+          <article v-for="job in jobs" :key="job.jobId" class="item-card">
+            <strong>{{ job.title }}</strong>
+            <span>{{ job.companyName }} · {{ job.city }} · {{ job.salaryRange }}</span>
+            <div class="tag-row">
+              <el-tag v-for="skill in job.requiredSkills" :key="skill">{{ skill }}</el-tag>
+            </div>
+            <p>{{ job.aiSummary }}</p>
+            <div class="actions">
+              <el-button @click="runMatch(job.jobId)">匹配</el-button>
+              <el-button type="primary" @click="deliver(job.jobId)">
+                <Send :size="17" />
+                投递
+              </el-button>
+            </div>
+          </article>
+        </div>
+      </section>
     </div>
 
-    <section class="panel">
-      <h2 class="panel-title">推荐岗位</h2>
-      <div class="grid two">
-        <article v-for="job in jobs" :key="job.jobId" class="item-card">
-          <strong>{{ job.title }}</strong>
-          <span>{{ job.companyName }} · {{ job.city }} · {{ job.salaryRange }}</span>
-          <div class="tag-row">
-            <el-tag v-for="skill in job.requiredSkills" :key="skill">{{ skill }}</el-tag>
-          </div>
-          <p>{{ job.aiSummary }}</p>
-          <div class="actions">
-            <el-button @click="runMatch(job.jobId)">匹配</el-button>
-            <el-button type="primary" @click="deliver(job.jobId)">
-              <Send :size="17" />
-              投递
-            </el-button>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section class="panel interview-panel">
+    <section v-if="activeModule === 'interview'" class="panel interview-panel module-panel">
       <h2 class="panel-title">
         AI 模拟面试
         <Brain :size="19" />
@@ -428,7 +431,7 @@ function formatTime(value: string) {
       </div>
     </section>
 
-    <section class="panel interview-history-panel">
+    <section v-if="activeModule === 'history'" class="panel interview-history-panel module-panel">
       <div class="panel-title history-title">
         <span>
           面试记录
@@ -517,7 +520,7 @@ function formatTime(value: string) {
       </div>
     </section>
 
-    <section class="panel">
+    <section v-if="activeModule === 'deliveries'" class="panel module-panel">
       <h2 class="panel-title">投递记录</h2>
       <el-table class="delivery-table" :data="deliveries" style="width: 100%">
         <el-table-column prop="deliveryId" label="编号" width="96" />
