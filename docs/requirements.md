@@ -40,5 +40,5 @@
 - v0.6：新增 AI 候选人初筛闭环，企业端可对投递记录生成筛选分数、推荐结论、风险点、面试追问和下一步动作，后端支持结构化 JSON 输出和确定性 mock 降级。
 - v0.7：新增 AI 候选人筛选历史闭环，筛选结果在 AI 服务内存中保存，可按企业和投递查询，企业端进入页面自动加载历史并在筛选后刷新。
 - v0.8：AI 候选人筛选历史支持 MySQL 持久化和 Redis 查询缓存，默认保留内存回退，Docker Compose 中 ai-service 可直接连接 MySQL/Redis。
-- 分布式增强：引入 Nacos、Gateway、Sentinel、RocketMQ、Seata。
-- 部署增强：完成三虚拟机部署、监控、日志、演示脚本。
+- v0.9：完成三虚拟机分布式部署规划与 Compose 编排，VM1 承载 Nacos/Gateway/前端，VM2 承载业务服务，VM3 承载 AI 服务与 MySQL/Redis/MinIO/RocketMQ；前端 Nginx 支持通过环境变量切换 Gateway 上游。
+- v1.0：补齐三虚拟机健康检查脚本、监控看板、集中日志、RocketMQ 异步流程和 MinIO 文件存储接入。

@@ -19,10 +19,10 @@ dist/
 logs/
 *.log
 .env
+deploy/three-vm.env
 uploads/
 
 # OS
 Thumbs.db
 Desktop.ini
 .DS_Store
-

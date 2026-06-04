@@ -35,6 +35,12 @@ npm run dev
 - 前端：`http://localhost:5173`
 - 网关：`http://localhost:8080`
 
+三台虚拟机分布式部署见：`docs/deploy/three-vm-deploy.md`。对应 compose 文件在 `deploy/` 目录：
+
+- `deploy/docker-compose.vm1.yml`：Nacos、Gateway、前端
+- `deploy/docker-compose.vm2.yml`：业务服务
+- `deploy/docker-compose.vm3.yml`：AI 服务和中间件
+
 ## GitHub
 
 本机已安装 GitHub CLI。首次推送前先登录：

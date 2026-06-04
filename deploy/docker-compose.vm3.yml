@@ -1,0 +1,101 @@
+name: ai-campus-recruit-vm3
+
+networks:
+  recruit-vm3-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
+  minio-data:
+
+services:
+  mysql:
+    image: docker.m.daocloud.io/library/mysql:8.4
+    container_name: recruit-vm3-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ai_campus_recruit}
+      MYSQL_ROOT_HOST: "%"
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - recruit-vm3-net
+
+  redis:
+    image: docker.m.daocloud.io/library/redis:7.4-alpine
+    container_name: recruit-vm3-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - recruit-vm3-net
+
+  minio:
+    image: docker.m.daocloud.io/minio/minio:RELEASE.2025-01-20T14-49-07Z
+    container_name: recruit-vm3-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - recruit-vm3-net
+
+  rocketmq-namesrv:
+    image: docker.m.daocloud.io/apache/rocketmq:5.3.0
+    container_name: recruit-vm3-rocketmq-namesrv
+    command: sh mqnamesrv
+    ports:
+      - "9876:9876"
+    networks:
+      - recruit-vm3-net
+
+  rocketmq-broker:
+    image: docker.m.daocloud.io/apache/rocketmq:5.3.0
+    container_name: recruit-vm3-rocketmq-broker
+    command: sh mqbroker -n rocketmq-namesrv:9876
+    depends_on:
+      - rocketmq-namesrv
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    networks:
+      - recruit-vm3-net
+
+  ai-service:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: ai-service
+    container_name: recruit-vm3-ai-service
+    environment:
+      NACOS_ENABLED: "true"
+      NACOS_SERVER_ADDR: ${VM1_HOST}:8848
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_MODEL: ${DASHSCOPE_MODEL:-qwen-plus}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      AI_SCREENING_PERSISTENCE_ENABLED: ${AI_SCREENING_PERSISTENCE_ENABLED:-true}
+      AI_SCREENING_CACHE_TTL: ${AI_SCREENING_CACHE_TTL:-10m}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+    depends_on:
+      - mysql
+      - redis
+    ports:
+      - "8106:8106"
+    networks:
+      - recruit-vm3-net

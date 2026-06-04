@@ -1,0 +1,62 @@
+name: ai-campus-recruit-vm1
+
+networks:
+  recruit-vm1-net:
+    driver: bridge
+
+volumes:
+  nacos-data:
+
+services:
+  nacos:
+    image: docker.m.daocloud.io/nacos/nacos-server:v2.4.3
+    container_name: recruit-vm1-nacos
+    environment:
+      MODE: standalone
+      PREFER_HOST_MODE: hostname
+      NACOS_AUTH_ENABLE: "false"
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    volumes:
+      - nacos-data:/home/nacos/data
+    networks:
+      - recruit-vm1-net
+
+  gateway-service:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: gateway-service
+    container_name: recruit-vm1-gateway-service
+    environment:
+      NACOS_ENABLED: "true"
+      NACOS_SERVER_ADDR: nacos:8848
+      AUTH_SERVICE_URI: http://${VM2_HOST}:8101
+      USER_SERVICE_URI: http://${VM2_HOST}:8102
+      RESUME_SERVICE_URI: http://${VM2_HOST}:8103
+      JOB_SERVICE_URI: http://${VM2_HOST}:8104
+      MATCH_SERVICE_URI: http://${VM2_HOST}:8105
+      DELIVERY_SERVICE_URI: http://${VM2_HOST}:8107
+      AI_SERVICE_URI: http://${VM3_HOST}:8106
+    depends_on:
+      - nacos
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    networks:
+      - recruit-vm1-net
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: recruit-vm1-frontend
+    environment:
+      GATEWAY_UPSTREAM: http://gateway-service:8080
+    depends_on:
+      - gateway-service
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    networks:
+      - recruit-vm1-net

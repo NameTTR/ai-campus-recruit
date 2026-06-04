@@ -256,6 +256,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: recruit-frontend
+    environment:
+      GATEWAY_UPSTREAM: http://gateway-service:8080
     depends_on:
       - gateway-service
     ports:
