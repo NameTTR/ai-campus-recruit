@@ -251,6 +251,15 @@ textarea {
   flex: 0 0 auto;
 }
 
+.resume-card-meta {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 58%;
+}
+
 .plain-list {
   margin: 0;
   padding-left: 18px;
@@ -365,6 +374,16 @@ input[type="file"] {
   .panel {
     padding: 14px;
     overflow-x: auto;
+  }
+
+  .resume-card-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .resume-card-meta {
+    justify-content: flex-start;
+    max-width: 100%;
   }
 
   .actions {

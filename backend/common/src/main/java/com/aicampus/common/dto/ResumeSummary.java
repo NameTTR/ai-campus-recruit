@@ -13,6 +13,9 @@ public record ResumeSummary(
         int score,
         String objectKey,
         String storageProvider,
-        String storageStatus
+        String storageStatus,
+        String sourceFormat,
+        String parseStatus,
+        int parsedTextLength
 ) {
 }

@@ -44,7 +44,7 @@ public class ResumeController {
         ResumeSummary seed = new ResumeSummary("R001", "S001", "demo-resume.pdf", "示范大学 软件工程 本科",
                 List.of("Java", "Spring Boot", "MySQL", "Redis"), List.of("校园二手交易系统", "在线考试平台"),
                 "简历结构完整，建议补充量化成果和实习经历。", 82,
-                "resumes/R001/demo-resume.pdf", "local-demo", "SEEDED");
+                "resumes/R001/demo-resume.pdf", "local-demo", "SEEDED", "PDF", "SEEDED", 62);
         resumes.put(seed.resumeId(), seed);
         resumeTexts.put(seed.resumeId(), "示范大学 软件工程 本科。技能：Java、Spring Boot、MySQL、Redis。项目：校园二手交易系统、在线考试平台。");
     }
@@ -58,7 +58,8 @@ public class ResumeController {
         resumeTexts.put(resumeId, extractedText);
         ResumeSummary summary = new ResumeSummary(resumeId, "S001", fileName, uploadEducation(extractedText),
                 new ArrayList<>(inferSkills(extractedText)), List.of("课程项目"), uploadDiagnosis(extractedText), 70,
-                stored.objectKey(), stored.storageProvider(), stored.storageStatus());
+                stored.objectKey(), stored.storageProvider(), stored.storageStatus(),
+                sourceFormat(fileName), parseStatus(extractedText), extractedText.length());
         resumes.put(resumeId, summary);
         return ApiResponse.ok(summary);
     }
@@ -76,7 +77,8 @@ public class ResumeController {
         ResumeSummary analyzed = new ResumeSummary(current.resumeId(), current.studentId(), current.fileName(),
                 "示范大学 软件工程 本科", List.of("Java", "Spring Boot", "MySQL", "Redis", "Docker"),
                 current.projects(), diagnosis, 86,
-                current.objectKey(), current.storageProvider(), current.storageStatus());
+                current.objectKey(), current.storageProvider(), current.storageStatus(),
+                current.sourceFormat(), current.parseStatus(), current.parsedTextLength());
         resumes.put(analyzed.resumeId(), analyzed);
         return ApiResponse.ok(analyzed);
     }
@@ -107,6 +109,21 @@ public class ResumeController {
         return extractedText == null || extractedText.isBlank()
                 ? "待分析"
                 : "已读取简历正文，点击诊断生成 AI 建议。";
+    }
+
+    private static String parseStatus(String extractedText) {
+        return extractedText == null || extractedText.isBlank() ? "UNPARSED" : "TEXT_EXTRACTED";
+    }
+
+    private static String sourceFormat(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return "UNKNOWN";
+        }
+        int dot = fileName.lastIndexOf('.');
+        if (dot < 0 || dot == fileName.length() - 1) {
+            return "UNKNOWN";
+        }
+        return fileName.substring(dot + 1).toUpperCase(Locale.ROOT);
     }
 
     private static List<String> inferSkills(String extractedText) {

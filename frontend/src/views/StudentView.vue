@@ -209,6 +209,15 @@ function statusTagType(status: DeliveryStatus) {
   return types[status]
 }
 
+function parseStatusText(status: string) {
+  const labels: Record<string, string> = {
+    TEXT_EXTRACTED: '已读正文',
+    UNPARSED: '未读正文',
+    SEEDED: '演示数据'
+  }
+  return labels[status] || status
+}
+
 function capabilityText(capability: string) {
   return capabilityLabels[capability] || capability
 }
@@ -258,7 +267,11 @@ function formatTime(value: string) {
       <div v-if="resume" class="item-card" style="margin-top: 14px">
         <div class="resume-card-header">
           <strong>{{ resume.fileName }}</strong>
-          <el-tag size="small" type="info">{{ resume.storageProvider }} · {{ resume.storageStatus }}</el-tag>
+          <div class="resume-card-meta">
+            <el-tag size="small" type="success">{{ resume.sourceFormat }} · {{ parseStatusText(resume.parseStatus) }}</el-tag>
+            <el-tag v-if="resume.parsedTextLength > 0" size="small" type="info">{{ resume.parsedTextLength }} 字</el-tag>
+            <el-tag size="small" type="info">{{ resume.storageProvider }} · {{ resume.storageStatus }}</el-tag>
+          </div>
         </div>
         <span>{{ resume.education }}</span>
         <div class="tag-row">

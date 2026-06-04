@@ -29,7 +29,10 @@ class ResumeControllerTest {
                 .andExpect(jsonPath("$.data.fileName").value("resume.pdf"))
                 .andExpect(jsonPath("$.data.studentId").value("S001"))
                 .andExpect(jsonPath("$.data.storageProvider").value("local-demo"))
-                .andExpect(jsonPath("$.data.storageStatus").value("SKIPPED"));
+                .andExpect(jsonPath("$.data.storageStatus").value("SKIPPED"))
+                .andExpect(jsonPath("$.data.sourceFormat").value("PDF"))
+                .andExpect(jsonPath("$.data.parseStatus").value("UNPARSED"))
+                .andExpect(jsonPath("$.data.parsedTextLength").value(0));
     }
 
     @Test
@@ -46,6 +49,8 @@ class ResumeControllerTest {
                 .andExpect(jsonPath("$.data.education").value("已读取简历正文"))
                 .andExpect(jsonPath("$.data.diagnosis").value("已读取简历正文，点击诊断生成 AI 建议。"))
                 .andExpect(jsonPath("$.data.skills[0]").value("Java"))
+                .andExpect(jsonPath("$.data.sourceFormat").value("DOCX"))
+                .andExpect(jsonPath("$.data.parseStatus").value("TEXT_EXTRACTED"))
                 .andExpect(jsonPath("$.data.storageStatus").value("SKIPPED"));
     }
 

@@ -19,7 +19,7 @@
 ## Resume
 
 - `POST /api/resumes/upload`：上传简历，支持 PDF、DOC、DOCX；可解析文本的文件会抽取正文并在后续诊断中优先传给 AI。
-  - 返回：`ResumeSummary`，包含 `resumeId`、`studentId`、`fileName`、`education`、`skills`、`projects`、`diagnosis`、`score`、`objectKey`、`storageProvider`、`storageStatus`。
+  - 返回：`ResumeSummary`，包含 `resumeId`、`studentId`、`fileName`、`education`、`skills`、`projects`、`diagnosis`、`score`、`objectKey`、`storageProvider`、`storageStatus`、`sourceFormat`、`parseStatus`、`parsedTextLength`。
   - `storageProvider=local-demo` 且 `storageStatus=SKIPPED` 表示对象存储未开启；`storageProvider=minio` 且 `storageStatus=STORED` 表示文件已写入 MinIO；`FAILED` 表示写入 MinIO 失败但上传主流程已降级继续。
 - `GET /api/resumes/{id}`：查看简历摘要。
 - `POST /api/resumes/{id}/analyze`：触发 AI 简历诊断。

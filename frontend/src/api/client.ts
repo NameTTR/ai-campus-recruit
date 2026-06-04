@@ -29,6 +29,9 @@ export interface ResumeSummary {
   objectKey: string
   storageProvider: string
   storageStatus: string
+  sourceFormat: string
+  parseStatus: string
+  parsedTextLength: number
 }
 
 export interface JobSummary {
@@ -221,7 +224,10 @@ const fallbackResume: ResumeSummary = {
   score: 86,
   objectKey: 'resumes/R001/demo-resume.pdf',
   storageProvider: 'local-demo',
-  storageStatus: 'SEEDED'
+  storageStatus: 'SEEDED',
+  sourceFormat: 'PDF',
+  parseStatus: 'SEEDED',
+  parsedTextLength: 62
 }
 
 const fallbackJobs: JobSummary[] = [
