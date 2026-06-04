@@ -10,7 +10,9 @@ public record ResumeSummary(
         List<String> skills,
         List<String> projects,
         String diagnosis,
-        int score
+        int score,
+        String objectKey,
+        String storageProvider,
+        String storageStatus
 ) {
 }
-

@@ -1,10 +1,12 @@
 package com.aicampus.delivery.controller;
 
 import com.aicampus.common.api.ApiResponse;
+import com.aicampus.common.dto.DeliveryEvent;
 import com.aicampus.common.dto.DeliveryRecord;
 import com.aicampus.common.dto.DeliveryRequest;
 import com.aicampus.common.dto.DeliveryStatistics;
 import com.aicampus.common.enums.DeliveryStatus;
+import com.aicampus.delivery.service.DeliveryEventPublisher;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -33,8 +35,10 @@ public class DeliveryController {
     );
 
     private final Map<String, DeliveryRecord> deliveries = new ConcurrentHashMap<>();
+    private final DeliveryEventPublisher eventPublisher;
 
-    public DeliveryController() {
+    public DeliveryController(DeliveryEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
         seed(new DeliveryRecord("D001", "S001", "R001", "J001", "C001", DeliveryStatus.SUBMITTED, LocalDateTime.now().minusDays(1)));
         seed(new DeliveryRecord("D002", "S002", "R002", "J001", "C001", DeliveryStatus.VIEWED, LocalDateTime.now().minusHours(20)));
         seed(new DeliveryRecord("D003", "S003", "R003", "J002", "C001", DeliveryStatus.INTERVIEW, LocalDateTime.now().minusHours(12)));
@@ -49,6 +53,7 @@ public class DeliveryController {
         DeliveryRecord record = new DeliveryRecord(id, valueOr(request.studentId(), "S001"), valueOr(request.resumeId(), "R001"),
                 jobId, companyIdFor(jobId), DeliveryStatus.SUBMITTED, LocalDateTime.now());
         deliveries.put(id, record);
+        eventPublisher.publish("DELIVERY_CREATED", record);
         return ApiResponse.ok(record);
     }
 
@@ -76,12 +81,18 @@ public class DeliveryController {
         return ApiResponse.ok(toStatistics(new ArrayList<>(deliveries.values())));
     }
 
+    @GetMapping("/events")
+    public ApiResponse<List<DeliveryEvent>> events() {
+        return ApiResponse.ok(eventPublisher.recentEvents());
+    }
+
     @PutMapping("/{id}/status")
     public ApiResponse<DeliveryRecord> updateStatus(@PathVariable("id") String id, @RequestParam("status") DeliveryStatus status) {
         DeliveryRecord current = deliveries.getOrDefault(id, deliveries.get("D001"));
         DeliveryRecord updated = new DeliveryRecord(current.deliveryId(), current.studentId(), current.resumeId(),
                 current.jobId(), current.companyId(), status, current.createdAt());
         deliveries.put(updated.deliveryId(), updated);
+        eventPublisher.publish("DELIVERY_STATUS_CHANGED", updated);
         return ApiResponse.ok(updated);
     }
 

@@ -41,6 +41,25 @@ npm run dev
 - `deploy/docker-compose.vm2.yml`：业务服务
 - `deploy/docker-compose.vm3.yml`：AI 服务和中间件
 
+三机启动后可从 Windows 宿主机或任意能访问三台 VM 的 Linux 机器执行健康检查和业务 smoke：
+
+```powershell
+.\scripts\check-three-vm-health.ps1 -EnvFile .\deploy\three-vm.env -TimeoutSeconds 5
+.\scripts\check-api-smoke.ps1 -BaseUrl http://<VM1_IP>:8080
+```
+
+```bash
+bash scripts/check-three-vm-health.sh --env-file deploy/three-vm.env --timeout 5
+bash scripts/check-api-smoke.sh --base-url http://<VM1_IP>:8080
+```
+
+发布说明见 `docs/releases/`：
+
+- `docs/releases/v1.0.md`：三机健康检查与运维基线
+- `docs/releases/v1.1.md`：MinIO 简历对象存储
+- `docs/releases/v1.2.md`：RocketMQ 投递事件
+- `docs/releases/v1.3.md`：API smoke 与部署验收脚本
+
 ## GitHub
 
 本机已安装 GitHub CLI。首次推送前先登录：

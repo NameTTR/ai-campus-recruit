@@ -34,6 +34,20 @@ class DeliveryControllerTest {
     }
 
     @Test
+    void createDeliveryRecordsDisabledRocketMqEventWhenQueueIsOff() throws Exception {
+        mockMvc.perform(post("/api/deliveries")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"studentId\":\"S001\",\"resumeId\":\"R001\",\"jobId\":\"J001\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/deliveries/events"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].eventType").value("DELIVERY_CREATED"))
+                .andExpect(jsonPath("$.data[0].deliveryId").exists())
+                .andExpect(jsonPath("$.data[0].publishStatus").value("DISABLED"));
+    }
+
+    @Test
     void updateStatusSupportsReviewStates() throws Exception {
         for (String nextStatus : List.of("VIEWED", "INTERVIEW", "OFFER", "REJECTED")) {
             mockMvc.perform(put("/api/deliveries/D001/status?status=" + nextStatus))
@@ -42,6 +56,11 @@ class DeliveryControllerTest {
                     .andExpect(jsonPath("$.data.companyId").value("C001"))
                     .andExpect(jsonPath("$.data.status").value(nextStatus));
         }
+
+        mockMvc.perform(get("/api/deliveries/events"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].eventType").value("DELIVERY_STATUS_CHANGED"))
+                .andExpect(jsonPath("$.data[0].publishStatus").value("DISABLED"));
     }
 
     @Test

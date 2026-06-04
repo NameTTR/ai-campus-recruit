@@ -8,6 +8,7 @@ import {
   generateInterviewQuestions,
   getAiStatus,
   getProfile,
+  getResume,
   listDeliveries,
   listInterviewRecords,
   listJobs,
@@ -67,6 +68,7 @@ const aiProviderText = computed(() => {
 
 onMounted(async () => {
   profile.value = await getProfile()
+  resume.value = await getResume()
   jobs.value = await listJobs()
   deliveries.value = await listDeliveries()
   await Promise.all([refreshAiStatus(), refreshInterviewRecords()])
@@ -252,7 +254,10 @@ function formatTime(value: string) {
           </el-button>
         </div>
         <div v-if="resume" class="item-card" style="margin-top: 14px">
-          <strong>{{ resume.fileName }}</strong>
+          <div class="resume-card-header">
+            <strong>{{ resume.fileName }}</strong>
+            <el-tag size="small" type="info">{{ resume.storageProvider }} · {{ resume.storageStatus }}</el-tag>
+          </div>
           <span>{{ resume.education }}</span>
           <div class="tag-row">
             <el-tag v-for="skill in resume.skills" :key="skill" type="success">{{ skill }}</el-tag>

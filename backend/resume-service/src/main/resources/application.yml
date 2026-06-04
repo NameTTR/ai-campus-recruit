@@ -17,6 +17,14 @@ spring:
 services:
   ai: ${AI_SERVICE_URI:http://localhost:8106}
 
+resume:
+  storage:
+    enabled: ${RESUME_OBJECT_STORAGE_ENABLED:false}
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket: ${MINIO_BUCKET:resumes}
+
 management:
   endpoints:
     web:
@@ -26,4 +34,3 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
-

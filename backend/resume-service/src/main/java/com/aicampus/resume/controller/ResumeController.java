@@ -4,6 +4,8 @@ import com.aicampus.common.api.ApiResponse;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.ResumeSummary;
+import com.aicampus.resume.service.ResumeObjectStorageService;
+import com.aicampus.resume.service.ResumeObjectStorageService.StoredResumeObject;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -27,12 +29,16 @@ import org.springframework.web.multipart.MultipartFile;
 public class ResumeController {
     private final Map<String, ResumeSummary> resumes = new ConcurrentHashMap<>();
     private final RestClient restClient;
+    private final ResumeObjectStorageService storageService;
 
-    public ResumeController(@Value("${services.ai:http://localhost:8106}") String aiServiceUrl) {
+    public ResumeController(@Value("${services.ai:http://localhost:8106}") String aiServiceUrl,
+            ResumeObjectStorageService storageService) {
         this.restClient = RestClient.create(aiServiceUrl);
+        this.storageService = storageService;
         ResumeSummary seed = new ResumeSummary("R001", "S001", "demo-resume.pdf", "示范大学 软件工程 本科",
                 List.of("Java", "Spring Boot", "MySQL", "Redis"), List.of("校园二手交易系统", "在线考试平台"),
-                "简历结构完整，建议补充量化成果和实习经历。", 82);
+                "简历结构完整，建议补充量化成果和实习经历。", 82,
+                "resumes/R001/demo-resume.pdf", "local-demo", "SEEDED");
         resumes.put(seed.resumeId(), seed);
     }
 
@@ -40,8 +46,10 @@ public class ResumeController {
     public ApiResponse<ResumeSummary> upload(@RequestParam("file") MultipartFile file) {
         String resumeId = "R" + UUID.randomUUID().toString().substring(0, 8);
         String fileName = file.getOriginalFilename() == null ? "resume.pdf" : file.getOriginalFilename();
+        StoredResumeObject stored = storageService.store(resumeId, file);
         ResumeSummary summary = new ResumeSummary(resumeId, "S001", fileName, "待 AI 解析",
-                new ArrayList<>(List.of("Java", "Spring Boot")), List.of("课程项目"), "待分析", 70);
+                new ArrayList<>(List.of("Java", "Spring Boot")), List.of("课程项目"), "待分析", 70,
+                stored.objectKey(), stored.storageProvider(), stored.storageStatus());
         resumes.put(resumeId, summary);
         return ApiResponse.ok(summary);
     }
@@ -57,7 +65,8 @@ public class ResumeController {
         String diagnosis = callAi(current);
         ResumeSummary analyzed = new ResumeSummary(current.resumeId(), current.studentId(), current.fileName(),
                 "示范大学 软件工程 本科", List.of("Java", "Spring Boot", "MySQL", "Redis", "Docker"),
-                current.projects(), diagnosis, 86);
+                current.projects(), diagnosis, 86,
+                current.objectKey(), current.storageProvider(), current.storageStatus());
         resumes.put(analyzed.resumeId(), analyzed);
         return ApiResponse.ok(analyzed);
     }

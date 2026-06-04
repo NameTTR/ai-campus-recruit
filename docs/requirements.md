@@ -41,4 +41,7 @@
 - v0.7：新增 AI 候选人筛选历史闭环，筛选结果在 AI 服务内存中保存，可按企业和投递查询，企业端进入页面自动加载历史并在筛选后刷新。
 - v0.8：AI 候选人筛选历史支持 MySQL 持久化和 Redis 查询缓存，默认保留内存回退，Docker Compose 中 ai-service 可直接连接 MySQL/Redis。
 - v0.9：完成三虚拟机分布式部署规划与 Compose 编排，VM1 承载 Nacos/Gateway/前端，VM2 承载业务服务，VM3 承载 AI 服务与 MySQL/Redis/MinIO/RocketMQ；前端 Nginx 支持通过环境变量切换 Gateway 上游。
-- v1.0：补齐三虚拟机健康检查脚本、监控看板、集中日志、RocketMQ 异步流程和 MinIO 文件存储接入。
+- v1.0：补齐三虚拟机健康检查脚本和运维基线，支持 Windows PowerShell 与 Linux bash 从统一 env 文件读取 VM 地址，检查前端、Gateway、Nacos、业务服务、AI 服务及 MySQL/Redis/MinIO/RocketMQ 基础可达性；文档补充基础监控和日志排障命令。
+- v1.1：接入 MinIO 简历文件对象存储，简历上传返回对象 key、provider 和写入状态，Docker Compose 与三机部署可直接指向 MinIO，并保留本地降级。
+- v1.2：接入 RocketMQ 投递事件，创建投递和更新状态会生成事件并尝试发布到 `delivery-events` topic，提供最近事件查询与失败降级状态。
+- v1.3：补齐自动化回归和部署验收脚本，覆盖三机健康检查、关键 API smoke 和失败出口码，提供 PowerShell 与 bash 两套入口。

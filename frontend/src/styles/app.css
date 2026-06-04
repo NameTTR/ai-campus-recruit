@@ -213,6 +213,25 @@ textarea {
   min-width: 0;
 }
 
+.resume-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.resume-card-header strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resume-card-header .el-tag {
+  flex: 0 0 auto;
+}
+
 .plain-list {
   margin: 0;
   padding-left: 18px;

@@ -161,9 +161,15 @@ services:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
       AI_SERVICE_URI: http://ai-service:8106
+      RESUME_OBJECT_STORAGE_ENABLED: "true"
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-resumes}
     depends_on:
       - nacos
       - ai-service
+      - minio
     ports:
       - "8103:8103"
     networks:
@@ -215,8 +221,13 @@ services:
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
+      DELIVERY_EVENTS_ROCKETMQ_ENABLED: ${DELIVERY_EVENTS_ROCKETMQ_ENABLED:-true}
+      ROCKETMQ_NAME_SERVER: rocketmq-namesrv:9876
+      DELIVERY_EVENTS_TOPIC: ${DELIVERY_EVENTS_TOPIC:-delivery-events}
     depends_on:
       - nacos
+      - rocketmq-namesrv
+      - rocketmq-broker
     ports:
       - "8107:8107"
     networks:

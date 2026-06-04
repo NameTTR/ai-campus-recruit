@@ -3,6 +3,7 @@ import {
   generateInterviewQuestions,
   getAiStatus,
   getProfile,
+  getResume,
   getDeliveryStatistics,
   listCandidateScreenRecords,
   listInterviewRecords,
@@ -61,6 +62,15 @@ describe('api fallback behavior', () => {
 
     expect(result.score).toBe(88)
     expect(result.suggestions.length).toBeGreaterThan(0)
+  })
+
+  it('returns resume fallback with storage status when gateway is offline', async () => {
+    const result = await getResume()
+
+    expect(result.resumeId).toBe('R001')
+    expect(result.objectKey).toBe('resumes/R001/demo-resume.pdf')
+    expect(result.storageProvider).toBe('local-demo')
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('returns interview question fallback when gateway is offline', async () => {

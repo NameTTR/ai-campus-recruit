@@ -1,4 +1,4 @@
-# v0.9 三虚拟机部署手册
+# 三虚拟机部署手册
 
 本文档面向三台 Ubuntu 虚拟机部署。三台机器都克隆同一份仓库，并使用同一份 `deploy/three-vm.env`。根目录 `docker-compose.yml` 仍保留为单机编排；三机部署使用 `deploy/docker-compose.vm1.yml`、`deploy/docker-compose.vm2.yml`、`deploy/docker-compose.vm3.yml`。
 
@@ -76,6 +76,9 @@ VM3_HOST=192.168.56.13
 
 MYSQL_ROOT_PASSWORD=<strong_mysql_password>
 MYSQL_DATABASE=ai_campus_recruit
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=<strong_minio_password>
+MINIO_BUCKET=resumes
 
 DASHSCOPE_API_KEY=
 DASHSCOPE_MODEL=qwen-plus
@@ -83,6 +86,8 @@ DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 
 AI_SCREENING_PERSISTENCE_ENABLED=true
 AI_SCREENING_CACHE_TTL=10m
+DELIVERY_EVENTS_ROCKETMQ_ENABLED=true
+DELIVERY_EVENTS_TOPIC=delivery-events
 
 FRONTEND_PORT=80
 GATEWAY_PORT=8080
@@ -97,18 +102,23 @@ GATEWAY_PORT=8080
 | `VM3_HOST` | AI 服务和中间件所在 VM 的内网地址 |
 | `MYSQL_ROOT_PASSWORD` | VM3 MySQL root 密码 |
 | `MYSQL_DATABASE` | 默认业务数据库，当前为 `ai_campus_recruit` |
+| `MINIO_ROOT_USER` | VM3 MinIO 管理账号，同时作为 VM2 `resume-service` 写入凭据 |
+| `MINIO_ROOT_PASSWORD` | VM3 MinIO 管理密码，不要提交真实值 |
+| `MINIO_BUCKET` | 简历对象存储 bucket，默认 `resumes` |
 | `DASHSCOPE_API_KEY` | 阿里云百炼 API Key；为空时 AI 服务进入 mock 演示模式 |
 | `DASHSCOPE_MODEL` | 默认 `qwen-plus` |
 | `DASHSCOPE_BASE_URL` | 默认 `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | `AI_SCREENING_PERSISTENCE_ENABLED` | AI 候选人初筛历史是否写入 MySQL，v0.9 建议为 `true` |
 | `AI_SCREENING_CACHE_TTL` | AI 初筛历史 Redis 缓存 TTL |
+| `DELIVERY_EVENTS_ROCKETMQ_ENABLED` | 投递事件是否发布到 RocketMQ，三机部署默认 `true` |
+| `DELIVERY_EVENTS_TOPIC` | 投递事件 topic，默认 `delivery-events` |
 | `FRONTEND_PORT` | VM1 前端暴露端口 |
 | `GATEWAY_PORT` | VM1 Gateway 暴露端口 |
 
 服务内实际使用的关键环境变量：
 
 - VM1 `gateway-service`：`AUTH_SERVICE_URI=http://${VM2_HOST}:8101`、`USER_SERVICE_URI=http://${VM2_HOST}:8102`、`RESUME_SERVICE_URI=http://${VM2_HOST}:8103`、`JOB_SERVICE_URI=http://${VM2_HOST}:8104`、`MATCH_SERVICE_URI=http://${VM2_HOST}:8105`、`DELIVERY_SERVICE_URI=http://${VM2_HOST}:8107`、`AI_SERVICE_URI=http://${VM3_HOST}:8106`。
-- VM2 业务服务：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`；`resume-service` 和 `job-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`。
+- VM2 业务服务：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`；`resume-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`RESUME_OBJECT_STORAGE_ENABLED=true`、`MINIO_ENDPOINT=http://${VM3_HOST}:9000`、`MINIO_BUCKET=${MINIO_BUCKET}`；`job-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`；`delivery-service` 额外使用 `DELIVERY_EVENTS_ROCKETMQ_ENABLED=true`、`ROCKETMQ_NAME_SERVER=${VM3_HOST}:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
 - VM3 `ai-service`：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`、`SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=redis`。
 
 ## 启动顺序
@@ -208,6 +218,32 @@ http://<VM1_IP>/
 
 ## 验证命令
 
+### 一键健康检查
+
+v1.0 新增跨三台 VM 的健康检查脚本。脚本只读取 `deploy/three-vm.env` 中的地址和端口，不输出 `DASHSCOPE_API_KEY`、数据库密码等敏感值。
+
+Windows PowerShell 调用者：
+
+```powershell
+.\scripts\check-three-vm-health.ps1 -EnvFile .\deploy\three-vm.env -TimeoutSeconds 5
+```
+
+Linux bash 调用者：
+
+```bash
+bash scripts/check-three-vm-health.sh --env-file deploy/three-vm.env --timeout 5
+```
+
+检查范围：
+
+- VM1：前端 `/`、前端 `/api/ai/status` 代理、Gateway `/actuator/health`、Gateway `/api/ai/status`、Nacos `/nacos/`、Nacos gRPC `9848`。
+- VM2：`auth-service`、`user-service`、`resume-service`、`job-service`、`match-service`、`delivery-service` 的 `/actuator/health`。
+- VM3：`ai-service` `/actuator/health` 和 `/api/ai/status`，MySQL `3306`、Redis `6379`、MinIO `/minio/health/ready` 和 Console `9001`、RocketMQ `9876`、`10911`、`10909`。
+
+脚本返回非零 exit code 表示至少一个检查失败，适合部署后验收或后续接入 CI。
+
+### 手工接口验证
+
 在任意能访问三台 VM 的机器上执行：
 
 ```bash
@@ -219,6 +255,7 @@ curl -sS "http://<VM1_IP>:8080/api/students/profile"
 curl -sS "http://<VM1_IP>:8080/api/jobs"
 curl -sS "http://<VM1_IP>:8080/api/ai/status"
 curl -sS "http://<VM1_IP>/api/ai/status"
+curl -sS "http://<VM1_IP>:8080/api/deliveries/events"
 ```
 
 OpenAPI 直连路径：
@@ -255,6 +292,45 @@ curl -sS "http://<VM1_IP>:8080/api/ai/candidates/screenings?companyId=C001"
 - `student / 123456`
 - `company / 123456`
 - `admin / 123456`
+
+三机整体健康检查：
+
+```powershell
+.\scripts\check-three-vm-health.ps1 -EnvFile .\deploy\three-vm.env -TimeoutSeconds 5
+.\scripts\check-api-smoke.ps1 -BaseUrl http://<VM1_IP>:8080
+```
+
+```bash
+bash scripts/check-three-vm-health.sh --env-file deploy/three-vm.env --timeout 5
+bash scripts/check-api-smoke.sh --base-url http://<VM1_IP>:8080
+```
+
+## 基础监控与日志
+
+v1.0 先建立轻量运维基线，暂不强制安装 Prometheus、Grafana 或集中日志平台。
+
+容器状态：
+
+```bash
+docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml ps
+docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm2.yml ps
+docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm3.yml ps
+```
+
+服务日志：
+
+```bash
+docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml logs --tail 100 gateway-service frontend nacos
+docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm2.yml logs --tail 100 auth-service resume-service job-service delivery-service
+docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm3.yml logs --tail 100 ai-service mysql redis minio rocketmq-namesrv rocketmq-broker
+```
+
+建议排障顺序：
+
+1. 先运行 `scripts/check-three-vm-health.ps1` 或 `scripts/check-three-vm-health.sh` 定位失败 VM 和端点。
+2. 再在对应 VM 执行 `docker compose ps` 确认容器是否运行。
+3. 最后使用 `docker compose logs --tail 100 <service>` 查看服务日志。
+4. 如果 Gateway 或前端代理失败，优先检查 VM1 到 VM2/VM3 的网络、防火墙和服务端口。
 
 ## 常见问题
 
@@ -317,6 +393,32 @@ docker exec recruit-vm3-redis redis-cli ping
 
 VM1 可通过 `FRONTEND_PORT`、`GATEWAY_PORT` 改前端和 Gateway 暴露端口。后端服务端口来自各服务 `application.yml`，改动会影响 Gateway 路由和文档，不建议在 v0.9 部署时临时调整。
 
-**RocketMQ 和 MinIO 是否已经被业务强依赖**
+**简历上传返回 `storageStatus=FAILED`**
 
-v0.9 先把 RocketMQ、MinIO 作为分布式基础设施启动。当前 AI 初筛持久化主要依赖 MySQL 和 Redis；后续异步任务、文件对象存储接入时复用 VM3。
+`resume-service` 会降级继续返回简历摘要，但文件没有写入 MinIO。检查 VM2 到 VM3 MinIO 的网络和凭据：
+
+```bash
+docker exec recruit-vm2-resume-service printenv | grep MINIO
+curl -f http://<VM3_IP>:9000/minio/health/ready
+docker logs recruit-vm2-resume-service --tail 100
+```
+
+**投递事件没有发布到 RocketMQ**
+
+`delivery-service` 会降级记录事件状态，主投递流程不失败。先查询最近事件：
+
+```bash
+curl -sS http://<VM1_IP>:8080/api/deliveries/events
+```
+
+如果 `publishStatus=FAILED`，检查 RocketMQ 地址和 VM3 端口：
+
+```bash
+docker exec recruit-vm2-delivery-service printenv | grep ROCKETMQ
+docker exec recruit-vm2-delivery-service printenv | grep DELIVERY_EVENTS
+nc -zv <VM3_IP> 9876
+docker logs recruit-vm3-rocketmq-namesrv --tail 100
+docker logs recruit-vm3-rocketmq-broker --tail 100
+```
+
+如果 broker 禁止自动创建 topic，需要在 RocketMQ 中预先创建 `delivery-events` topic。

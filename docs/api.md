@@ -19,6 +19,8 @@
 ## Resume
 
 - `POST /api/resumes/upload`：上传简历。
+  - 返回：`ResumeSummary`，包含 `resumeId`、`studentId`、`fileName`、`education`、`skills`、`projects`、`diagnosis`、`score`、`objectKey`、`storageProvider`、`storageStatus`。
+  - `storageProvider=local-demo` 且 `storageStatus=SKIPPED` 表示对象存储未开启；`storageProvider=minio` 且 `storageStatus=STORED` 表示文件已写入 MinIO；`FAILED` 表示写入 MinIO 失败但上传主流程已降级继续。
 - `GET /api/resumes/{id}`：查看简历摘要。
 - `POST /api/resumes/{id}/analyze`：触发 AI 简历诊断。
 
@@ -74,6 +76,9 @@
 - `GET /api/deliveries/company?companyId=C001`：企业查看本企业投递列表。
 - `GET /api/deliveries/statistics`：投递状态统计。
   - 返回：`totalCount`、`statusCounts`、`pendingCount`。
+- `GET /api/deliveries/events`：查看最近投递事件。
+  - 返回：`DeliveryEvent[]`，每项包含 `eventId`、`eventType`、`deliveryId`、`studentId`、`resumeId`、`jobId`、`companyId`、`deliveryStatus`、`publishStatus`、`createdAt`。
+  - `publishStatus=DISABLED` 表示 RocketMQ 发布关闭；`SEND_OK` 表示发布成功；`FAILED` 表示发布失败但投递主流程已降级继续。
 - `PUT /api/deliveries/{id}/status?status=INTERVIEW`：更新投递状态。
   - 支持状态：`SUBMITTED`、`VIEWED`、`INTERVIEW`、`OFFER`、`REJECTED`。
 

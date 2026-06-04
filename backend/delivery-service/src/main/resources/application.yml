@@ -10,6 +10,14 @@ spring:
         enabled: ${NACOS_ENABLED:false}
         server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
 
+delivery:
+  events:
+    rocketmq:
+      enabled: ${DELIVERY_EVENTS_ROCKETMQ_ENABLED:false}
+      name-server: ${ROCKETMQ_NAME_SERVER:127.0.0.1:9876}
+      producer-group: ${DELIVERY_EVENTS_PRODUCER_GROUP:delivery-service-producer}
+      topic: ${DELIVERY_EVENTS_TOPIC:delivery-events}
+
 management:
   endpoints:
     web:
@@ -19,4 +27,3 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
-

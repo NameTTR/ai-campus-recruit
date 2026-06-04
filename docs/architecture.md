@@ -13,11 +13,11 @@
 
 ## 数据流
 
-1. 学生上传简历到 `resume-service`。
+1. 学生上传简历到 `resume-service`，Docker 部署时文件写入 VM3 MinIO，并在摘要中返回对象 key 和存储状态。
 2. `resume-service` 调用 `ai-service` 生成简历诊断。
 3. 企业在 `job-service` 发布岗位并可触发 JD 分析。
 4. `match-service` 根据简历摘要和岗位要求生成匹配结果。
-5. 学生通过 `delivery-service` 投递岗位。
+5. 学生通过 `delivery-service` 投递岗位，服务生成投递事件并尝试发布到 RocketMQ。
 6. 学校端聚合岗位、投递和匹配统计。
 
 ## 基础设施
@@ -26,7 +26,7 @@
 - Redis：缓存热点岗位、匹配结果和验证码。
 - Nacos：注册中心和配置中心。
 - Sentinel：限流、熔断和降级。
-- RocketMQ：简历解析、AI 评分、通知等异步任务。
+- RocketMQ：投递创建和状态变更事件；后续可扩展简历解析、AI 评分、通知等异步任务。
 - MinIO：简历文件对象存储。
 - Docker：本机和虚拟机部署。
 
@@ -35,4 +35,3 @@
 - VM1：前端、Gateway、Nacos、Sentinel。
 - VM2：业务微服务。
 - VM3：MySQL、Redis、RocketMQ、MinIO、AI 服务、监控组件。
-

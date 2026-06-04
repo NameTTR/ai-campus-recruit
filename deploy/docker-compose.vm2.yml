@@ -46,6 +46,11 @@ services:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
       AI_SERVICE_URI: http://${VM3_HOST}:8106
+      RESUME_OBJECT_STORAGE_ENABLED: "true"
+      MINIO_ENDPOINT: http://${VM3_HOST}:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-resumes}
     ports:
       - "8103:8103"
     networks:
@@ -92,6 +97,9 @@ services:
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
+      DELIVERY_EVENTS_ROCKETMQ_ENABLED: ${DELIVERY_EVENTS_ROCKETMQ_ENABLED:-true}
+      ROCKETMQ_NAME_SERVER: ${VM3_HOST}:9876
+      DELIVERY_EVENTS_TOPIC: ${DELIVERY_EVENTS_TOPIC:-delivery-events}
     ports:
       - "8107:8107"
     networks:

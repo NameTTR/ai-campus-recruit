@@ -26,6 +26,9 @@ export interface ResumeSummary {
   projects: string[]
   diagnosis: string
   score: number
+  objectKey: string
+  storageProvider: string
+  storageStatus: string
 }
 
 export interface JobSummary {
@@ -215,7 +218,10 @@ const fallbackResume: ResumeSummary = {
   skills: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker'],
   projects: ['校园二手交易系统', '在线考试平台'],
   diagnosis: '简历结构完整，建议补充量化成果、部署方式和团队协作细节。',
-  score: 86
+  score: 86,
+  objectKey: 'resumes/R001/demo-resume.pdf',
+  storageProvider: 'local-demo',
+  storageStatus: 'SEEDED'
 }
 
 const fallbackJobs: JobSummary[] = [
@@ -430,6 +436,10 @@ export function uploadResume(file: File) {
     ...fallbackResume,
     fileName: file.name
   })
+}
+
+export function getResume(resumeId = 'R001') {
+  return request<ResumeSummary>(`/api/resumes/${resumeId}`, { method: 'GET' }, fallbackResume)
 }
 
 export function analyzeResume(resumeId: string) {

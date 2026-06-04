@@ -25,7 +25,9 @@ class ResumeControllerTest {
         mockMvc.perform(multipart("/api/resumes/upload").file(file))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.fileName").value("resume.pdf"))
-                .andExpect(jsonPath("$.data.studentId").value("S001"));
+                .andExpect(jsonPath("$.data.studentId").value("S001"))
+                .andExpect(jsonPath("$.data.storageProvider").value("local-demo"))
+                .andExpect(jsonPath("$.data.storageStatus").value("SKIPPED"));
     }
 
     @Test
@@ -33,7 +35,7 @@ class ResumeControllerTest {
         mockMvc.perform(post("/api/resumes/R001/analyze"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.score").value(86))
+                .andExpect(jsonPath("$.data.objectKey").value("resumes/R001/demo-resume.pdf"))
                 .andExpect(jsonPath("$.data.skills[4]").value("Docker"));
     }
 }
-
