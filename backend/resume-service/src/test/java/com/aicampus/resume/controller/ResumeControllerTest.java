@@ -43,7 +43,7 @@ class ResumeControllerTest {
         mockMvc.perform(multipart("/api/resumes/upload").file(file))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.fileName").value("resume.docx"))
-                .andExpect(jsonPath("$.data.education").value("已读取 Word 简历正文"))
+                .andExpect(jsonPath("$.data.education").value("已读取简历正文"))
                 .andExpect(jsonPath("$.data.diagnosis").value("已读取简历正文，点击诊断生成 AI 建议。"))
                 .andExpect(jsonPath("$.data.skills[0]").value("Java"))
                 .andExpect(jsonPath("$.data.storageStatus").value("SKIPPED"));

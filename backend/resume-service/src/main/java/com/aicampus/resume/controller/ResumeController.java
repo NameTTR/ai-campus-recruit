@@ -100,7 +100,7 @@ public class ResumeController {
     }
 
     private static String uploadEducation(String extractedText) {
-        return extractedText == null || extractedText.isBlank() ? "待 AI 解析" : "已读取 Word 简历正文";
+        return extractedText == null || extractedText.isBlank() ? "待 AI 解析" : "已读取简历正文";
     }
 
     private static String uploadDiagnosis(String extractedText) {

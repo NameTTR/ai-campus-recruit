@@ -2,6 +2,8 @@ package com.aicampus.resume.service;
 
 import java.io.InputStream;
 import java.util.Locale;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.hwpf.HWPFDocument;
 import org.apache.poi.hwpf.extractor.WordExtractor;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
@@ -19,15 +21,31 @@ public class ResumeTextExtractionService {
         }
 
         String extension = extension(file.getOriginalFilename());
-        if (!"docx".equals(extension) && !"doc".equals(extension)) {
+        if (!"pdf".equals(extension) && !"docx".equals(extension) && !"doc".equals(extension)) {
             return "";
         }
 
         try (InputStream inputStream = file.getInputStream()) {
-            String text = "docx".equals(extension) ? extractDocx(inputStream) : extractDoc(inputStream);
+            String text = switch (extension) {
+                case "pdf" -> extractPdf(inputStream);
+                case "docx" -> extractDocx(inputStream);
+                case "doc" -> extractDoc(inputStream);
+                default -> "";
+            };
             return normalize(text);
         } catch (Exception ignored) {
             return "";
+        }
+    }
+
+    private String extractPdf(InputStream inputStream) throws Exception {
+        try (PDDocument document = PDDocument.load(inputStream)) {
+            if (document.isEncrypted()) {
+                return "";
+            }
+            PDFTextStripper stripper = new PDFTextStripper();
+            stripper.setSortByPosition(true);
+            return stripper.getText(document);
         }
     }
 
