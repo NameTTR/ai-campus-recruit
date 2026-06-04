@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import { LogIn } from 'lucide-vue-next'
 import { login } from '../api/client'
 
@@ -40,4 +40,3 @@ async function submit() {
     </el-form>
   </section>
 </template>
-

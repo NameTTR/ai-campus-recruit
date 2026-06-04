@@ -28,6 +28,53 @@ export default defineConfig(({ mode }) => {
             }
           : {})
       }
+    },
+    build: {
+      rollupOptions: {
+        onwarn(warning, defaultHandler) {
+          if (
+            warning.code === 'INVALID_ANNOTATION' &&
+            warning.id?.replaceAll('\\', '/').includes('/node_modules/@vueuse/core/dist/index.js')
+          ) {
+            return
+          }
+
+          defaultHandler(warning)
+        },
+        output: {
+          manualChunks(id) {
+            const normalizedId = id.replaceAll('\\', '/')
+
+            if (
+              normalizedId.includes('/node_modules/vue/') ||
+              normalizedId.includes('/node_modules/vue-router/') ||
+              normalizedId.includes('/node_modules/@vue/')
+            ) {
+              return 'vue-vendor'
+            }
+
+            if (normalizedId.includes('/node_modules/lucide-vue-next/')) {
+              return 'icons-vendor'
+            }
+
+            if (normalizedId.includes('/node_modules/@element-plus/icons-vue/')) {
+              return 'element-plus-icons'
+            }
+
+            if (normalizedId.includes('/node_modules/element-plus/')) {
+              return 'element-plus-vendor'
+            }
+
+            if (normalizedId.includes('/node_modules/@vueuse/')) {
+              return 'vueuse-vendor'
+            }
+
+            if (normalizedId.includes('/node_modules/')) {
+              return 'vendor'
+            }
+          }
+        }
+      }
     }
   }
 })

@@ -1,8 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import LoginView from '../views/LoginView.vue'
-import StudentView from '../views/StudentView.vue'
-import CompanyView from '../views/CompanyView.vue'
-import AdminView from '../views/AdminView.vue'
+
+const LoginView = () => import('../views/LoginView.vue')
+const StudentView = () => import('../views/StudentView.vue')
+const CompanyView = () => import('../views/CompanyView.vue')
+const AdminView = () => import('../views/AdminView.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -23,4 +24,3 @@ router.beforeEach((to) => {
 })
 
 export default router
-
