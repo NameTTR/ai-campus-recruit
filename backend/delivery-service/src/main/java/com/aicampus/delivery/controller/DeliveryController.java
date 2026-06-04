@@ -39,9 +39,9 @@ public class DeliveryController {
 
     public DeliveryController(DeliveryEventPublisher eventPublisher) {
         this.eventPublisher = eventPublisher;
-        seed(new DeliveryRecord("D001", "S001", "R001", "J001", "C001", DeliveryStatus.SUBMITTED, LocalDateTime.now().minusDays(1)));
-        seed(new DeliveryRecord("D002", "S002", "R002", "J001", "C001", DeliveryStatus.VIEWED, LocalDateTime.now().minusHours(20)));
-        seed(new DeliveryRecord("D003", "S003", "R003", "J002", "C001", DeliveryStatus.INTERVIEW, LocalDateTime.now().minusHours(12)));
+        seed(new DeliveryRecord("D001", "S001", "R001", "J001", "C001", "PDF", "SEEDED", 62, DeliveryStatus.SUBMITTED, LocalDateTime.now().minusDays(1)));
+        seed(new DeliveryRecord("D002", "S002", "R002", "J001", "C001", "DOCX", "UNPARSED", 0, DeliveryStatus.VIEWED, LocalDateTime.now().minusHours(20)));
+        seed(new DeliveryRecord("D003", "S003", "R003", "J002", "C001", "PDF", "TEXT_EXTRACTED", 96, DeliveryStatus.INTERVIEW, LocalDateTime.now().minusHours(12)));
         seed(new DeliveryRecord("D004", "S004", "R004", "J003", "C002", DeliveryStatus.OFFER, LocalDateTime.now().minusHours(8)));
         seed(new DeliveryRecord("D005", "S005", "R005", "J002", "C001", DeliveryStatus.REJECTED, LocalDateTime.now().minusHours(4)));
     }
@@ -51,7 +51,8 @@ public class DeliveryController {
         String id = "D" + UUID.randomUUID().toString().substring(0, 8);
         String jobId = valueOr(request.jobId(), "J001");
         DeliveryRecord record = new DeliveryRecord(id, valueOr(request.studentId(), "S001"), valueOr(request.resumeId(), "R001"),
-                jobId, companyIdFor(jobId), DeliveryStatus.SUBMITTED, LocalDateTime.now());
+                jobId, companyIdFor(jobId), request.resumeSourceFormat(), request.resumeParseStatus(),
+                request.resumeParsedTextLength(), DeliveryStatus.SUBMITTED, LocalDateTime.now());
         deliveries.put(id, record);
         eventPublisher.publish("DELIVERY_CREATED", record);
         return ApiResponse.ok(record);
@@ -90,7 +91,8 @@ public class DeliveryController {
     public ApiResponse<DeliveryRecord> updateStatus(@PathVariable("id") String id, @RequestParam("status") DeliveryStatus status) {
         DeliveryRecord current = deliveries.getOrDefault(id, deliveries.get("D001"));
         DeliveryRecord updated = new DeliveryRecord(current.deliveryId(), current.studentId(), current.resumeId(),
-                current.jobId(), current.companyId(), status, current.createdAt());
+                current.jobId(), current.companyId(), current.resumeSourceFormat(), current.resumeParseStatus(),
+                current.resumeParsedTextLength(), status, current.createdAt());
         deliveries.put(updated.deliveryId(), updated);
         eventPublisher.publish("DELIVERY_STATUS_CHANGED", updated);
         return ApiResponse.ok(updated);

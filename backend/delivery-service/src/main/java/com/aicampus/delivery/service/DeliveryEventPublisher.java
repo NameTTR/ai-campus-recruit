@@ -94,6 +94,9 @@ public class DeliveryEventPublisher implements DisposableBean {
                 record.resumeId(),
                 record.jobId(),
                 record.companyId(),
+                record.resumeSourceFormat(),
+                record.resumeParseStatus(),
+                record.resumeParsedTextLength(),
                 record.status(),
                 publishStatus,
                 LocalDateTime.now());
@@ -108,6 +111,9 @@ public class DeliveryEventPublisher implements DisposableBean {
                 event.resumeId(),
                 event.jobId(),
                 event.companyId(),
+                event.resumeSourceFormat(),
+                event.resumeParseStatus(),
+                event.resumeParsedTextLength(),
                 event.deliveryStatus(),
                 publishStatus,
                 event.createdAt());

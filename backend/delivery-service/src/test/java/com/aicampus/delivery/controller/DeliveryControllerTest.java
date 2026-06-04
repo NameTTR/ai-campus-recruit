@@ -27,9 +27,21 @@ class DeliveryControllerTest {
     void createDeliveryReturnsSubmittedRecord() throws Exception {
         mockMvc.perform(post("/api/deliveries")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"studentId\":\"S001\",\"resumeId\":\"R001\",\"jobId\":\"J001\"}"))
+                        .content("""
+                                {
+                                  "studentId": "S001",
+                                  "resumeId": "R001",
+                                  "jobId": "J001",
+                                  "resumeSourceFormat": "PDF",
+                                  "resumeParseStatus": "TEXT_EXTRACTED",
+                                  "resumeParsedTextLength": 88
+                                }
+                                """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.companyId").value("C001"))
+                .andExpect(jsonPath("$.data.resumeSourceFormat").value("PDF"))
+                .andExpect(jsonPath("$.data.resumeParseStatus").value("TEXT_EXTRACTED"))
+                .andExpect(jsonPath("$.data.resumeParsedTextLength").value(88))
                 .andExpect(jsonPath("$.data.status").value("SUBMITTED"));
     }
 
@@ -44,6 +56,9 @@ class DeliveryControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].eventType").value("DELIVERY_CREATED"))
                 .andExpect(jsonPath("$.data[0].deliveryId").exists())
+                .andExpect(jsonPath("$.data[0].resumeSourceFormat").value("UNKNOWN"))
+                .andExpect(jsonPath("$.data[0].resumeParseStatus").value("UNKNOWN"))
+                .andExpect(jsonPath("$.data[0].resumeParsedTextLength").value(0))
                 .andExpect(jsonPath("$.data[0].publishStatus").value("DISABLED"));
     }
 
@@ -54,6 +69,9 @@ class DeliveryControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.deliveryId").value("D001"))
                     .andExpect(jsonPath("$.data.companyId").value("C001"))
+                    .andExpect(jsonPath("$.data.resumeSourceFormat").value("PDF"))
+                    .andExpect(jsonPath("$.data.resumeParseStatus").value("SEEDED"))
+                    .andExpect(jsonPath("$.data.resumeParsedTextLength").value(62))
                     .andExpect(jsonPath("$.data.status").value(nextStatus));
         }
 
@@ -75,7 +93,9 @@ class DeliveryControllerTest {
         mockMvc.perform(get("/api/deliveries/company?companyId=C001"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(4))
-                .andExpect(jsonPath("$.data[0].companyId").value("C001"));
+                .andExpect(jsonPath("$.data[0].companyId").value("C001"))
+                .andExpect(jsonPath("$.data[0].resumeSourceFormat").isNotEmpty())
+                .andExpect(jsonPath("$.data[0].resumeParseStatus").isNotEmpty());
     }
 
     @Test

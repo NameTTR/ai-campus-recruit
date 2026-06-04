@@ -71,14 +71,15 @@
 ## Delivery
 
 - `POST /api/deliveries`：投递岗位。
-  - 请求体：`studentId`、`resumeId`、`jobId`。
-  - 返回：`DeliveryRecord`，包含 `deliveryId`、`studentId`、`resumeId`、`jobId`、`companyId`、`status`、`createdAt`。
+  - 请求体：`studentId`、`resumeId`、`jobId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`。
+  - 返回：`DeliveryRecord`，包含 `deliveryId`、`studentId`、`resumeId`、`jobId`、`companyId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`、`status`、`createdAt`。
+  - 未传简历解析字段时会降级为 `resumeSourceFormat=UNKNOWN`、`resumeParseStatus=UNKNOWN`、`resumeParsedTextLength=0`，保证旧调用方兼容。
 - `GET /api/deliveries/my`：我的投递。
 - `GET /api/deliveries/company?companyId=C001`：企业查看本企业投递列表。
 - `GET /api/deliveries/statistics`：投递状态统计。
   - 返回：`totalCount`、`statusCounts`、`pendingCount`。
 - `GET /api/deliveries/events`：查看最近投递事件。
-  - 返回：`DeliveryEvent[]`，每项包含 `eventId`、`eventType`、`deliveryId`、`studentId`、`resumeId`、`jobId`、`companyId`、`deliveryStatus`、`publishStatus`、`createdAt`。
+  - 返回：`DeliveryEvent[]`，每项包含 `eventId`、`eventType`、`deliveryId`、`studentId`、`resumeId`、`jobId`、`companyId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`、`deliveryStatus`、`publishStatus`、`createdAt`。
   - `publishStatus=DISABLED` 表示 RocketMQ 发布关闭；`SEND_OK` 表示发布成功；`FAILED` 表示发布失败但投递主流程已降级继续。
 - `PUT /api/deliveries/{id}/status?status=INTERVIEW`：更新投递状态。
   - 支持状态：`SUBMITTED`、`VIEWED`、`INTERVIEW`、`OFFER`、`REJECTED`。

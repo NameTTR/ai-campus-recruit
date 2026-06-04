@@ -103,7 +103,7 @@ async function runMatch(jobId: string) {
 }
 
 async function deliver(jobId: string) {
-  const record = await createDelivery(resume.value?.resumeId || 'R001', jobId)
+  const record = await createDelivery(resume.value || 'R001', jobId)
   deliveries.value = [record, ...deliveries.value]
   resetInterview()
   ElMessage.success('投递成功')

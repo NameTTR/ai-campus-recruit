@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  createDelivery,
   generateInterviewQuestions,
   getAiStatus,
   getProfile,
@@ -62,6 +63,69 @@ describe('api fallback behavior', () => {
 
     expect(result.score).toBe(88)
     expect(result.suggestions.length).toBeGreaterThan(0)
+  })
+
+  it('sends resume parse metadata when creating a delivery', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080/')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          deliveryId: 'D900',
+          studentId: 'S001',
+          resumeId: 'R900',
+          jobId: 'J001',
+          companyId: 'C001',
+          status: 'SUBMITTED',
+          resumeSourceFormat: 'PDF',
+          resumeParseStatus: 'TEXT_EXTRACTED',
+          resumeParsedTextLength: 123,
+          createdAt: '2026-06-04T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await createDelivery({
+      resumeId: 'R900',
+      sourceFormat: 'PDF',
+      parseStatus: 'TEXT_EXTRACTED',
+      parsedTextLength: 123
+    }, 'J001')
+
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    const body = JSON.parse(String(requestInit.body))
+    expect(body).toEqual({
+      studentId: 'S001',
+      resumeId: 'R900',
+      jobId: 'J001',
+      resumeSourceFormat: 'PDF',
+      resumeParseStatus: 'TEXT_EXTRACTED',
+      resumeParsedTextLength: 123
+    })
+    expect(body.sourceFormat).toBeUndefined()
+    expect(result.sourceFormat).toBe('PDF')
+    expect(result.parseStatus).toBe('TEXT_EXTRACTED')
+    expect(result.parsedTextLength).toBe(123)
+  })
+
+  it('keeps resume parse metadata on delivery fallback', async () => {
+    const result = await createDelivery({
+      resumeId: 'R901',
+      resumeSourceFormat: 'DOCX',
+      resumeParseStatus: 'UNPARSED',
+      resumeParsedTextLength: 0
+    }, 'J001')
+
+    expect(result.resumeId).toBe('R901')
+    expect(result.sourceFormat).toBe('DOCX')
+    expect(result.resumeSourceFormat).toBe('DOCX')
+    expect(result.parseStatus).toBe('UNPARSED')
+    expect(result.resumeParseStatus).toBe('UNPARSED')
+    expect(result.parsedTextLength).toBe(0)
+    expect(result.resumeParsedTextLength).toBe(0)
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('returns resume fallback with storage status when gateway is offline', async () => {
@@ -231,6 +295,9 @@ describe('api fallback behavior', () => {
     expect(result.length).toBeGreaterThan(0)
     expect(result.every((delivery) => delivery.companyId === 'C001')).toBe(true)
     expect(result[0].status).toBe('SUBMITTED')
+    expect(result[0].resumeSourceFormat).toBe('PDF')
+    expect(result[0].resumeParseStatus).toBe('TEXT_EXTRACTED')
+    expect(result[0].resumeParsedTextLength).toBe(62)
   })
 
   it('returns delivery statistics fallback when gateway is offline', async () => {

@@ -192,6 +192,8 @@ interface ApiResponse<T> {
   data: T
 }
 
+type DeliveryResumeInput = string | (ResumeParseMetadata & { resumeId?: string })
+
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
 }
@@ -421,6 +423,64 @@ const fallbackDeliveryStatistics: DeliveryStatistics = {
   pendingCount: fallbackDeliveryStatusCounts.SUBMITTED
 }
 
+function normalizeMetadataText(value?: string | null) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeParsedTextLength(value?: number | null) {
+  if (value === undefined || value === null) {
+    return undefined
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
+}
+
+function normalizeResumeParseMetadata(
+  source?: ResumeParseMetadata | null,
+  fallback?: ResumeParseMetadata | null
+): ResumeParseMetadata {
+  const sourceFormat = normalizeMetadataText(source?.resumeSourceFormat)
+    || normalizeMetadataText(source?.sourceFormat)
+    || normalizeMetadataText(fallback?.resumeSourceFormat)
+    || normalizeMetadataText(fallback?.sourceFormat)
+  const parseStatus = normalizeMetadataText(source?.resumeParseStatus)
+    || normalizeMetadataText(source?.parseStatus)
+    || normalizeMetadataText(fallback?.resumeParseStatus)
+    || normalizeMetadataText(fallback?.parseStatus)
+  const parsedTextLength = normalizeParsedTextLength(
+    source?.resumeParsedTextLength
+      ?? source?.parsedTextLength
+      ?? fallback?.resumeParsedTextLength
+      ?? fallback?.parsedTextLength
+  )
+
+  return {
+    ...(sourceFormat ? { sourceFormat, resumeSourceFormat: sourceFormat } : {}),
+    ...(parseStatus ? { parseStatus, resumeParseStatus: parseStatus } : {}),
+    ...(parsedTextLength !== undefined ? { parsedTextLength, resumeParsedTextLength: parsedTextLength } : {})
+  }
+}
+
+function deliveryResumeId(input: DeliveryResumeInput) {
+  return typeof input === 'string' ? input : input.resumeId || 'R001'
+}
+
+function deliveryResumePayloadMetadata(input: DeliveryResumeInput) {
+  const metadata = typeof input === 'string' ? {} : normalizeResumeParseMetadata(input)
+  return {
+    ...(metadata.resumeSourceFormat ? { resumeSourceFormat: metadata.resumeSourceFormat } : {}),
+    ...(metadata.resumeParseStatus ? { resumeParseStatus: metadata.resumeParseStatus } : {}),
+    ...(metadata.resumeParsedTextLength !== undefined ? { resumeParsedTextLength: metadata.resumeParsedTextLength } : {})
+  }
+}
+
+function withResumeParseMetadata<T extends ResumeParseMetadata>(record: T, fallback?: ResumeParseMetadata | null): T {
+  return {
+    ...record,
+    ...normalizeResumeParseMetadata(record, fallback)
+  }
+}
+
 async function request<T>(path: string, init: RequestInit, fallback: T): Promise<T> {
   if (!shouldUseApi(path)) {
     return fallback
@@ -550,10 +610,13 @@ export function listInterviewRecords(studentId = 'S001') {
   }, fallbackInterviewRecords.filter((record) => record.studentId === studentId))
 }
 
-export function createDelivery(resumeId = 'R001', jobId = 'J001') {
-  return request<DeliveryRecord>('/api/deliveries', {
+export async function createDelivery(resume: DeliveryResumeInput = 'R001', jobId = 'J001') {
+  const resumeId = deliveryResumeId(resume)
+  const resumeMetadata = normalizeResumeParseMetadata(typeof resume === 'string' ? undefined : resume)
+  const payloadMetadata = deliveryResumePayloadMetadata(resume)
+  const record = await request<DeliveryRecord>('/api/deliveries', {
     method: 'POST',
-    body: JSON.stringify({ studentId: 'S001', resumeId, jobId })
+    body: JSON.stringify({ studentId: 'S001', resumeId, jobId, ...payloadMetadata })
   }, {
     deliveryId: `D${Date.now().toString().slice(-6)}`,
     studentId: 'S001',
@@ -561,18 +624,22 @@ export function createDelivery(resumeId = 'R001', jobId = 'J001') {
     jobId,
     companyId: fallbackJobs.find((job) => job.jobId === jobId)?.companyId || 'C001',
     status: 'SUBMITTED',
+    ...resumeMetadata,
     createdAt: new Date().toISOString()
   })
+  return withResumeParseMetadata(record, resumeMetadata)
 }
 
 export function listDeliveries() {
   return request<DeliveryRecord[]>('/api/deliveries/my', { method: 'GET' },
     fallbackDeliveries.filter((delivery) => delivery.studentId === 'S001'))
+    .then((records) => records.map((record) => withResumeParseMetadata(record)))
 }
 
 export function listCompanyDeliveries(companyId = 'C001') {
   return request<DeliveryRecord[]>(`/api/deliveries/company?companyId=${encodeURIComponent(companyId)}`, { method: 'GET' },
     fallbackDeliveries.filter((delivery) => delivery.companyId === companyId))
+    .then((records) => records.map((record) => withResumeParseMetadata(record)))
 }
 
 export function updateDeliveryStatus(delivery: DeliveryRecord, status: DeliveryStatus) {

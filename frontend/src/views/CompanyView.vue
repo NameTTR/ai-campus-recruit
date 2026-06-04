@@ -351,15 +351,15 @@ function formatDateTime(value: string) {
         <ClipboardList :size="19" />
       </h2>
       <el-table class="company-delivery-table" :data="deliveries" style="width: 100%">
-        <el-table-column prop="deliveryId" label="编号" width="110" />
-        <el-table-column prop="studentId" label="学生" width="110" />
-        <el-table-column prop="jobId" label="岗位" width="110" />
-        <el-table-column label="状态" width="130">
+        <el-table-column prop="deliveryId" label="编号" min-width="96" />
+        <el-table-column prop="studentId" label="学生" min-width="82" />
+        <el-table-column prop="jobId" label="岗位" min-width="82" />
+        <el-table-column label="状态" min-width="96">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="hasAnyDeliveryParseMetadata" label="简历解析" min-width="190">
+        <el-table-column v-if="hasAnyDeliveryParseMetadata" label="简历解析" min-width="156">
           <template #default="{ row }">
             <div v-if="hasResumeParseMetadata(row)" class="resume-parse-tags">
               <el-tag
@@ -373,7 +373,7 @@ function formatDateTime(value: string) {
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" min-width="430">
+        <el-table-column label="操作" min-width="320">
           <template #default="{ row }">
             <div class="actions">
               <el-button
