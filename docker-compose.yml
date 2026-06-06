@@ -213,8 +213,17 @@ services:
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
+      MATCH_PERSISTENCE_ENABLED: ${MATCH_PERSISTENCE_ENABLED:-true}
+      MATCH_CACHE_TTL: ${MATCH_CACHE_TTL:-10m}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
     depends_on:
       - nacos
+      - mysql
+      - redis
     ports:
       - "8105:8105"
     networks:

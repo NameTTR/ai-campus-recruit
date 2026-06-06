@@ -10,7 +10,19 @@ spring:
         enabled: ${NACOS_ENABLED:false}
         server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
 
+match:
+  persistence:
+    enabled: ${MATCH_PERSISTENCE_ENABLED:false}
+  cache:
+    ttl: ${MATCH_CACHE_TTL:10m}
+    key-prefix: ${MATCH_CACHE_KEY_PREFIX:match:results}
+
 management:
+  health:
+    db:
+      enabled: ${MATCH_DB_HEALTH_ENABLED:false}
+    redis:
+      enabled: ${MATCH_REDIS_HEALTH_ENABLED:false}
   endpoints:
     web:
       exposure:
@@ -19,4 +31,3 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
-

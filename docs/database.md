@@ -36,6 +36,26 @@ CREATE TABLE IF NOT EXISTS job_record (
 
 `required_skills` 使用 JSON 字符串保存。`job-service` 默认使用内存仓储；启用 `JOB_PERSISTENCE_ENABLED=true` 并配置 `SPRING_DATASOURCE_URL` 后通过 MyBatis-Plus 写入该表，岗位列表可通过 Redis cache-aside 缓存。
 
+## v1.8 Match Result Record Table
+
+```sql
+CREATE TABLE IF NOT EXISTS match_result_record (
+    match_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    resume_id VARCHAR(64) NOT NULL,
+    job_id VARCHAR(64) NOT NULL,
+    student_id VARCHAR(64) NOT NULL,
+    score INT NOT NULL,
+    strengths TEXT NOT NULL,
+    gaps TEXT NOT NULL,
+    suggestions TEXT NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    KEY idx_match_result_record_student_created (student_id, created_at),
+    KEY idx_match_result_record_job_created (job_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+`strengths`、`gaps`、`suggestions` 使用 JSON 字符串保存。`match-service` 默认使用内存仓储；启用 `MATCH_PERSISTENCE_ENABLED=true` 并配置 `SPRING_DATASOURCE_URL` 后通过 MyBatis-Plus 写入该表，学生匹配结果和岗位候选人匹配结果可通过 Redis cache-aside 缓存。
+
 ## v1.6 Delivery Record Table
 
 ```sql

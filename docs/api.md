@@ -37,8 +37,15 @@
 ## Match
 
 - `POST /api/matches/resume-job`：生成简历和岗位匹配结果。
+  - 默认使用内存仓储；设置 `MATCH_PERSISTENCE_ENABLED=true` 且提供 `SPRING_DATASOURCE_URL` 后写入 MySQL 表 `match_result_record`。
+  - 生成新匹配后会清理学生、岗位和全量匹配结果缓存。
 - `GET /api/matches/student/{studentId}`：学生匹配结果。
+  - 学生匹配结果使用 Redis cache-aside 缓存，key 格式：`match:results:student:{studentId}`。
 - `GET /api/matches/job/{jobId}`：岗位候选人匹配结果。
+  - 岗位候选人匹配结果使用 Redis cache-aside 缓存，key 格式：`match:results:job:{jobId}`。
+  - `MATCH_DB_HEALTH_ENABLED` 与 `MATCH_REDIS_HEALTH_ENABLED` 默认关闭，避免本地未启动 MySQL/Redis 时影响演示健康状态。
+- `GET /api/matches`：全部匹配结果。
+  - 全量匹配结果使用 Redis cache-aside 缓存，key 格式：`match:results:list:ALL`。
 
 ## AI Interview
 
