@@ -76,6 +76,9 @@
   - 未传简历解析字段时会降级为 `resumeSourceFormat=UNKNOWN`、`resumeParseStatus=UNKNOWN`、`resumeParsedTextLength=0`，保证旧调用方兼容。
 - `GET /api/deliveries/my`：我的投递。
 - `GET /api/deliveries/company?companyId=C001`：企业查看本企业投递列表。
+  - 默认使用内存仓储；设置 `DELIVERY_PERSISTENCE_ENABLED=true` 且提供 `SPRING_DATASOURCE_URL` 后写入 MySQL 表 `delivery_record`。
+  - 企业投递列表使用 Redis cache-aside 缓存，key 格式：`delivery:records:company:{companyId|ALL}`。
+  - `DELIVERY_DB_HEALTH_ENABLED` 与 `DELIVERY_REDIS_HEALTH_ENABLED` 默认关闭，避免本地未启动 MySQL/Redis 时影响演示健康状态。
 - `GET /api/deliveries/statistics`：投递状态统计。
   - 返回：`totalCount`、`statusCounts`、`pendingCount`。
 - `GET /api/deliveries/events`：查看最近投递事件。

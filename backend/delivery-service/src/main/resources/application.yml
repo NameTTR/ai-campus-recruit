@@ -11,6 +11,11 @@ spring:
         server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
 
 delivery:
+  persistence:
+    enabled: ${DELIVERY_PERSISTENCE_ENABLED:false}
+  cache:
+    ttl: ${DELIVERY_CACHE_TTL:10m}
+    key-prefix: ${DELIVERY_CACHE_KEY_PREFIX:delivery:records}
   events:
     rocketmq:
       enabled: ${DELIVERY_EVENTS_ROCKETMQ_ENABLED:false}
@@ -19,6 +24,11 @@ delivery:
       topic: ${DELIVERY_EVENTS_TOPIC:delivery-events}
 
 management:
+  health:
+    db:
+      enabled: ${DELIVERY_DB_HEALTH_ENABLED:false}
+    redis:
+      enabled: ${DELIVERY_REDIS_HEALTH_ENABLED:false}
   endpoints:
     web:
       exposure:

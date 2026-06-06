@@ -7,13 +7,14 @@ import com.aicampus.common.dto.DeliveryRequest;
 import com.aicampus.common.dto.DeliveryStatistics;
 import com.aicampus.common.enums.DeliveryStatus;
 import com.aicampus.delivery.service.DeliveryEventPublisher;
+import com.aicampus.delivery.service.store.DeliveryRecordStore;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,11 +35,16 @@ public class DeliveryController {
             "J003", "C002"
     );
 
-    private final Map<String, DeliveryRecord> deliveries = new ConcurrentHashMap<>();
     private final DeliveryEventPublisher eventPublisher;
+    private final DeliveryRecordStore deliveryStore;
 
-    public DeliveryController(DeliveryEventPublisher eventPublisher) {
+    public DeliveryController(DeliveryEventPublisher eventPublisher, DeliveryRecordStore deliveryStore) {
         this.eventPublisher = eventPublisher;
+        this.deliveryStore = deliveryStore;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void seedDefaultRecords() {
         seed(new DeliveryRecord("D001", "S001", "R001", "J001", "C001", "PDF", "SEEDED", 62, DeliveryStatus.SUBMITTED, LocalDateTime.now().minusDays(1)));
         seed(new DeliveryRecord("D002", "S002", "R002", "J001", "C001", "DOCX", "UNPARSED", 0, DeliveryStatus.VIEWED, LocalDateTime.now().minusHours(20)));
         seed(new DeliveryRecord("D003", "S003", "R003", "J002", "C001", "PDF", "TEXT_EXTRACTED", 96, DeliveryStatus.INTERVIEW, LocalDateTime.now().minusHours(12)));
@@ -53,33 +59,29 @@ public class DeliveryController {
         DeliveryRecord record = new DeliveryRecord(id, valueOr(request.studentId(), "S001"), valueOr(request.resumeId(), "R001"),
                 jobId, companyIdFor(jobId), request.resumeSourceFormat(), request.resumeParseStatus(),
                 request.resumeParsedTextLength(), DeliveryStatus.SUBMITTED, LocalDateTime.now());
-        deliveries.put(id, record);
+        deliveryStore.save(record);
         eventPublisher.publish("DELIVERY_CREATED", record);
         return ApiResponse.ok(record);
     }
 
     @GetMapping("/my")
     public ApiResponse<List<DeliveryRecord>> my(@RequestParam(value = "studentId", defaultValue = "S001") String studentId) {
-        return ApiResponse.ok(deliveries.values().stream()
-                .filter(delivery -> delivery.studentId().equals(studentId))
-                .toList());
+        return ApiResponse.ok(deliveryStore.listByStudent(studentId));
     }
 
     @GetMapping
     public ApiResponse<List<DeliveryRecord>> list() {
-        return ApiResponse.ok(new ArrayList<>(deliveries.values()));
+        return ApiResponse.ok(deliveryStore.listAll());
     }
 
     @GetMapping("/company")
     public ApiResponse<List<DeliveryRecord>> company(@RequestParam(value = "companyId", defaultValue = "C001") String companyId) {
-        return ApiResponse.ok(deliveries.values().stream()
-                .filter(delivery -> delivery.companyId().equals(companyId))
-                .toList());
+        return ApiResponse.ok(deliveryStore.listByCompany(companyId));
     }
 
     @GetMapping("/statistics")
     public ApiResponse<DeliveryStatistics> statistics() {
-        return ApiResponse.ok(toStatistics(new ArrayList<>(deliveries.values())));
+        return ApiResponse.ok(toStatistics(deliveryStore.listAll()));
     }
 
     @GetMapping("/events")
@@ -89,17 +91,26 @@ public class DeliveryController {
 
     @PutMapping("/{id}/status")
     public ApiResponse<DeliveryRecord> updateStatus(@PathVariable("id") String id, @RequestParam("status") DeliveryStatus status) {
-        DeliveryRecord current = deliveries.getOrDefault(id, deliveries.get("D001"));
+        DeliveryRecord current = deliveryStore.findById(id)
+                .or(() -> deliveryStore.findById("D001"))
+                .orElseGet(DeliveryController::defaultRecord);
         DeliveryRecord updated = new DeliveryRecord(current.deliveryId(), current.studentId(), current.resumeId(),
                 current.jobId(), current.companyId(), current.resumeSourceFormat(), current.resumeParseStatus(),
                 current.resumeParsedTextLength(), status, current.createdAt());
-        deliveries.put(updated.deliveryId(), updated);
+        deliveryStore.save(updated);
         eventPublisher.publish("DELIVERY_STATUS_CHANGED", updated);
         return ApiResponse.ok(updated);
     }
 
     private void seed(DeliveryRecord record) {
-        deliveries.put(record.deliveryId(), record);
+        deliveryStore.findById(record.deliveryId())
+                .ifPresentOrElse(existing -> {
+                }, () -> deliveryStore.save(record));
+    }
+
+    private static DeliveryRecord defaultRecord() {
+        return new DeliveryRecord("D001", "S001", "R001", "J001", "C001",
+                "PDF", "SEEDED", 62, DeliveryStatus.SUBMITTED, LocalDateTime.now().minusDays(1));
     }
 
     private static DeliveryStatistics toStatistics(List<DeliveryRecord> records) {

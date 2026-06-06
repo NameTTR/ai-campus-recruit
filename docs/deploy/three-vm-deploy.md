@@ -29,8 +29,8 @@
 | VM2 | `match-service` | `8105` | VM1 Gateway | `/actuator/health`、`/swagger-ui.html`、`/v3/api-docs` |
 | VM2 | `delivery-service` | `8107` | VM1 Gateway | `/actuator/health`、`/swagger-ui.html`、`/v3/api-docs` |
 | VM3 | `ai-service` | `8106` | VM1 Gateway、VM2 简历/岗位服务 | `/actuator/health`、`/api/ai/status`、`/swagger-ui.html` |
-| VM3 | MySQL | `3306` | VM3 本机或受限内网 | `mysqladmin ping` |
-| VM3 | Redis | `6379` | VM3 本机或受限内网 | `redis-cli ping` |
+| VM3 | MySQL | `3306` | VM2、VM3 本机或受限内网 | `mysqladmin ping` |
+| VM3 | Redis | `6379` | VM2、VM3 本机或受限内网 | `redis-cli ping` |
 | VM3 | MinIO S3 API | `9000` | 内网 | `/minio/health/ready` |
 | VM3 | MinIO Console | `9001` | 运维机 | `http://<VM3_IP>:9001` |
 | VM3 | RocketMQ NameServer | `9876` | 内网 | 容器日志 |
@@ -40,7 +40,7 @@
 
 - VM1：对浏览器开放 `80`；对 VM2、VM3 开放 `8848`、`9848`；按需对运维机开放 `8080`。
 - VM2：只对 VM1 开放 `8101`、`8102`、`8103`、`8104`、`8105`、`8107`。
-- VM3：对 VM1、VM2 开放 `8106`；按需对运维机开放 `9001`；MySQL、Redis、RocketMQ、MinIO API 优先限制在内网。
+- VM3：对 VM1、VM2 开放 `8106`；对 VM2 开放 MySQL `3306`、Redis `6379` 和 RocketMQ `9876`、`10909`、`10911`；按需对运维机开放 `9001`；MySQL、Redis、RocketMQ、MinIO API 优先限制在内网。
 
 ## 国内镜像源
 
@@ -86,6 +86,8 @@ DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 
 AI_SCREENING_PERSISTENCE_ENABLED=true
 AI_SCREENING_CACHE_TTL=10m
+DELIVERY_PERSISTENCE_ENABLED=true
+DELIVERY_CACHE_TTL=10m
 DELIVERY_EVENTS_ROCKETMQ_ENABLED=true
 DELIVERY_EVENTS_TOPIC=delivery-events
 
@@ -110,6 +112,8 @@ GATEWAY_PORT=8080
 | `DASHSCOPE_BASE_URL` | 默认 `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | `AI_SCREENING_PERSISTENCE_ENABLED` | AI 候选人初筛历史是否写入 MySQL，v0.9 建议为 `true` |
 | `AI_SCREENING_CACHE_TTL` | AI 初筛历史 Redis 缓存 TTL |
+| `DELIVERY_PERSISTENCE_ENABLED` | 投递记录是否写入 VM3 MySQL，v1.6 建议为 `true` |
+| `DELIVERY_CACHE_TTL` | 企业投递列表 Redis 缓存 TTL |
 | `DELIVERY_EVENTS_ROCKETMQ_ENABLED` | 投递事件是否发布到 RocketMQ，三机部署默认 `true` |
 | `DELIVERY_EVENTS_TOPIC` | 投递事件 topic，默认 `delivery-events` |
 | `FRONTEND_PORT` | VM1 前端暴露端口 |
@@ -118,7 +122,7 @@ GATEWAY_PORT=8080
 服务内实际使用的关键环境变量：
 
 - VM1 `gateway-service`：`AUTH_SERVICE_URI=http://${VM2_HOST}:8101`、`USER_SERVICE_URI=http://${VM2_HOST}:8102`、`RESUME_SERVICE_URI=http://${VM2_HOST}:8103`、`JOB_SERVICE_URI=http://${VM2_HOST}:8104`、`MATCH_SERVICE_URI=http://${VM2_HOST}:8105`、`DELIVERY_SERVICE_URI=http://${VM2_HOST}:8107`、`AI_SERVICE_URI=http://${VM3_HOST}:8106`。
-- VM2 业务服务：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`；`resume-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`RESUME_OBJECT_STORAGE_ENABLED=true`、`MINIO_ENDPOINT=http://${VM3_HOST}:9000`、`MINIO_BUCKET=${MINIO_BUCKET}`；`job-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`；`delivery-service` 额外使用 `DELIVERY_EVENTS_ROCKETMQ_ENABLED=true`、`ROCKETMQ_NAME_SERVER=${VM3_HOST}:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
+- VM2 业务服务：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`；`resume-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`RESUME_OBJECT_STORAGE_ENABLED=true`、`MINIO_ENDPOINT=http://${VM3_HOST}:9000`、`MINIO_BUCKET=${MINIO_BUCKET}`；`job-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`；`delivery-service` 额外使用 `DELIVERY_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`、`DELIVERY_EVENTS_ROCKETMQ_ENABLED=true`、`ROCKETMQ_NAME_SERVER=${VM3_HOST}:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
 - VM3 `ai-service`：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`、`SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=redis`。
 
 ## 启动顺序
@@ -287,6 +291,23 @@ docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm3.yml r
 curl -sS "http://<VM1_IP>:8080/api/ai/candidates/screenings?companyId=C001"
 ```
 
+验证投递记录持久化：
+
+```bash
+curl -sS -X POST "http://<VM1_IP>:8080/api/deliveries" \
+  -H "Content-Type: application/json" \
+  -d '{"studentId":"S001","resumeId":"R-PERSIST-001","jobId":"J001","resumeSourceFormat":"PDF","resumeParseStatus":"TEXT_EXTRACTED","resumeParsedTextLength":256}'
+
+curl -sS "http://<VM1_IP>:8080/api/deliveries/company?companyId=C001"
+```
+
+重启 VM2 的 `delivery-service` 后再次查询，投递记录仍应存在：
+
+```bash
+docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm2.yml restart delivery-service
+curl -sS "http://<VM1_IP>:8080/api/deliveries/company?companyId=C001"
+```
+
 演示账号：
 
 - `student / 123456`
@@ -383,6 +404,22 @@ docker exec recruit-vm3-ai-service printenv | grep AI_SCREENING
 docker exec recruit-vm3-ai-service printenv | grep SPRING_DATASOURCE_URL
 docker exec recruit-vm3-mysql mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" -e "USE ai_campus_recruit; SHOW TABLES;"
 docker exec recruit-vm3-redis redis-cli ping
+```
+
+**投递记录没有持久化或企业投递列表缓存异常**
+
+检查 VM2 `delivery-service` 到 VM3 MySQL/Redis 的配置和网络：
+
+```bash
+set -a
+. ./deploy/three-vm.env
+set +a
+docker exec recruit-vm2-delivery-service printenv | grep DELIVERY
+docker exec recruit-vm2-delivery-service printenv | grep SPRING_DATASOURCE_URL
+docker exec recruit-vm3-mysql mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" -e "USE ai_campus_recruit; SHOW TABLES LIKE 'delivery_record';"
+docker exec recruit-vm3-redis redis-cli KEYS 'delivery:records:*'
+nc -zv <VM3_IP> 3306
+nc -zv <VM3_IP> 6379
 ```
 
 **Docker 拉取镜像慢或失败**

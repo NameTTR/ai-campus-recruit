@@ -45,3 +45,6 @@
 - v1.1：接入 MinIO 简历文件对象存储，简历上传返回对象 key、provider 和写入状态，Docker Compose 与三机部署可直接指向 MinIO，并保留本地降级。
 - v1.2：接入 RocketMQ 投递事件，创建投递和更新状态会生成事件并尝试发布到 `delivery-events` topic，提供最近事件查询与失败降级状态。
 - v1.3：补齐自动化回归和部署验收脚本，覆盖三机健康检查、关键 API smoke 和失败出口码，提供 PowerShell 与 bash 两套入口。
+- v1.4：企业端 AI 初筛和筛选历史透传简历解析格式、解析状态和正文长度，便于 HR 判断筛选依据质量。
+- v1.5：投递记录和投递事件保存简历解析快照，企业投递审核列表可直接看到候选人简历解析质量。
+- v1.6：投递记录支持可选 MySQL 持久化和 Redis 企业列表缓存，默认保留内存回退；单机 Compose 与三虚拟机部署可直接将 `delivery-service` 连接到 MySQL/Redis。
