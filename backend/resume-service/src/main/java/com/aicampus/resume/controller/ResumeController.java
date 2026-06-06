@@ -7,13 +7,15 @@ import com.aicampus.common.dto.ResumeSummary;
 import com.aicampus.resume.service.ResumeObjectStorageService;
 import com.aicampus.resume.service.ResumeObjectStorageService.StoredResumeObject;
 import com.aicampus.resume.service.ResumeTextExtractionService;
+import com.aicampus.resume.service.store.ResumeRecord;
+import com.aicampus.resume.service.store.ResumeRecordStore;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,24 +31,31 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/api/resumes")
 public class ResumeController {
-    private final Map<String, ResumeSummary> resumes = new ConcurrentHashMap<>();
-    private final Map<String, String> resumeTexts = new ConcurrentHashMap<>();
     private final RestClient restClient;
     private final ResumeObjectStorageService storageService;
     private final ResumeTextExtractionService textExtractionService;
+    private final ResumeRecordStore resumeStore;
 
     public ResumeController(@Value("${services.ai:http://localhost:8106}") String aiServiceUrl,
             ResumeObjectStorageService storageService,
-            ResumeTextExtractionService textExtractionService) {
+            ResumeTextExtractionService textExtractionService,
+            ResumeRecordStore resumeStore) {
         this.restClient = RestClient.create(aiServiceUrl);
         this.storageService = storageService;
         this.textExtractionService = textExtractionService;
+        this.resumeStore = resumeStore;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void seedDefaultResume() {
         ResumeSummary seed = new ResumeSummary("R001", "S001", "demo-resume.pdf", "示范大学 软件工程 本科",
                 List.of("Java", "Spring Boot", "MySQL", "Redis"), List.of("校园二手交易系统", "在线考试平台"),
                 "简历结构完整，建议补充量化成果和实习经历。", 82,
                 "resumes/R001/demo-resume.pdf", "local-demo", "SEEDED", "PDF", "SEEDED", 62);
-        resumes.put(seed.resumeId(), seed);
-        resumeTexts.put(seed.resumeId(), "示范大学 软件工程 本科。技能：Java、Spring Boot、MySQL、Redis。项目：校园二手交易系统、在线考试平台。");
+        resumeStore.findById(seed.resumeId())
+                .ifPresentOrElse(existing -> {
+                }, () -> resumeStore.save(new ResumeRecord(seed,
+                        "示范大学 软件工程 本科。技能：Java、Spring Boot、MySQL、Redis。项目：校园二手交易系统、在线考试平台。")));
     }
 
     @PostMapping("/upload")
@@ -55,32 +64,46 @@ public class ResumeController {
         String fileName = file.getOriginalFilename() == null ? "resume.pdf" : file.getOriginalFilename();
         String extractedText = textExtractionService.extract(file);
         StoredResumeObject stored = storageService.store(resumeId, file);
-        resumeTexts.put(resumeId, extractedText);
         ResumeSummary summary = new ResumeSummary(resumeId, "S001", fileName, uploadEducation(extractedText),
                 new ArrayList<>(inferSkills(extractedText)), List.of("课程项目"), uploadDiagnosis(extractedText), 70,
                 stored.objectKey(), stored.storageProvider(), stored.storageStatus(),
                 sourceFormat(fileName), parseStatus(extractedText), extractedText.length());
-        resumes.put(resumeId, summary);
+        resumeStore.save(new ResumeRecord(summary, extractedText));
         return ApiResponse.ok(summary);
     }
 
     @GetMapping("/{id}")
     public ApiResponse<ResumeSummary> detail(@PathVariable("id") String id) {
-        return ApiResponse.ok(resumes.getOrDefault(id, resumes.get("R001")));
+        return ApiResponse.ok(findResumeRecord(id).summary());
     }
 
     @PostMapping("/{id}/analyze")
     public ApiResponse<ResumeSummary> analyze(@PathVariable("id") String id) {
-        ResumeSummary current = resumes.getOrDefault(id, resumes.get("R001"));
-        String resumeText = resumeTexts.getOrDefault(current.resumeId(), "");
+        ResumeRecord currentRecord = findResumeRecord(id);
+        ResumeSummary current = currentRecord.summary();
+        String resumeText = currentRecord.parsedText();
         String diagnosis = callAi(current, resumeText);
         ResumeSummary analyzed = new ResumeSummary(current.resumeId(), current.studentId(), current.fileName(),
                 "示范大学 软件工程 本科", List.of("Java", "Spring Boot", "MySQL", "Redis", "Docker"),
                 current.projects(), diagnosis, 86,
                 current.objectKey(), current.storageProvider(), current.storageStatus(),
                 current.sourceFormat(), current.parseStatus(), current.parsedTextLength());
-        resumes.put(analyzed.resumeId(), analyzed);
+        resumeStore.save(new ResumeRecord(analyzed, resumeText));
         return ApiResponse.ok(analyzed);
+    }
+
+    private ResumeRecord findResumeRecord(String id) {
+        return resumeStore.findById(id)
+                .or(() -> resumeStore.findById("R001"))
+                .orElseGet(ResumeController::defaultResumeRecord);
+    }
+
+    private static ResumeRecord defaultResumeRecord() {
+        ResumeSummary summary = new ResumeSummary("R001", "S001", "demo-resume.pdf", "示范大学 软件工程 本科",
+                List.of("Java", "Spring Boot", "MySQL", "Redis"), List.of("校园二手交易系统", "在线考试平台"),
+                "简历结构完整，建议补充量化成果和实习经历。", 82,
+                "resumes/R001/demo-resume.pdf", "local-demo", "SEEDED", "PDF", "SEEDED", 62);
+        return new ResumeRecord(summary, "示范大学 软件工程 本科。技能：Java、Spring Boot、MySQL、Redis。项目：校园二手交易系统、在线考试平台。");
     }
 
     private String callAi(ResumeSummary resume, String resumeText) {

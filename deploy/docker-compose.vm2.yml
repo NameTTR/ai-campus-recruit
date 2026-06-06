@@ -46,6 +46,13 @@ services:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
       AI_SERVICE_URI: http://${VM3_HOST}:8106
+      RESUME_PERSISTENCE_ENABLED: ${RESUME_PERSISTENCE_ENABLED:-true}
+      RESUME_CACHE_TTL: ${RESUME_CACHE_TTL:-10m}
+      SPRING_DATASOURCE_URL: jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      SPRING_DATA_REDIS_HOST: ${VM3_HOST}
+      SPRING_DATA_REDIS_PORT: 6379
       RESUME_OBJECT_STORAGE_ENABLED: "true"
       MINIO_ENDPOINT: http://${VM3_HOST}:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}

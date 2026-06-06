@@ -21,8 +21,12 @@
 - `POST /api/resumes/upload`：上传简历，支持 PDF、DOC、DOCX；可解析文本的文件会抽取正文并在后续诊断中优先传给 AI。
   - 返回：`ResumeSummary`，包含 `resumeId`、`studentId`、`fileName`、`education`、`skills`、`projects`、`diagnosis`、`score`、`objectKey`、`storageProvider`、`storageStatus`、`sourceFormat`、`parseStatus`、`parsedTextLength`。
   - `storageProvider=local-demo` 且 `storageStatus=SKIPPED` 表示对象存储未开启；`storageProvider=minio` 且 `storageStatus=STORED` 表示文件已写入 MinIO；`FAILED` 表示写入 MinIO 失败但上传主流程已降级继续。
+  - 默认使用内存仓储；设置 `RESUME_PERSISTENCE_ENABLED=true` 且提供 `SPRING_DATASOURCE_URL` 后写入 MySQL 表 `resume_summary_record`，并保存抽取正文供后续 AI 诊断使用。
 - `GET /api/resumes/{id}`：查看简历摘要。
+  - 简历详情使用 Redis cache-aside 缓存，key 格式：`resume:summaries:detail:{resumeId}`。
+  - `RESUME_DB_HEALTH_ENABLED` 与 `RESUME_REDIS_HEALTH_ENABLED` 默认关闭，避免本地未启动 MySQL/Redis 时影响演示健康状态。
 - `POST /api/resumes/{id}/analyze`：触发 AI 简历诊断。
+  - 服务重启后，若启用持久化，诊断仍会优先使用表内保存的 `parsed_text`。
 
 ## Job
 

@@ -18,6 +18,11 @@ services:
   ai: ${AI_SERVICE_URI:http://localhost:8106}
 
 resume:
+  persistence:
+    enabled: ${RESUME_PERSISTENCE_ENABLED:false}
+  cache:
+    ttl: ${RESUME_CACHE_TTL:10m}
+    key-prefix: ${RESUME_CACHE_KEY_PREFIX:resume:summaries}
   storage:
     enabled: ${RESUME_OBJECT_STORAGE_ENABLED:false}
     endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
@@ -26,6 +31,11 @@ resume:
     bucket: ${MINIO_BUCKET:resumes}
 
 management:
+  health:
+    db:
+      enabled: ${RESUME_DB_HEALTH_ENABLED:false}
+    redis:
+      enabled: ${RESUME_REDIS_HEALTH_ENABLED:false}
   endpoints:
     web:
       exposure:

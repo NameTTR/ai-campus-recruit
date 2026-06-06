@@ -14,6 +14,34 @@
 
 MVP 阶段使用内存仓储保证演示闭环；接入 MySQL 时按以上表结构落库。
 
+## v1.9 Resume Summary Record Table
+
+```sql
+CREATE TABLE IF NOT EXISTS resume_summary_record (
+    resume_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    student_id VARCHAR(64) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    education VARCHAR(255) NOT NULL,
+    skills TEXT NOT NULL,
+    projects TEXT NOT NULL,
+    diagnosis TEXT NOT NULL,
+    score INT NOT NULL,
+    object_key VARCHAR(512) NOT NULL,
+    storage_provider VARCHAR(64) NOT NULL,
+    storage_status VARCHAR(64) NOT NULL,
+    source_format VARCHAR(32) NOT NULL DEFAULT 'UNKNOWN',
+    parse_status VARCHAR(64) NOT NULL DEFAULT 'UNKNOWN',
+    parsed_text_length INT NOT NULL DEFAULT 0,
+    parsed_text MEDIUMTEXT NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    KEY idx_resume_summary_record_student_updated (student_id, updated_at),
+    KEY idx_resume_summary_record_parse_status_updated (parse_status, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+`skills`、`projects` 使用 JSON 字符串保存。`parsed_text` 保存上传时抽取的简历正文，便于 `resume-service` 重启后继续使用真实正文触发 AI 诊断。`resume-service` 默认使用内存仓储；启用 `RESUME_PERSISTENCE_ENABLED=true` 并配置 `SPRING_DATASOURCE_URL` 后通过 MyBatis-Plus 写入该表，简历详情可通过 Redis cache-aside 缓存。
+
 ## v1.7 Job Record Table
 
 ```sql
