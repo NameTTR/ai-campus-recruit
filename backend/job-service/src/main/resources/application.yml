@@ -13,7 +13,19 @@ spring:
 services:
   ai: ${AI_SERVICE_URI:http://localhost:8106}
 
+job:
+  persistence:
+    enabled: ${JOB_PERSISTENCE_ENABLED:false}
+  cache:
+    ttl: ${JOB_CACHE_TTL:10m}
+    key-prefix: ${JOB_CACHE_KEY_PREFIX:job:records}
+
 management:
+  health:
+    db:
+      enabled: ${JOB_DB_HEALTH_ENABLED:false}
+    redis:
+      enabled: ${JOB_REDIS_HEALTH_ENABLED:false}
   endpoints:
     web:
       exposure:
@@ -22,4 +34,3 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
-

@@ -14,6 +14,28 @@
 
 MVP 阶段使用内存仓储保证演示闭环；接入 MySQL 时按以上表结构落库。
 
+## v1.7 Job Record Table
+
+```sql
+CREATE TABLE IF NOT EXISTS job_record (
+    job_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    company_id VARCHAR(64) NOT NULL,
+    company_name VARCHAR(128) NOT NULL,
+    title VARCHAR(128) NOT NULL,
+    city VARCHAR(64) NOT NULL,
+    salary_range VARCHAR(64) NOT NULL,
+    required_skills TEXT NOT NULL,
+    description TEXT NOT NULL,
+    ai_summary TEXT NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    KEY idx_job_record_company_updated (company_id, updated_at),
+    KEY idx_job_record_city_updated (city, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+`required_skills` 使用 JSON 字符串保存。`job-service` 默认使用内存仓储；启用 `JOB_PERSISTENCE_ENABLED=true` 并配置 `SPRING_DATASOURCE_URL` 后通过 MyBatis-Plus 写入该表，岗位列表可通过 Redis cache-aside 缓存。
+
 ## v1.6 Delivery Record Table
 
 ```sql

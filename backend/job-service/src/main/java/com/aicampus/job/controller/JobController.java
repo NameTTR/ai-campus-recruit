@@ -5,12 +5,12 @@ import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.JobPostRequest;
 import com.aicampus.common.dto.JobSummary;
-import java.util.ArrayList;
+import com.aicampus.job.service.store.JobRecordStore;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,15 +25,22 @@ import org.springframework.web.client.RestClient;
 @RestController
 @RequestMapping("/api/jobs")
 public class JobController {
-    private final Map<String, JobSummary> jobs = new ConcurrentHashMap<>();
+    private final JobRecordStore jobStore;
     private final RestClient restClient;
 
-    public JobController(@Value("${services.ai:http://localhost:8106}") String aiServiceUrl) {
+    public JobController(JobRecordStore jobStore, @Value("${services.ai:http://localhost:8106}") String aiServiceUrl) {
+        this.jobStore = jobStore;
         this.restClient = RestClient.create(aiServiceUrl);
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void seedDefaultJobs() {
         JobSummary seed = new JobSummary("J001", "C001", "星河科技", "Java 后端实习生", "杭州",
                 "180-260/天", List.of("Java", "Spring Boot", "MySQL", "Redis"),
                 "参与招聘平台、数据看板和中台接口开发。", "适合具备 Java Web 项目经验的应届生。");
-        jobs.put(seed.jobId(), seed);
+        jobStore.findById(seed.jobId())
+                .ifPresentOrElse(existing -> {
+                }, () -> jobStore.save(seed));
     }
 
     @PostMapping
@@ -42,29 +49,39 @@ public class JobController {
         JobSummary job = new JobSummary(jobId, emptyDefault(request.companyId(), "C001"), "星河科技",
                 request.title(), request.city(), request.salaryRange(), safeList(request.requiredSkills()),
                 request.description(), "待 AI 分析");
-        jobs.put(jobId, job);
+        jobStore.save(job);
         return ApiResponse.ok(job);
     }
 
     @GetMapping
     public ApiResponse<List<JobSummary>> list() {
-        return ApiResponse.ok(new ArrayList<>(jobs.values()));
+        return ApiResponse.ok(jobStore.listAll());
     }
 
     @GetMapping("/{id}")
     public ApiResponse<JobSummary> detail(@PathVariable("id") String id) {
-        return ApiResponse.ok(jobs.getOrDefault(id, jobs.get("J001")));
+        return ApiResponse.ok(jobStore.findById(id)
+                .or(() -> jobStore.findById("J001"))
+                .orElseGet(JobController::defaultJob));
     }
 
     @PostMapping("/{id}/analyze")
     public ApiResponse<JobSummary> analyze(@PathVariable("id") String id) {
-        JobSummary current = jobs.getOrDefault(id, jobs.get("J001"));
+        JobSummary current = jobStore.findById(id)
+                .or(() -> jobStore.findById("J001"))
+                .orElseGet(JobController::defaultJob);
         String aiSummary = callAi(current);
         JobSummary analyzed = new JobSummary(current.jobId(), current.companyId(), current.companyName(),
                 current.title(), current.city(), current.salaryRange(), current.requiredSkills(),
                 current.description(), aiSummary);
-        jobs.put(analyzed.jobId(), analyzed);
+        jobStore.save(analyzed);
         return ApiResponse.ok(analyzed);
+    }
+
+    private static JobSummary defaultJob() {
+        return new JobSummary("J001", "C001", "星河科技", "Java 后端实习生", "杭州",
+                "180-260/天", List.of("Java", "Spring Boot", "MySQL", "Redis"),
+                "参与招聘平台、数据看板和中台接口开发。", "适合具备 Java Web 项目经验的应届生。");
     }
 
     private String callAi(JobSummary job) {

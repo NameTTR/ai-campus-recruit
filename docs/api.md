@@ -28,6 +28,9 @@
 
 - `POST /api/jobs`：发布岗位。
 - `GET /api/jobs`：岗位列表。
+  - 默认使用内存仓储；设置 `JOB_PERSISTENCE_ENABLED=true` 且提供 `SPRING_DATASOURCE_URL` 后写入 MySQL 表 `job_record`。
+  - 岗位列表使用 Redis cache-aside 缓存，key 格式：`job:records:list:ALL`。
+  - `JOB_DB_HEALTH_ENABLED` 与 `JOB_REDIS_HEALTH_ENABLED` 默认关闭，避免本地未启动 MySQL/Redis 时影响演示健康状态。
 - `GET /api/jobs/{id}`：岗位详情。
 - `POST /api/jobs/{id}/analyze`：触发 AI 岗位分析。
 

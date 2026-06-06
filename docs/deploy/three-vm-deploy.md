@@ -86,6 +86,8 @@ DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 
 AI_SCREENING_PERSISTENCE_ENABLED=true
 AI_SCREENING_CACHE_TTL=10m
+JOB_PERSISTENCE_ENABLED=true
+JOB_CACHE_TTL=10m
 DELIVERY_PERSISTENCE_ENABLED=true
 DELIVERY_CACHE_TTL=10m
 DELIVERY_EVENTS_ROCKETMQ_ENABLED=true
@@ -112,6 +114,8 @@ GATEWAY_PORT=8080
 | `DASHSCOPE_BASE_URL` | 默认 `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | `AI_SCREENING_PERSISTENCE_ENABLED` | AI 候选人初筛历史是否写入 MySQL，v0.9 建议为 `true` |
 | `AI_SCREENING_CACHE_TTL` | AI 初筛历史 Redis 缓存 TTL |
+| `JOB_PERSISTENCE_ENABLED` | 岗位发布和岗位 AI 分析结果是否写入 VM3 MySQL，v1.7 建议为 `true` |
+| `JOB_CACHE_TTL` | 岗位列表 Redis 缓存 TTL |
 | `DELIVERY_PERSISTENCE_ENABLED` | 投递记录是否写入 VM3 MySQL，v1.6 建议为 `true` |
 | `DELIVERY_CACHE_TTL` | 企业投递列表 Redis 缓存 TTL |
 | `DELIVERY_EVENTS_ROCKETMQ_ENABLED` | 投递事件是否发布到 RocketMQ，三机部署默认 `true` |
@@ -122,7 +126,7 @@ GATEWAY_PORT=8080
 服务内实际使用的关键环境变量：
 
 - VM1 `gateway-service`：`AUTH_SERVICE_URI=http://${VM2_HOST}:8101`、`USER_SERVICE_URI=http://${VM2_HOST}:8102`、`RESUME_SERVICE_URI=http://${VM2_HOST}:8103`、`JOB_SERVICE_URI=http://${VM2_HOST}:8104`、`MATCH_SERVICE_URI=http://${VM2_HOST}:8105`、`DELIVERY_SERVICE_URI=http://${VM2_HOST}:8107`、`AI_SERVICE_URI=http://${VM3_HOST}:8106`。
-- VM2 业务服务：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`；`resume-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`RESUME_OBJECT_STORAGE_ENABLED=true`、`MINIO_ENDPOINT=http://${VM3_HOST}:9000`、`MINIO_BUCKET=${MINIO_BUCKET}`；`job-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`；`delivery-service` 额外使用 `DELIVERY_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`、`DELIVERY_EVENTS_ROCKETMQ_ENABLED=true`、`ROCKETMQ_NAME_SERVER=${VM3_HOST}:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
+- VM2 业务服务：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`；`resume-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`RESUME_OBJECT_STORAGE_ENABLED=true`、`MINIO_ENDPOINT=http://${VM3_HOST}:9000`、`MINIO_BUCKET=${MINIO_BUCKET}`；`job-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`JOB_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`delivery-service` 额外使用 `DELIVERY_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`、`DELIVERY_EVENTS_ROCKETMQ_ENABLED=true`、`ROCKETMQ_NAME_SERVER=${VM3_HOST}:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
 - VM3 `ai-service`：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`、`SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=redis`。
 
 ## 启动顺序
@@ -308,6 +312,23 @@ docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm2.yml r
 curl -sS "http://<VM1_IP>:8080/api/deliveries/company?companyId=C001"
 ```
 
+验证岗位记录持久化：
+
+```bash
+curl -sS -X POST "http://<VM1_IP>:8080/api/jobs" \
+  -H "Content-Type: application/json" \
+  -d '{"companyId":"C001","title":"分布式后端实习生","city":"杭州","salaryRange":"200-280/天","requiredSkills":["Java","Spring Cloud Alibaba","Redis"],"description":"参与校园招聘平台微服务接口和缓存治理"}'
+
+curl -sS "http://<VM1_IP>:8080/api/jobs"
+```
+
+重启 VM2 的 `job-service` 后再次查询，岗位记录仍应存在：
+
+```bash
+docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm2.yml restart job-service
+curl -sS "http://<VM1_IP>:8080/api/jobs"
+```
+
 演示账号：
 
 - `student / 123456`
@@ -418,6 +439,22 @@ docker exec recruit-vm2-delivery-service printenv | grep DELIVERY
 docker exec recruit-vm2-delivery-service printenv | grep SPRING_DATASOURCE_URL
 docker exec recruit-vm3-mysql mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" -e "USE ai_campus_recruit; SHOW TABLES LIKE 'delivery_record';"
 docker exec recruit-vm3-redis redis-cli KEYS 'delivery:records:*'
+nc -zv <VM3_IP> 3306
+nc -zv <VM3_IP> 6379
+```
+
+**岗位记录没有持久化或岗位列表缓存异常**
+
+检查 VM2 `job-service` 到 VM3 MySQL/Redis 的配置和网络：
+
+```bash
+set -a
+. ./deploy/three-vm.env
+set +a
+docker exec recruit-vm2-job-service printenv | grep JOB
+docker exec recruit-vm2-job-service printenv | grep SPRING_DATASOURCE_URL
+docker exec recruit-vm3-mysql mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" -e "USE ai_campus_recruit; SHOW TABLES LIKE 'job_record';"
+docker exec recruit-vm3-redis redis-cli KEYS 'job:records:*'
 nc -zv <VM3_IP> 3306
 nc -zv <VM3_IP> 6379
 ```
