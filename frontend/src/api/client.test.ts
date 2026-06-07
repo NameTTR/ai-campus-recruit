@@ -6,6 +6,7 @@ import {
   getProfile,
   getResume,
   getDeliveryStatistics,
+  getDeploymentTopology,
   getSystemStatus,
   listCandidateScreenRecords,
   listInterviewRecords,
@@ -342,5 +343,39 @@ describe('api fallback behavior', () => {
 
     expect(result.environment).toBe('test')
     expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/admin/system/status', expect.any(Object))
+  })
+
+  it('returns deployment topology fallback when gateway is offline', async () => {
+    const result = await getDeploymentTopology()
+
+    expect(result.nodes).toHaveLength(3)
+    expect(result.nodes[0].host).toBe('192.168.56.11')
+    expect(result.nodes[1].services.some((service) => service.name === 'user-service')).toBe(true)
+    expect(result.nodes[2].services.some((service) => service.name === 'ai-service')).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls deployment topology endpoint when api base url is configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          generatedAt: '2026-06-07T00:00:00Z',
+          environment: 'test',
+          nodes: [
+            { id: 'vm1', name: 'VM1', host: '10.0.0.11', role: 'entry', services: [] }
+          ],
+          warnings: []
+        }
+      })
+    } as Response)
+
+    const result = await getDeploymentTopology()
+
+    expect(result.nodes[0].host).toBe('10.0.0.11')
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/admin/system/topology', expect.any(Object))
   })
 })

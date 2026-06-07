@@ -11,13 +11,22 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/admin/system")
 public class AdminSystemStatusController {
     private final AdminSystemStatusService statusService;
+    private final AdminDeploymentTopologyService topologyService;
 
-    public AdminSystemStatusController(AdminSystemStatusService statusService) {
+    public AdminSystemStatusController(
+            AdminSystemStatusService statusService,
+            AdminDeploymentTopologyService topologyService) {
         this.statusService = statusService;
+        this.topologyService = topologyService;
     }
 
     @GetMapping("/status")
     public ApiResponse<AdminSystemStatus> status() {
         return ApiResponse.ok(statusService.status());
+    }
+
+    @GetMapping("/topology")
+    public ApiResponse<AdminDeploymentTopology> topology() {
+        return ApiResponse.ok(topologyService.topology());
     }
 }

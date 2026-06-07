@@ -223,6 +223,31 @@ export interface SystemStatus {
   warnings: string[]
 }
 
+export interface TopologyService {
+  name: string
+  displayName: string
+  port: number
+  healthUrl: string
+  status: string
+  note?: string
+}
+
+export interface TopologyNode {
+  id: string
+  name: string
+  host: string
+  role: string
+  services: TopologyService[]
+}
+
+export interface DeploymentTopology {
+  generatedAt: string
+  profile?: string
+  environment: string
+  nodes: TopologyNode[]
+  warnings: string[]
+}
+
 interface ApiResponse<T> {
   code: number
   message: string
@@ -494,6 +519,53 @@ const fallbackSystemStatus: SystemStatus = {
   ]
 }
 
+const fallbackDeploymentTopology: DeploymentTopology = {
+  generatedAt: new Date().toISOString(),
+  profile: 'frontend-demo',
+  environment: 'frontend-demo',
+  nodes: [
+    {
+      id: 'vm1',
+      name: 'VM1',
+      host: '192.168.56.11',
+      role: '接入层与注册中心',
+      services: [
+        { name: 'frontend', displayName: '前端入口', port: 80, healthUrl: 'http://192.168.56.11/', status: 'CONFIGURED', note: 'Nginx 承载前端并反代 API 网关' },
+        { name: 'gateway-service', displayName: 'API 网关', port: 8080, healthUrl: 'http://192.168.56.11:8080/actuator/health', status: 'CONFIGURED' },
+        { name: 'nacos', displayName: 'Nacos 注册中心', port: 8848, healthUrl: 'http://192.168.56.11:8848/nacos', status: 'CONFIGURED' }
+      ]
+    },
+    {
+      id: 'vm2',
+      name: 'VM2',
+      host: '192.168.56.12',
+      role: '业务微服务',
+      services: [
+        { name: 'auth-service', displayName: '认证服务', port: 8101, healthUrl: 'http://192.168.56.12:8101/actuator/health', status: 'CONFIGURED' },
+        { name: 'user-service', displayName: '用户与管理服务', port: 8102, healthUrl: 'http://192.168.56.12:8102/actuator/health', status: 'CONFIGURED' },
+        { name: 'resume-service', displayName: '简历服务', port: 8103, healthUrl: 'http://192.168.56.12:8103/actuator/health', status: 'CONFIGURED' },
+        { name: 'job-service', displayName: '岗位服务', port: 8104, healthUrl: 'http://192.168.56.12:8104/actuator/health', status: 'CONFIGURED' },
+        { name: 'match-service', displayName: '匹配服务', port: 8105, healthUrl: 'http://192.168.56.12:8105/actuator/health', status: 'CONFIGURED' },
+        { name: 'delivery-service', displayName: '投递服务', port: 8107, healthUrl: 'http://192.168.56.12:8107/actuator/health', status: 'CONFIGURED' }
+      ]
+    },
+    {
+      id: 'vm3',
+      name: 'VM3',
+      host: '192.168.56.13',
+      role: 'AI 与基础设施',
+      services: [
+        { name: 'mysql', displayName: 'MySQL', port: 3306, healthUrl: 'tcp://192.168.56.13:3306', status: 'CONFIGURED' },
+        { name: 'redis', displayName: 'Redis', port: 6379, healthUrl: 'tcp://192.168.56.13:6379', status: 'CONFIGURED' },
+        { name: 'minio', displayName: 'MinIO', port: 9000, healthUrl: 'http://192.168.56.13:9000/minio/health/live', status: 'CONFIGURED' },
+        { name: 'rocketmq', displayName: 'RocketMQ', port: 9876, healthUrl: 'tcp://192.168.56.13:9876', status: 'CONFIGURED', note: 'Broker 默认开放 10909/10911' },
+        { name: 'ai-service', displayName: 'AI 服务', port: 8106, healthUrl: 'http://192.168.56.13:8106/actuator/health', status: 'CONFIGURED' }
+      ]
+    }
+  ],
+  warnings: ['前端未配置网关时展示三虚拟机默认部署拓扑']
+}
+
 function normalizeMetadataText(value?: string | null) {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -744,4 +816,8 @@ export function getDashboard() {
 
 export function getSystemStatus() {
   return request<SystemStatus>('/api/admin/system/status', { method: 'GET' }, fallbackSystemStatus)
+}
+
+export function getDeploymentTopology() {
+  return request<DeploymentTopology>('/api/admin/system/topology', { method: 'GET' }, fallbackDeploymentTopology)
 }

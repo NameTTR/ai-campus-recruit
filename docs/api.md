@@ -110,5 +110,12 @@
   - `infrastructure` items cover `nacos/mysql/redis/minio/rocketmq` with `name`, `host`, `port`, `configured`, `status`, and `note`.
   - The endpoint reads configuration from environment/properties and never returns password, secret, or API key values.
 
+- `GET /api/admin/system/topology`: deployment topology summary for the three-VM admin console.
+  - Returns: `generatedAt`, `profile`, `environment`, `nodes`, and `warnings`.
+  - `nodes` items include `id`, `name`, `host`, `role`, and `services`; default hosts are `VM1_HOST=192.168.56.11`, `VM2_HOST=192.168.56.12`, and `VM3_HOST=192.168.56.13`.
+  - Default distribution follows `deploy/docker-compose.vm1.yml`, `vm2.yml`, `vm3.yml`, and `deploy/three-vm.env.example`: VM1 has `frontend/gateway-service/nacos`; VM2 has `auth-service/user-service/resume-service/job-service/match-service/delivery-service`; VM3 has `mysql/redis/minio/rocketmq/ai-service`.
+  - `services` items include `name`, `displayName`, `port`, `healthUrl`, `status`, and `note`; `FRONTEND_PORT`, `GATEWAY_PORT`, `NACOS_PORT`, `AUTH_PORT`, `USER_PORT`, `RESUME_PORT`, `JOB_PORT`, `MATCH_PORT`, `DELIVERY_PORT`, `MYSQL_PORT`, `REDIS_PORT`, `MINIO_PORT`, `ROCKETMQ_PORT`, and `AI_PORT` can override displayed ports.
+  - The endpoint is configuration-only, does not probe network health, and never returns password, secret, token, or API key values.
+
 - `GET /api/admin/dashboard`：学校端统计看板。
   - 返回：`studentCount`、`companyCount`、`jobCount`、`deliveryCount`、`averageMatchScore`、`deliveryStatusCounts`、`pendingDeliveryCount`。

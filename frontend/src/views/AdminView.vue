@@ -15,9 +15,11 @@ import {
   Timer
 } from 'lucide-vue-next'
 import {
+  getDeploymentTopology,
   getDashboard,
   getSystemStatus,
   type DashboardStats,
+  type DeploymentTopology,
   type DeliveryStatus,
   type SystemServiceStatus,
   type SystemStatus
@@ -26,6 +28,7 @@ import {
 const route = useRoute()
 const stats = ref<DashboardStats>()
 const systemStatus = ref<SystemStatus>()
+const deploymentTopology = ref<DeploymentTopology>()
 const systemStatusLoading = ref(false)
 const statusLabels: Record<DeliveryStatus, string> = {
   SUBMITTED: '已投递',
@@ -58,11 +61,18 @@ const serviceRows = computed(() => systemStatus.value?.services || [])
 const persistenceRows = computed(() => systemStatus.value?.persistence || [])
 const infrastructureRows = computed(() => systemStatus.value?.infrastructure || [])
 const warningRows = computed(() => systemStatus.value?.warnings || [])
+const topologyNodes = computed(() => deploymentTopology.value?.nodes || [])
+const topologyWarnings = computed(() => deploymentTopology.value?.warnings || [])
 
 onMounted(async () => {
-  const [dashboard, status] = await Promise.all([getDashboard(), getSystemStatus()])
+  const [dashboard, status, topology] = await Promise.all([
+    getDashboard(),
+    getSystemStatus(),
+    getDeploymentTopology()
+  ])
   stats.value = dashboard
   systemStatus.value = status
+  deploymentTopology.value = topology
 })
 
 function statusPercent(count: number) {
@@ -75,7 +85,9 @@ function statusPercent(count: number) {
 async function refreshSystemStatus() {
   systemStatusLoading.value = true
   try {
-    systemStatus.value = await getSystemStatus()
+    const [status, topology] = await Promise.all([getSystemStatus(), getDeploymentTopology()])
+    systemStatus.value = status
+    deploymentTopology.value = topology
   } finally {
     systemStatusLoading.value = false
   }
@@ -200,6 +212,46 @@ function servicePort(row: SystemServiceStatus) {
           <strong>{{ warningRows.length }}</strong>
         </div>
       </div>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          部署拓扑
+          <HardDrive :size="19" />
+        </h2>
+        <div class="topology-list">
+          <article v-for="node in topologyNodes" :key="node.id" class="topology-node">
+            <header class="topology-node-header">
+              <div>
+                <strong>{{ node.name }}</strong>
+                <span>{{ node.host }}</span>
+              </div>
+              <el-tag type="info">{{ node.role }}</el-tag>
+            </header>
+            <div class="topology-services">
+              <div v-for="service in node.services" :key="`${node.id}-${service.name}`" class="topology-service">
+                <div class="topology-service-main">
+                  <strong>{{ service.displayName }}</strong>
+                  <span>{{ service.name }}</span>
+                </div>
+                <span class="topology-port">{{ service.port }}</span>
+                <el-tag :type="systemTagType(service.status)">{{ service.status }}</el-tag>
+                <span class="topology-health">{{ service.healthUrl }}</span>
+                <span v-if="service.note" class="topology-note">{{ service.note }}</span>
+              </div>
+            </div>
+          </article>
+        </div>
+        <div v-if="topologyWarnings.length" class="topology-warnings">
+          <el-alert
+            v-for="warning in topologyWarnings"
+            :key="warning"
+            :title="warning"
+            type="info"
+            :closable="false"
+            show-icon
+          />
+        </div>
+      </section>
 
       <section class="panel module-panel">
         <h2 class="panel-title">
@@ -352,10 +404,105 @@ function servicePort(row: SystemServiceStatus) {
   gap: 10px;
 }
 
+.topology-list {
+  display: grid;
+  gap: 0;
+}
+
+.topology-node {
+  border-bottom: 1px solid #e4e7ec;
+  display: grid;
+  gap: 14px;
+  padding: 16px 0;
+}
+
+.topology-node:first-child {
+  padding-top: 0;
+}
+
+.topology-node:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.topology-node-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.topology-node-header div,
+.topology-service-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.topology-node-header span,
+.topology-service-main span,
+.topology-health,
+.topology-note {
+  color: #667085;
+  font-size: 13px;
+}
+
+.topology-services {
+  display: grid;
+  gap: 10px;
+}
+
+.topology-service {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(138px, 1fr) 64px 112px minmax(180px, 1.4fr);
+  min-width: 0;
+}
+
+.topology-port {
+  color: #101828;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.topology-health,
+.topology-note {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.topology-note {
+  grid-column: 4;
+}
+
+.topology-warnings {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
 @media (max-width: 640px) {
   .panel-title-actions {
     align-items: flex-start;
     flex-direction: column-reverse;
+  }
+
+  .topology-node-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .topology-service {
+    align-items: start;
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) 52px 96px;
+  }
+
+  .topology-health,
+  .topology-note {
+    grid-column: 1 / -1;
   }
 }
 </style>
