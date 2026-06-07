@@ -186,6 +186,43 @@ export interface DashboardStats {
   pendingDeliveryCount: number
 }
 
+export interface SystemServiceStatus {
+  name: string
+  displayName: string
+  defaultPort?: number
+  port: number
+  healthPath: string
+  status: string
+  note?: string
+}
+
+export interface PersistenceStatus {
+  module: string
+  enabled: boolean
+  database: string
+  cacheKeyPrefix: string
+  note?: string
+}
+
+export interface InfrastructureStatus {
+  name: string
+  host: string
+  port: number
+  configured: boolean
+  status: string
+  note?: string
+}
+
+export interface SystemStatus {
+  generatedAt: string
+  applicationName: string
+  environment: string
+  services: SystemServiceStatus[]
+  persistence: PersistenceStatus[]
+  infrastructure: InfrastructureStatus[]
+  warnings: string[]
+}
+
 interface ApiResponse<T> {
   code: number
   message: string
@@ -421,6 +458,40 @@ const fallbackDeliveryStatistics: DeliveryStatistics = {
   totalCount: fallbackDeliveries.length,
   statusCounts: fallbackDeliveryStatusCounts,
   pendingCount: fallbackDeliveryStatusCounts.SUBMITTED
+}
+
+const fallbackSystemStatus: SystemStatus = {
+  generatedAt: new Date().toISOString(),
+  applicationName: 'user-service',
+  environment: 'frontend-demo',
+  services: [
+    { name: 'gateway-service', displayName: 'API 网关', port: 8080, healthPath: '/actuator/health', status: 'CONFIGURED', note: '统一转发前端 API 请求' },
+    { name: 'auth-service', displayName: '认证服务', port: 8101, healthPath: '/actuator/health', status: 'CONFIGURED' },
+    { name: 'user-service', displayName: '用户与管理服务', port: 8102, healthPath: '/actuator/health', status: 'CONFIGURED' },
+    { name: 'resume-service', displayName: '简历服务', port: 8103, healthPath: '/actuator/health', status: 'CONFIGURED' },
+    { name: 'job-service', displayName: '岗位服务', port: 8104, healthPath: '/actuator/health', status: 'CONFIGURED' },
+    { name: 'match-service', displayName: '匹配服务', port: 8105, healthPath: '/actuator/health', status: 'CONFIGURED' },
+    { name: 'ai-service', displayName: 'AI 服务', port: 8106, healthPath: '/actuator/health', status: 'UNKNOWN', note: '未配置网关时使用前端演示数据' },
+    { name: 'delivery-service', displayName: '投递服务', port: 8107, healthPath: '/actuator/health', status: 'CONFIGURED' }
+  ],
+  persistence: [
+    { module: 'resume', enabled: false, database: 'ai_campus_recruit', cacheKeyPrefix: 'resume:summaries', note: '表 resume_summary_record；RESUME_PERSISTENCE_ENABLED 默认关闭' },
+    { module: 'job', enabled: false, database: 'ai_campus_recruit', cacheKeyPrefix: 'job:records', note: '表 job_record；JOB_PERSISTENCE_ENABLED 默认关闭' },
+    { module: 'match', enabled: false, database: 'ai_campus_recruit', cacheKeyPrefix: 'match:results', note: '表 match_result_record；MATCH_PERSISTENCE_ENABLED 默认关闭' },
+    { module: 'delivery', enabled: false, database: 'ai_campus_recruit', cacheKeyPrefix: 'delivery:records', note: '表 delivery_record；DELIVERY_PERSISTENCE_ENABLED 默认关闭' },
+    { module: 'ai-screening', enabled: false, database: 'ai_campus_recruit', cacheKeyPrefix: 'ai:screening', note: '表 ai_candidate_screen_record；AI_SCREENING_PERSISTENCE_ENABLED 默认关闭' }
+  ],
+  infrastructure: [
+    { name: 'nacos', host: '127.0.0.1', port: 8848, configured: false, status: 'OPTIONAL', note: '本地 demo 可关闭注册中心' },
+    { name: 'mysql', host: 'mysql', port: 3306, configured: false, status: 'OPTIONAL' },
+    { name: 'redis', host: 'redis', port: 6379, configured: false, status: 'OPTIONAL' },
+    { name: 'minio', host: 'minio', port: 9000, configured: false, status: 'OPTIONAL' },
+    { name: 'rocketmq', host: '127.0.0.1', port: 9876, configured: false, status: 'OPTIONAL' }
+  ],
+  warnings: [
+    '前端未配置 VITE_API_BASE_URL 时展示演示状态',
+    '真实三虚拟机部署请通过 /api/admin/system/status 查看后端环境'
+  ]
 }
 
 function normalizeMetadataText(value?: string | null) {
@@ -669,4 +740,8 @@ export function getDashboard() {
     },
     pendingDeliveryCount: 72
   })
+}
+
+export function getSystemStatus() {
+  return request<SystemStatus>('/api/admin/system/status', { method: 'GET' }, fallbackSystemStatus)
 }

@@ -103,5 +103,12 @@
 
 ## Admin
 
+- `GET /api/admin/system/status`: backend management status summary for the admin console.
+  - Returns: `generatedAt`, `applicationName`, `profile`, stable service entries for `gateway/auth/user/resume/job/match/ai/delivery`, persistence settings, infrastructure settings, and warnings.
+  - `services` items include `name`, `displayName`, `defaultPort`, `port`, `healthPath`, `status`, and `note`; `port` reflects the configured `*_SERVICE_URI` port when present.
+  - `persistence` items cover `resume/job/match/delivery/aiScreening` with `module`, `enabled`, `database`, `cacheKeyPrefix`, `note`, and `notes`.
+  - `infrastructure` items cover `nacos/mysql/redis/minio/rocketmq` with `name`, `host`, `port`, `configured`, `status`, and `note`.
+  - The endpoint reads configuration from environment/properties and never returns password, secret, or API key values.
+
 - `GET /api/admin/dashboard`：学校端统计看板。
   - 返回：`studentCount`、`companyCount`、`jobCount`、`deliveryCount`、`averageMatchScore`、`deliveryStatusCounts`、`pendingDeliveryCount`。

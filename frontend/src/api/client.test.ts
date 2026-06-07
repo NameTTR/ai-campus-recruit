@@ -6,6 +6,7 @@ import {
   getProfile,
   getResume,
   getDeliveryStatistics,
+  getSystemStatus,
   listCandidateScreenRecords,
   listInterviewRecords,
   listCompanyDeliveries,
@@ -306,5 +307,40 @@ describe('api fallback behavior', () => {
     expect(result.totalCount).toBe(5)
     expect(result.pendingCount).toBe(1)
     expect(result.statusCounts.INTERVIEW).toBe(1)
+  })
+
+  it('returns system status fallback when gateway is offline', async () => {
+    const result = await getSystemStatus()
+
+    expect(result.applicationName).toBe('user-service')
+    expect(result.services.some((service) => service.name === 'resume-service')).toBe(true)
+    expect(result.persistence.some((item) => item.database === 'ai_campus_recruit')).toBe(true)
+    expect(result.warnings.length).toBeGreaterThan(0)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls admin system status endpoint when api base url is configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          generatedAt: '2026-06-07T00:00:00Z',
+          applicationName: 'user-service',
+          environment: 'test',
+          services: [],
+          persistence: [],
+          infrastructure: [],
+          warnings: []
+        }
+      })
+    } as Response)
+
+    const result = await getSystemStatus()
+
+    expect(result.environment).toBe('test')
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/admin/system/status', expect.any(Object))
   })
 })
