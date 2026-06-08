@@ -248,6 +248,33 @@ export interface DeploymentTopology {
   warnings: string[]
 }
 
+export interface DeploymentGuideStep {
+  order: number
+  nodeId: string
+  nodeName: string
+  title: string
+  purpose: string
+  commands: string[]
+  verifyUrls: string[]
+  expectedResult: string
+  troubleshooting: string[]
+}
+
+export interface DeploymentAcceptanceCheck {
+  name: string
+  command: string
+  expectedResult: string
+}
+
+export interface DeploymentGuide {
+  generatedAt: string
+  environment: string
+  summary: string
+  steps: DeploymentGuideStep[]
+  acceptanceChecks: DeploymentAcceptanceCheck[]
+  warnings: string[]
+}
+
 interface ApiResponse<T> {
   code: number
   message: string
@@ -566,6 +593,101 @@ const fallbackDeploymentTopology: DeploymentTopology = {
   warnings: ['前端未配置网关时展示三虚拟机默认部署拓扑']
 }
 
+const fallbackDeploymentGuide: DeploymentGuide = {
+  generatedAt: new Date().toISOString(),
+  environment: 'frontend-demo',
+  summary: '按 VM3 基础设施、VM1 接入层、VM2 业务服务、最终验收的顺序完成三虚拟机部署。',
+  steps: [
+    {
+      order: 1,
+      nodeId: 'vm3',
+      nodeName: 'VM3 Data and AI Node',
+      title: '启动数据与 AI 节点',
+      purpose: '先启动 MySQL、Redis、MinIO、RocketMQ 和 AI 服务，保证业务服务依赖可用。',
+      commands: [
+        'docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm3.yml up -d',
+        'docker compose -f deploy/docker-compose.vm3.yml ps'
+      ],
+      verifyUrls: [
+        'tcp://192.168.56.13:3306',
+        'tcp://192.168.56.13:6379',
+        'http://192.168.56.13:9000/minio/health/live',
+        'http://192.168.56.13:8106/actuator/health'
+      ],
+      expectedResult: 'MySQL、Redis、MinIO、RocketMQ 和 ai-service 均可达。',
+      troubleshooting: ['先确认 VM3 防火墙端口开放', 'AI 服务异常时检查 AI 服务凭证是否已在 .env 中配置']
+    },
+    {
+      order: 2,
+      nodeId: 'vm1',
+      nodeName: 'VM1 Edge Node',
+      title: '启动注册中心与接入层',
+      purpose: '启动 Nacos、Gateway 和前端入口，建立统一访问入口。',
+      commands: [
+        'docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml up -d',
+        'docker compose -f deploy/docker-compose.vm1.yml ps'
+      ],
+      verifyUrls: [
+        'http://192.168.56.11:8848/nacos',
+        'http://192.168.56.11:8080/actuator/health',
+        'http://192.168.56.11/'
+      ],
+      expectedResult: 'Nacos、Gateway 和前端容器处于 running 状态。',
+      troubleshooting: ['Gateway 异常时检查 VM2/VM3 地址是否写入 deploy/three-vm.env', '前端打不开时检查 80 端口是否被占用']
+    },
+    {
+      order: 3,
+      nodeId: 'vm2',
+      nodeName: 'VM2 Business Services Node',
+      title: '启动业务微服务',
+      purpose: '启动认证、用户、简历、岗位、匹配和投递服务。',
+      commands: [
+        'docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm2.yml up -d',
+        'docker compose -f deploy/docker-compose.vm2.yml ps'
+      ],
+      verifyUrls: [
+        'http://192.168.56.12:8101/actuator/health',
+        'http://192.168.56.12:8102/actuator/health',
+        'http://192.168.56.12:8103/actuator/health',
+        'http://192.168.56.12:8104/actuator/health',
+        'http://192.168.56.12:8105/actuator/health',
+        'http://192.168.56.12:8107/actuator/health'
+      ],
+      expectedResult: 'VM2 六个业务服务健康检查返回 UP。',
+      troubleshooting: ['业务服务无法连接数据库时检查 VM3 MySQL 地址和账号环境变量', '服务未注册时检查 NACOS_SERVER_ADDR 指向 VM1']
+    },
+    {
+      order: 4,
+      nodeId: 'acceptance',
+      nodeName: 'Deployment Acceptance',
+      title: '执行部署验收',
+      purpose: '用健康检查和 API smoke 验证三机链路可以用于演示。',
+      commands: [
+        '.\\scripts\\check-three-vm-health.ps1 -EnvFile .\\deploy\\three-vm.env -TimeoutSeconds 5',
+        '.\\scripts\\check-api-smoke.ps1 -BaseUrl http://192.168.56.11:8080 -TimeoutSeconds 8',
+        'bash scripts/check-three-vm-health.sh --env-file deploy/three-vm.env --timeout 5',
+        'bash scripts/check-api-smoke.sh --base-url http://192.168.56.11:8080 --timeout 8'
+      ],
+      verifyUrls: ['http://192.168.56.11:8080/api/admin/system/status', 'http://192.168.56.11:8080/api/admin/system/topology'],
+      expectedResult: '健康检查和关键 API smoke 均成功退出。',
+      troubleshooting: ['若 smoke 失败，先打开系统状态页定位失败模块', '若跨 VM 不通，优先检查虚拟机网络模式和 IP 配置']
+    }
+  ],
+  acceptanceChecks: [
+    {
+      name: '三机健康检查',
+      command: '.\\scripts\\check-three-vm-health.ps1 -EnvFile .\\deploy\\three-vm.env -TimeoutSeconds 5',
+      expectedResult: '所有配置的前端、网关、业务服务、AI 服务和基础设施检查通过。'
+    },
+    {
+      name: '关键 API smoke',
+      command: '.\\scripts\\check-api-smoke.ps1 -BaseUrl http://192.168.56.11:8080 -TimeoutSeconds 8',
+      expectedResult: '登录、简历、岗位、匹配、投递、AI 与管理端接口返回成功响应。'
+    }
+  ],
+  warnings: ['前端未连接网关时展示默认部署向导；真实部署请以后端返回的 host/port 为准']
+}
+
 function normalizeMetadataText(value?: string | null) {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -820,4 +942,8 @@ export function getSystemStatus() {
 
 export function getDeploymentTopology() {
   return request<DeploymentTopology>('/api/admin/system/topology', { method: 'GET' }, fallbackDeploymentTopology)
+}
+
+export function getDeploymentGuide() {
+  return request<DeploymentGuide>('/api/admin/system/deployment-guide', { method: 'GET' }, fallbackDeploymentGuide)
 }

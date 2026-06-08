@@ -3,6 +3,7 @@ import {
   createDelivery,
   generateInterviewQuestions,
   getAiStatus,
+  getDeploymentGuide,
   getProfile,
   getResume,
   getDeliveryStatistics,
@@ -377,5 +378,40 @@ describe('api fallback behavior', () => {
 
     expect(result.nodes[0].host).toBe('10.0.0.11')
     expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/admin/system/topology', expect.any(Object))
+  })
+
+  it('returns deployment guide fallback when gateway is offline', async () => {
+    const result = await getDeploymentGuide()
+
+    expect(result.steps).toHaveLength(4)
+    expect(result.steps[0].nodeId).toBe('vm3')
+    expect(result.steps[1].nodeId).toBe('vm1')
+    expect(result.steps[2].nodeId).toBe('vm2')
+    expect(result.acceptanceChecks.length).toBeGreaterThan(0)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls deployment guide endpoint when api base url is configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          generatedAt: '2026-06-08T00:00:00Z',
+          environment: 'test',
+          summary: 'guide',
+          steps: [],
+          acceptanceChecks: [],
+          warnings: []
+        }
+      })
+    } as Response)
+
+    const result = await getDeploymentGuide()
+
+    expect(result.summary).toBe('guide')
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/admin/system/deployment-guide', expect.any(Object))
   })
 })

@@ -12,12 +12,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminSystemStatusController {
     private final AdminSystemStatusService statusService;
     private final AdminDeploymentTopologyService topologyService;
+    private final AdminDeploymentGuideService guideService;
 
     public AdminSystemStatusController(
             AdminSystemStatusService statusService,
-            AdminDeploymentTopologyService topologyService) {
+            AdminDeploymentTopologyService topologyService,
+            AdminDeploymentGuideService guideService) {
         this.statusService = statusService;
         this.topologyService = topologyService;
+        this.guideService = guideService;
     }
 
     @GetMapping("/status")
@@ -28,5 +31,10 @@ public class AdminSystemStatusController {
     @GetMapping("/topology")
     public ApiResponse<AdminDeploymentTopology> topology() {
         return ApiResponse.ok(topologyService.topology());
+    }
+
+    @GetMapping("/deployment-guide")
+    public ApiResponse<AdminDeploymentGuide> deploymentGuide() {
+        return ApiResponse.ok(guideService.guide());
     }
 }

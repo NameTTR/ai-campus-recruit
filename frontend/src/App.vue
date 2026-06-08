@@ -11,6 +11,7 @@ import {
   GraduationCap,
   LogOut,
   Plus,
+  Rocket,
   ServerCog,
   Send
 } from 'lucide-vue-next'
@@ -49,6 +50,7 @@ const navGroups = {
       { path: '/admin/overview', label: '数据概览', icon: GraduationCap },
       { path: '/admin/status', label: '投递状态', icon: BarChart3 },
       { path: '/admin/system', label: '系统状态', icon: ServerCog },
+      { path: '/admin/deploy', label: '部署向导', icon: Rocket },
       { path: '/admin/guidance', label: '就业指导', icon: ClipboardList }
     ]
   }

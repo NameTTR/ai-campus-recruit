@@ -117,5 +117,13 @@
   - `services` items include `name`, `displayName`, `port`, `healthUrl`, `status`, and `note`; `FRONTEND_PORT`, `GATEWAY_PORT`, `NACOS_PORT`, `AUTH_PORT`, `USER_PORT`, `RESUME_PORT`, `JOB_PORT`, `MATCH_PORT`, `DELIVERY_PORT`, `MYSQL_PORT`, `REDIS_PORT`, `MINIO_PORT`, `ROCKETMQ_PORT`, and `AI_PORT` can override displayed ports.
   - The endpoint is configuration-only, does not probe network health, and never returns password, secret, token, or API key values.
 
+- `GET /api/admin/system/deployment-guide`: generated startup guide for the three-VM deployment.
+  - Returns: `generatedAt`, `environment`, `summary`, `steps`, `acceptanceChecks`, and `warnings`.
+  - Default step order is VM3 data and AI services first, VM1 discovery/gateway/frontend second, VM2 business services third, and all-node health/API smoke checks last.
+  - `steps` items include `order`, `nodeId`, `nodeName`, `title`, `purpose`, `commands`, `verifyUrls`, `expectedResult`, and `troubleshooting`.
+  - `acceptanceChecks` items include `name`, `command`, and `expectedResult`.
+  - Hosts and ports are generated from `VM1_HOST`, `VM2_HOST`, `VM3_HOST`, `FRONTEND_PORT`, `GATEWAY_PORT`, `NACOS_PORT`, `AUTH_PORT`, `USER_PORT`, `RESUME_PORT`, `JOB_PORT`, `MATCH_PORT`, `AI_PORT`, `DELIVERY_PORT`, `MYSQL_PORT`, `REDIS_PORT`, `MINIO_PORT`, and `ROCKETMQ_PORT`, with defaults aligned to `deploy/three-vm.env.example` and the VM compose files.
+  - The endpoint only generates deployment instructions, does not probe network health, and never returns credential values.
+
 - `GET /api/admin/dashboard`：学校端统计看板。
   - 返回：`studentCount`、`companyCount`、`jobCount`、`deliveryCount`、`averageMatchScore`、`deliveryStatusCounts`、`pendingDeliveryCount`。

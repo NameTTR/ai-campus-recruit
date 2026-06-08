@@ -6,19 +6,24 @@ import {
   BarChart3,
   BriefcaseBusiness,
   Building2,
+  CheckCircle2,
+  ClipboardCheck,
   Database,
   GraduationCap,
   HardDrive,
   RefreshCw,
+  Rocket,
   Send,
   ServerCog,
   Timer
 } from 'lucide-vue-next'
 import {
   getDeploymentTopology,
+  getDeploymentGuide,
   getDashboard,
   getSystemStatus,
   type DashboardStats,
+  type DeploymentGuide,
   type DeploymentTopology,
   type DeliveryStatus,
   type SystemServiceStatus,
@@ -29,6 +34,7 @@ const route = useRoute()
 const stats = ref<DashboardStats>()
 const systemStatus = ref<SystemStatus>()
 const deploymentTopology = ref<DeploymentTopology>()
+const deploymentGuide = ref<DeploymentGuide>()
 const systemStatusLoading = ref(false)
 const statusLabels: Record<DeliveryStatus, string> = {
   SUBMITTED: '已投递',
@@ -63,16 +69,21 @@ const infrastructureRows = computed(() => systemStatus.value?.infrastructure || 
 const warningRows = computed(() => systemStatus.value?.warnings || [])
 const topologyNodes = computed(() => deploymentTopology.value?.nodes || [])
 const topologyWarnings = computed(() => deploymentTopology.value?.warnings || [])
+const deploymentSteps = computed(() => deploymentGuide.value?.steps || [])
+const acceptanceChecks = computed(() => deploymentGuide.value?.acceptanceChecks || [])
+const deploymentWarnings = computed(() => deploymentGuide.value?.warnings || [])
 
 onMounted(async () => {
-  const [dashboard, status, topology] = await Promise.all([
+  const [dashboard, status, topology, guide] = await Promise.all([
     getDashboard(),
     getSystemStatus(),
-    getDeploymentTopology()
+    getDeploymentTopology(),
+    getDeploymentGuide()
   ])
   stats.value = dashboard
   systemStatus.value = status
   deploymentTopology.value = topology
+  deploymentGuide.value = guide
 })
 
 function statusPercent(count: number) {
@@ -132,6 +143,16 @@ function servicePort(row: SystemServiceStatus) {
     return `${row.port} / ${row.defaultPort}`
   }
   return String(row.port)
+}
+
+function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
+  if (nodeId === 'vm3') {
+    return 'success'
+  }
+  if (['acceptance', 'all'].includes(nodeId)) {
+    return 'warning'
+  }
+  return 'info'
 }
 </script>
 
@@ -347,6 +368,95 @@ function servicePort(row: SystemServiceStatus) {
       </section>
     </div>
 
+    <div v-if="activeModule === 'deploy'" class="module-stack">
+      <section class="panel module-panel deploy-hero">
+        <div>
+          <h2 class="panel-title">
+            部署启动向导
+            <Rocket :size="20" />
+          </h2>
+          <p>{{ deploymentGuide?.summary || '按三虚拟机顺序启动并验收校园招聘系统。' }}</p>
+        </div>
+        <el-tag type="info">{{ deploymentGuide?.environment || 'frontend-demo' }}</el-tag>
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          启动顺序
+          <ClipboardCheck :size="19" />
+        </h2>
+        <div class="deploy-steps">
+          <article v-for="step in deploymentSteps" :key="step.order" class="deploy-step">
+            <div class="deploy-step-index">{{ step.order }}</div>
+            <div class="deploy-step-body">
+              <header class="deploy-step-header">
+                <div>
+                  <strong>{{ step.title }}</strong>
+                  <span>{{ step.nodeName }}</span>
+                </div>
+                <el-tag :type="stepTagType(step.nodeId)">{{ step.nodeId }}</el-tag>
+              </header>
+              <p>{{ step.purpose }}</p>
+
+              <div class="deploy-command-list">
+                <code v-for="command in step.commands" :key="command">{{ command }}</code>
+              </div>
+
+              <div class="deploy-check-grid">
+                <div>
+                  <span class="deploy-label">检查地址</span>
+                  <span v-for="url in step.verifyUrls" :key="url" class="deploy-url">{{ url }}</span>
+                </div>
+                <div>
+                  <span class="deploy-label">期望结果</span>
+                  <strong>{{ step.expectedResult }}</strong>
+                </div>
+              </div>
+
+              <div class="deploy-troubleshooting">
+                <span class="deploy-label">排障提示</span>
+                <span v-for="item in step.troubleshooting" :key="item">{{ item }}</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          验收命令
+          <CheckCircle2 :size="19" />
+        </h2>
+        <div class="acceptance-list">
+          <article v-for="check in acceptanceChecks" :key="check.name" class="acceptance-item">
+            <div>
+              <strong>{{ check.name }}</strong>
+              <code>{{ check.command }}</code>
+            </div>
+            <span>{{ check.expectedResult }}</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          向导提示
+          <AlertTriangle :size="19" />
+        </h2>
+        <div v-if="deploymentWarnings.length" class="warning-list">
+          <el-alert
+            v-for="warning in deploymentWarnings"
+            :key="warning"
+            :title="warning"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+        </div>
+        <el-empty v-else description="暂无向导提示" />
+      </section>
+    </div>
+
     <section v-if="activeModule === 'guidance'" class="panel module-panel">
       <h2 class="panel-title">就业指导关注点</h2>
       <el-timeline>
@@ -483,6 +593,147 @@ function servicePort(row: SystemServiceStatus) {
   margin-top: 16px;
 }
 
+.deploy-hero {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.deploy-hero p {
+  color: #475467;
+  margin: 8px 0 0;
+}
+
+.deploy-steps {
+  display: grid;
+  gap: 18px;
+}
+
+.deploy-step {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 36px minmax(0, 1fr);
+}
+
+.deploy-step-index {
+  align-items: center;
+  background: #0f766e;
+  border-radius: 8px;
+  color: #fff;
+  display: inline-flex;
+  font-weight: 800;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.deploy-step-body {
+  border-bottom: 1px solid #e4e7ec;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding-bottom: 18px;
+}
+
+.deploy-step:last-child .deploy-step-body {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.deploy-step-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.deploy-step-header div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.deploy-step-header span,
+.deploy-step-body p,
+.deploy-label,
+.deploy-troubleshooting span,
+.acceptance-item span {
+  color: #667085;
+}
+
+.deploy-step-body p {
+  margin: 0;
+}
+
+.deploy-command-list,
+.deploy-troubleshooting,
+.acceptance-list {
+  display: grid;
+  gap: 10px;
+}
+
+.deploy-command-list code,
+.acceptance-item code {
+  background: #101828;
+  border-radius: 6px;
+  color: #f8fafc;
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  white-space: normal;
+}
+
+.deploy-check-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+}
+
+.deploy-check-grid > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.deploy-label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.deploy-url {
+  color: #344054;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.deploy-troubleshooting span:not(.deploy-label) {
+  font-size: 13px;
+}
+
+.acceptance-item {
+  align-items: start;
+  border-bottom: 1px solid #e4e7ec;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  padding-bottom: 14px;
+}
+
+.acceptance-item:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.acceptance-item > div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
 @media (max-width: 640px) {
   .panel-title-actions {
     align-items: flex-start;
@@ -503,6 +754,27 @@ function servicePort(row: SystemServiceStatus) {
   .topology-health,
   .topology-note {
     grid-column: 1 / -1;
+  }
+
+  .deploy-hero,
+  .deploy-step-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .deploy-check-grid,
+  .acceptance-item {
+    grid-template-columns: 1fr;
+  }
+
+  .deploy-step {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .deploy-step-index {
+    border-radius: 7px;
+    height: 30px;
+    width: 30px;
   }
 }
 </style>
