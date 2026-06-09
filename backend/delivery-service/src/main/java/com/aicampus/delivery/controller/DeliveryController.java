@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -53,10 +54,13 @@ public class DeliveryController {
     }
 
     @PostMapping
-    public ApiResponse<DeliveryRecord> create(@RequestBody DeliveryRequest request) {
+    public ApiResponse<DeliveryRecord> create(@RequestBody DeliveryRequest request,
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role) {
         String id = "D" + UUID.randomUUID().toString().substring(0, 8);
         String jobId = valueOr(request.jobId(), "J001");
-        DeliveryRecord record = new DeliveryRecord(id, valueOr(request.studentId(), "S001"), valueOr(request.resumeId(), "R001"),
+        String studentId = effectiveStudentId(role, userId, request.studentId());
+        DeliveryRecord record = new DeliveryRecord(id, studentId, valueOr(request.resumeId(), "R001"),
                 jobId, companyIdFor(jobId), request.resumeSourceFormat(), request.resumeParseStatus(),
                 request.resumeParsedTextLength(), DeliveryStatus.SUBMITTED, LocalDateTime.now());
         deliveryStore.save(record);
@@ -65,8 +69,11 @@ public class DeliveryController {
     }
 
     @GetMapping("/my")
-    public ApiResponse<List<DeliveryRecord>> my(@RequestParam(value = "studentId", defaultValue = "S001") String studentId) {
-        return ApiResponse.ok(deliveryStore.listByStudent(studentId));
+    public ApiResponse<List<DeliveryRecord>> my(
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role,
+            @RequestParam(value = "studentId", defaultValue = "S001") String studentId) {
+        return ApiResponse.ok(deliveryStore.listByStudent(effectiveStudentId(role, userId, studentId)));
     }
 
     @GetMapping
@@ -75,8 +82,11 @@ public class DeliveryController {
     }
 
     @GetMapping("/company")
-    public ApiResponse<List<DeliveryRecord>> company(@RequestParam(value = "companyId", defaultValue = "C001") String companyId) {
-        return ApiResponse.ok(deliveryStore.listByCompany(companyId));
+    public ApiResponse<List<DeliveryRecord>> company(
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role,
+            @RequestParam(value = "companyId", defaultValue = "C001") String companyId) {
+        return ApiResponse.ok(deliveryStore.listByCompany(effectiveCompanyId(role, userId, companyId)));
     }
 
     @GetMapping("/statistics")
@@ -126,6 +136,24 @@ public class DeliveryController {
 
     private static String companyIdFor(String jobId) {
         return JOB_COMPANIES.getOrDefault(jobId, "C001");
+    }
+
+    private static String effectiveStudentId(String role, String userId, String requestedStudentId) {
+        if ("STUDENT".equalsIgnoreCase(valueOr(role, "")) && hasText(userId)) {
+            return userId.trim();
+        }
+        return valueOr(requestedStudentId, "S001");
+    }
+
+    private static String effectiveCompanyId(String role, String userId, String requestedCompanyId) {
+        if ("COMPANY".equalsIgnoreCase(valueOr(role, "")) && hasText(userId)) {
+            return userId.trim();
+        }
+        return valueOr(requestedCompanyId, "C001");
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private static String valueOr(String value, String defaultValue) {

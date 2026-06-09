@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
@@ -44,8 +45,12 @@ public class JobController {
     }
 
     @PostMapping
-    public ApiResponse<JobSummary> create(@RequestBody JobPostRequest request) {
+    public ApiResponse<JobSummary> create(@RequestBody JobPostRequest request,
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role) {
         String jobId = "J" + UUID.randomUUID().toString().substring(0, 8);
+        request = new JobPostRequest(effectiveCompanyId(role, userId, request.companyId()), request.title(),
+                request.city(), request.salaryRange(), request.requiredSkills(), request.description());
         JobSummary job = new JobSummary(jobId, emptyDefault(request.companyId(), "C001"), "星河科技",
                 request.title(), request.city(), request.salaryRange(), safeList(request.requiredSkills()),
                 request.description(), "待 AI 分析");
@@ -103,6 +108,13 @@ public class JobController {
 
     private static String emptyDefault(String value, String defaultValue) {
         return value == null || value.isBlank() ? defaultValue : value;
+    }
+
+    private static String effectiveCompanyId(String role, String userId, String requestedCompanyId) {
+        if ("COMPANY".equalsIgnoreCase(emptyDefault(role, "")) && userId != null && !userId.isBlank()) {
+            return userId.trim();
+        }
+        return emptyDefault(requestedCompanyId, "C001");
     }
 
     private static List<String> safeList(List<String> values) {

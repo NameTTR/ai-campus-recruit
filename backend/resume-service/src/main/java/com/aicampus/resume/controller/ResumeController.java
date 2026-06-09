@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -59,12 +60,15 @@ public class ResumeController {
     }
 
     @PostMapping("/upload")
-    public ApiResponse<ResumeSummary> upload(@RequestParam("file") MultipartFile file) {
+    public ApiResponse<ResumeSummary> upload(@RequestParam("file") MultipartFile file,
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role) {
         String resumeId = "R" + UUID.randomUUID().toString().substring(0, 8);
         String fileName = file.getOriginalFilename() == null ? "resume.pdf" : file.getOriginalFilename();
         String extractedText = textExtractionService.extract(file);
         StoredResumeObject stored = storageService.store(resumeId, file);
-        ResumeSummary summary = new ResumeSummary(resumeId, "S001", fileName, uploadEducation(extractedText),
+        String studentId = effectiveStudentId(role, userId, "S001");
+        ResumeSummary summary = new ResumeSummary(resumeId, studentId, fileName, uploadEducation(extractedText),
                 new ArrayList<>(inferSkills(extractedText)), List.of("课程项目"), uploadDiagnosis(extractedText), 70,
                 stored.objectKey(), stored.storageProvider(), stored.storageStatus(),
                 sourceFormat(fileName), parseStatus(extractedText), extractedText.length());
@@ -159,6 +163,17 @@ public class ResumeController {
                 .filter(skill -> text.contains(skill.toLowerCase(Locale.ROOT)))
                 .toList();
         return skills.isEmpty() ? List.of("Java", "Spring Boot") : skills;
+    }
+
+    private static String effectiveStudentId(String role, String userId, String requestedStudentId) {
+        if ("STUDENT".equalsIgnoreCase(valueOr(role, "")) && userId != null && !userId.isBlank()) {
+            return userId.trim();
+        }
+        return valueOr(requestedStudentId, "S001");
+    }
+
+    private static String valueOr(String value, String defaultValue) {
+        return value == null || value.isBlank() ? defaultValue : value;
     }
 
     private static String aiContent(ResumeSummary resume, String resumeText) {

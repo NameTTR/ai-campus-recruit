@@ -114,6 +114,28 @@
   - `GATEWAY_AUTH_ENABLED`：Gateway 鉴权开关；本地演示可关闭，生产环境应开启。
 - 基础角色规则：`STUDENT` 可访问学生个人资料、简历、投递、岗位浏览和模拟面试能力；`COMPANY` 可访问企业岗位发布/分析、投递审核和候选人初筛能力；`ADMIN` 可访问学校看板和系统管理能力。
 
+## v2.4 Gateway Trusted Identity
+
+- Gateway-authenticated requests pass `X-User-Id` and `X-User-Role` to downstream business services after JWT verification.
+- Business services still run independently for local demo and direct-service debugging. When the identity headers are missing, they keep the old request/body/default fallback behavior.
+- Student-owned endpoints prefer `X-User-Id` when `X-User-Role=STUDENT`:
+  - `GET /api/students/profile`
+  - `PUT /api/students/profile`
+  - `POST /api/resumes/upload`
+  - `POST /api/matches/resume-job`
+  - `GET /api/matches/student/{studentId}`
+  - `POST /api/deliveries`
+  - `GET /api/deliveries/my`
+  - `POST /api/ai/interview/questions`
+  - `POST /api/ai/interview/feedback`
+  - `GET /api/ai/interview/records`
+- Company-owned endpoints prefer `X-User-Id` when `X-User-Role=COMPANY`:
+  - `POST /api/jobs`
+  - `GET /api/deliveries/company`
+  - `POST /api/ai/candidates/screen`
+  - `GET /api/ai/candidates/screenings`
+- `ADMIN` keeps cross-tenant query behavior for review and management screens; request parameters such as `studentId` and `companyId` are still honored for admin calls.
+
 ## Admin
 
 - `GET /api/admin/system/status`: backend management status summary for the admin console.

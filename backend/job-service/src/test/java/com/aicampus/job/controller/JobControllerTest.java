@@ -46,10 +46,30 @@ class JobControllerTest {
     }
 
     @Test
+    void createJobUsesCompanyHeaderBeforeRequestCompanyId() throws Exception {
+        mockMvc.perform(post("/api/jobs")
+                        .header("X-User-Id", "C-GATEWAY-001")
+                        .header("X-User-Role", "COMPANY")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "companyId": "C-BODY-001",
+                                  "title": "Gateway Identity Developer",
+                                  "city": "Shanghai",
+                                  "salaryRange": "200-260/day",
+                                  "requiredSkills": ["Java", "Spring Cloud"],
+                                  "description": "Build trusted identity APIs"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.companyId").value("C-GATEWAY-001"))
+                .andExpect(jsonPath("$.data.title").value("Gateway Identity Developer"));
+    }
+
+    @Test
     void analyzeFallsBackWhenAiServiceIsUnavailable() throws Exception {
         mockMvc.perform(post("/api/jobs/J001/analyze"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.aiSummary").isNotEmpty());
     }
 }
-

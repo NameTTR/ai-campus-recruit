@@ -46,6 +46,24 @@ class DeliveryControllerTest {
     }
 
     @Test
+    void createDeliveryUsesStudentHeaderBeforeRequestStudentId() throws Exception {
+        mockMvc.perform(post("/api/deliveries")
+                        .header("X-User-Id", "S-GATEWAY-001")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "studentId": "S-BODY-001",
+                                  "resumeId": "R-GATEWAY-001",
+                                  "jobId": "J001"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.studentId").value("S-GATEWAY-001"))
+                .andExpect(jsonPath("$.data.resumeId").value("R-GATEWAY-001"));
+    }
+
+    @Test
     void createDeliveryRecordsDisabledRocketMqEventWhenQueueIsOff() throws Exception {
         mockMvc.perform(post("/api/deliveries")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -89,6 +107,27 @@ class DeliveryControllerTest {
     }
 
     @Test
+    void listMineUsesStudentHeaderBeforeQueryParam() throws Exception {
+        mockMvc.perform(post("/api/deliveries")
+                        .header("X-User-Id", "S-GATEWAY-002")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"studentId\":\"S-BODY-002\",\"resumeId\":\"R-GATEWAY-002\",\"jobId\":\"J001\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/deliveries/my?studentId=S-BODY-002")
+                        .header("X-User-Id", "S-GATEWAY-002")
+                        .header("X-User-Role", "STUDENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].studentId").value("S-GATEWAY-002"));
+
+        mockMvc.perform(get("/api/deliveries/my?studentId=S-BODY-002"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
     void listCompanyDeliveriesReturnsOnlyCompanyRecords() throws Exception {
         mockMvc.perform(get("/api/deliveries/company?companyId=C001"))
                 .andExpect(status().isOk())
@@ -96,6 +135,16 @@ class DeliveryControllerTest {
                 .andExpect(jsonPath("$.data[0].companyId").value("C001"))
                 .andExpect(jsonPath("$.data[0].resumeSourceFormat").isNotEmpty())
                 .andExpect(jsonPath("$.data[0].resumeParseStatus").isNotEmpty());
+    }
+
+    @Test
+    void listCompanyDeliveriesUsesCompanyHeaderBeforeQueryParam() throws Exception {
+        mockMvc.perform(get("/api/deliveries/company?companyId=C001")
+                        .header("X-User-Id", "C002")
+                        .header("X-User-Role", "COMPANY"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].companyId").value("C002"));
     }
 
     @Test

@@ -36,6 +36,18 @@ class ResumeControllerTest {
     }
 
     @Test
+    void uploadUsesStudentHeader() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "resume.pdf", "application/pdf", "demo".getBytes());
+        mockMvc.perform(multipart("/api/resumes/upload")
+                        .file(file)
+                        .header("X-User-Id", "S-GATEWAY-001")
+                        .header("X-User-Role", "STUDENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.studentId").value("S-GATEWAY-001"))
+                .andExpect(jsonPath("$.data.fileName").value("resume.pdf"));
+    }
+
+    @Test
     void uploadDocxExtractsTextForDiagnosis() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",

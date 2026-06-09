@@ -52,3 +52,11 @@
 - v1.8：匹配结果支持可选 MySQL 持久化和 Redis 学生/岗位查询缓存，默认保留内存回退；生成新匹配后清理相关缓存，保证学生端和企业端匹配视图可跨服务重启保留。
 - v1.9：简历摘要、诊断结果和抽取正文支持可选 MySQL 持久化和 Redis 详情缓存，默认保留内存回退；服务重启后仍可基于已抽取正文继续 AI 诊断。
 - v2.3：完成生产级鉴权基础版，登录成功返回 JWT，前端自动携带 `Authorization: Bearer <token>` 调用受保护 API；新增 `/api/auth/me` token 验证流程；JWT 和 Gateway 鉴权通过 `JWT_SECRET`、`JWT_ISSUER`、`JWT_TTL_SECONDS`、`GATEWAY_AUTH_ENABLED` 等环境配置控制，并保留 `STUDENT`、`COMPANY`、`ADMIN` 三类基础角色边界。
+
+## v2.4 Trusted Identity Requirement
+
+- Business services must prefer gateway-injected `X-User-Id` and `X-User-Role` for student/company owned data after JWT authentication.
+- Student-owned flows include profile, resume upload, match generation/query, delivery creation/query, and AI interview questions/feedback/history.
+- Company-owned flows include job publishing, company delivery query, AI candidate screening, and candidate screening history.
+- Direct service calls without gateway identity headers must keep the existing demo fallback values so each service remains independently runnable.
+- `ADMIN` requests keep cross-tenant query behavior for management and review screens.

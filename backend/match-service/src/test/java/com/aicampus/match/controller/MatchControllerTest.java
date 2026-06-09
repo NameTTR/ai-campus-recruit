@@ -31,9 +31,38 @@ class MatchControllerTest {
     }
 
     @Test
+    void matchUsesStudentHeaderBeforeRequestStudentId() throws Exception {
+        mockMvc.perform(post("/api/matches/resume-job")
+                        .header("X-User-Id", "S-GATEWAY-001")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"resumeId\":\"R-GATEWAY-001\",\"jobId\":\"J001\",\"studentId\":\"S-BODY-001\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.studentId").value("S-GATEWAY-001"))
+                .andExpect(jsonPath("$.data.resumeId").value("R-GATEWAY-001"));
+    }
+
+    @Test
     void listByStudentReturnsSeedMatch() throws Exception {
         mockMvc.perform(get("/api/matches/student/S001"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[*].matchId", hasItem("M001")));
+    }
+
+    @Test
+    void listByStudentUsesStudentHeaderBeforePathVariable() throws Exception {
+        mockMvc.perform(post("/api/matches/resume-job")
+                        .header("X-User-Id", "S-GATEWAY-002")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"resumeId\":\"R-GATEWAY-002\",\"jobId\":\"J001\",\"studentId\":\"S-BODY-002\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/matches/student/S-BODY-002")
+                        .header("X-User-Id", "S-GATEWAY-002")
+                        .header("X-User-Role", "STUDENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].studentId").value("S-GATEWAY-002"));
     }
 }

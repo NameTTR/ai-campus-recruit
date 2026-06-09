@@ -137,6 +137,52 @@ class AiControllerTest {
     }
 
     @Test
+    void candidateScreeningUsesCompanyHeaderBeforeRequestCompanyId() throws Exception {
+        mockMvc.perform(post("/api/ai/candidates/screen")
+                        .header("X-User-Id", "C-GATEWAY-TRUST-001")
+                        .header("X-User-Role", "COMPANY")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "companyId": "C-BODY-TRUST-001",
+                                  "deliveryId": "D-GATEWAY-TRUST-001",
+                                  "studentId": "S-GATEWAY-TRUST-001",
+                                  "resumeId": "R-GATEWAY-TRUST-001",
+                                  "jobId": "J-GATEWAY-TRUST-001",
+                                  "resumeSourceFormat": "PDF",
+                                  "resumeParseStatus": "TEXT_EXTRACTED",
+                                  "resumeParsedTextLength": 96,
+                                  "targetRole": "Java Backend Intern",
+                                  "skills": ["Java", "Spring Boot"],
+                                  "projects": ["Campus recruitment platform"],
+                                  "jobRequirements": ["Java", "Spring Boot"],
+                                  "resumeSummary": "Java backend project experience",
+                                  "jobDescription": "Build backend APIs"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.deliveryId").value("D-GATEWAY-TRUST-001"))
+                .andExpect(jsonPath("$.data.studentId").value("S-GATEWAY-TRUST-001"));
+
+        mockMvc.perform(get("/api/ai/candidates/screenings")
+                        .header("X-User-Id", "C-GATEWAY-TRUST-001")
+                        .header("X-User-Role", "COMPANY")
+                        .param("companyId", "C-BODY-TRUST-001")
+                        .param("deliveryId", "D-GATEWAY-TRUST-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].companyId").value("C-GATEWAY-TRUST-001"))
+                .andExpect(jsonPath("$.data[0].deliveryId").value("D-GATEWAY-TRUST-001"));
+
+        mockMvc.perform(get("/api/ai/candidates/screenings")
+                        .param("companyId", "C-BODY-TRUST-001")
+                        .param("deliveryId", "D-GATEWAY-TRUST-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
     void candidateScreeningRecordsInitiallyReturnsEmptyArrayForUnknownCompany() throws Exception {
         mockMvc.perform(get("/api/ai/candidates/screenings")
                         .param("companyId", "C-HISTORY-EMPTY"))
@@ -196,6 +242,20 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].companyId").value("C-HISTORY-FILTER-B"))
                 .andExpect(jsonPath("$.data[0].deliveryId").value("D-HISTORY-FILTER-B-1"));
+    }
+
+    @Test
+    void adminCanQueryCandidateScreeningRecordsByRequestCompanyId() throws Exception {
+        screenCandidate("C-ADMIN-VIEW-001", "D-ADMIN-VIEW-001", "S-ADMIN-VIEW-001", "J-ADMIN-VIEW-001");
+
+        mockMvc.perform(get("/api/ai/candidates/screenings")
+                        .header("X-User-Id", "A-ADMIN-001")
+                        .header("X-User-Role", "ADMIN")
+                        .param("companyId", "C-ADMIN-VIEW-001")
+                        .param("deliveryId", "D-ADMIN-VIEW-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].companyId").value("C-ADMIN-VIEW-001"));
     }
 
     @Test
@@ -260,6 +320,65 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data[0].score").isNumber())
                 .andExpect(jsonPath("$.data[0].suggestions[0]").isNotEmpty())
                 .andExpect(jsonPath("$.data[0].mocked").value(true));
+    }
+
+    @Test
+    void interviewFeedbackUsesStudentHeaderBeforeRequestStudentId() throws Exception {
+        mockMvc.perform(post("/api/ai/interview/feedback")
+                        .header("X-User-Id", "S-GATEWAY-TRUST-001")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "studentId": "S-BODY-TRUST-001",
+                                  "questionId": "IQ-GATEWAY-TRUST-001",
+                                  "question": "How do you troubleshoot a slow API?",
+                                  "answer": "I check logs, metrics, SQL plans and cache hit rates, then reproduce the issue with focused load testing.",
+                                  "targetRole": "Java Backend Intern"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.mocked").value(true));
+
+        mockMvc.perform(get("/api/ai/interview/records")
+                        .header("X-User-Id", "S-GATEWAY-TRUST-001")
+                        .header("X-User-Role", "STUDENT")
+                        .param("studentId", "S-BODY-TRUST-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data[0].studentId").value("S-GATEWAY-TRUST-001"))
+                .andExpect(jsonPath("$.data[0].questionId").value("IQ-GATEWAY-TRUST-001"));
+
+        mockMvc.perform(get("/api/ai/interview/records")
+                        .param("studentId", "S-BODY-TRUST-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void adminCanQueryInterviewRecordsByRequestStudentId() throws Exception {
+        mockMvc.perform(post("/api/ai/interview/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "studentId": "S-ADMIN-VIEW-001",
+                                  "questionId": "IQ-ADMIN-VIEW-001",
+                                  "question": "How do you optimize a database query?",
+                                  "answer": "I inspect execution plans, add suitable indexes, reduce scanned rows and verify the change with metrics.",
+                                  "targetRole": "Java Backend Intern"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/ai/interview/records")
+                        .header("X-User-Id", "A-ADMIN-001")
+                        .header("X-User-Role", "ADMIN")
+                        .param("studentId", "S-ADMIN-VIEW-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data[0].studentId").value("S-ADMIN-VIEW-001"))
+                .andExpect(jsonPath("$.data[0].questionId").value("IQ-ADMIN-VIEW-001"));
     }
 
     private void screenCandidate(String companyId, String deliveryId, String studentId, String jobId) throws Exception {
