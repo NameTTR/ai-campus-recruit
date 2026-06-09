@@ -67,6 +67,23 @@ class JwtGatewayAuthFilterTest {
     }
 
     @Test
+    void replacesClientSuppliedIdentityHeadersWithTokenClaims() {
+        String token = jwtTokenService.issue("S001", "Student", Role.STUDENT);
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/students/profile")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-User-Id", "A001")
+                        .header("X-User-Role", "ADMIN")
+                        .build());
+        CapturingChain chain = new CapturingChain();
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.exchange.getRequest().getHeaders().get("X-User-Id")).containsExactly("S001");
+        assertThat(chain.exchange.getRequest().getHeaders().get("X-User-Role")).containsExactly("STUDENT");
+    }
+
+    @Test
     void rejectsStudentFromPublishingJobs() {
         String token = jwtTokenService.issue("S001", "Student", Role.STUDENT);
         MockServerWebExchange exchange = MockServerWebExchange.from(

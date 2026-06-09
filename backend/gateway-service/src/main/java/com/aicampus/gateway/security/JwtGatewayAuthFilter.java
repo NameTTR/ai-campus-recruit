@@ -53,8 +53,12 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
                 return reject(exchange, HttpStatus.FORBIDDEN, "forbidden");
             }
             ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
-                    .header("X-User-Id", claims.userId())
-                    .header("X-User-Role", claims.role().name())
+                    .headers(headers -> {
+                        headers.remove("X-User-Id");
+                        headers.remove("X-User-Role");
+                        headers.set("X-User-Id", claims.userId());
+                        headers.set("X-User-Role", claims.role().name());
+                    })
                     .build();
             return chain.filter(exchange.mutate().request(mutatedRequest).build());
         } catch (JwtTokenException | IllegalArgumentException ex) {
