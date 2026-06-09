@@ -126,6 +126,9 @@ services:
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-ai-campus-recruit}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-86400}
     depends_on:
       - nacos
     ports:
@@ -286,6 +289,10 @@ services:
       MATCH_SERVICE_URI: http://match-service:8105
       AI_SERVICE_URI: http://ai-service:8106
       DELIVERY_SERVICE_URI: http://delivery-service:8107
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-ai-campus-recruit}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-86400}
+      GATEWAY_AUTH_ENABLED: ${GATEWAY_AUTH_ENABLED:-true}
     depends_on:
       - auth-service
       - user-service

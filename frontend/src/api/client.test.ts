@@ -53,6 +53,24 @@ describe('api fallback behavior', () => {
     expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/students/profile', expect.any(Object))
   })
 
+  it('sends localStorage token as a Bearer authorization header', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    localStorage.setItem('token', 'test-jwt-token')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: { userId: 'S901', displayName: 'Token User', role: 'STUDENT', school: 'A', major: 'B', skills: [], targetPosition: 'C' }
+      })
+    } as Response)
+
+    await getProfile()
+
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(new Headers(requestInit.headers).get('Authorization')).toBe('Bearer test-jwt-token')
+  })
+
   it('returns role-aware login fallback when gateway is offline', async () => {
     const result = await login('company', '123456')
 

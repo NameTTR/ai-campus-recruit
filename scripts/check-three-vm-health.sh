@@ -105,14 +105,19 @@ record_result() {
 check_http() {
   local name="$1"
   local url="$2"
+  local token="${3:-}"
   local code
+  local headers=()
+  if [[ -n "${token}" ]]; then
+    headers=(-H "Authorization: Bearer ${token}")
+  fi
 
   if ! command -v curl >/dev/null 2>&1; then
     record_result "fail" "${name}" "${url}" "curl not installed"
     return
   fi
 
-  code="$(curl -k -sS -L --max-time "${TIMEOUT_SECONDS}" -o /dev/null -w '%{http_code}' "${url}" 2>/dev/null || true)"
+  code="$(curl -k -sS -L --max-time "${TIMEOUT_SECONDS}" "${headers[@]}" -o /dev/null -w '%{http_code}' "${url}" 2>/dev/null || true)"
   if [[ "${code}" =~ ^[0-9]+$ && "${code}" -ge 200 && "${code}" -lt 400 ]]; then
     record_result "ok" "${name}" "${url}" "HTTP ${code}"
   else
@@ -151,19 +156,41 @@ check_tcp() {
   fi
 }
 
+gateway_token() {
+  local base_url="$1"
+  local username="$2"
+  local output_var="$3"
+  local response
+  response="$(curl -sS --max-time "${TIMEOUT_SECONDS}" -X POST "${base_url%/}/api/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "{\"username\":\"${username}\",\"password\":\"123456\"}" 2>/dev/null || true)"
+  local token
+  token="$(printf '%s' "${response}" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  if [[ -n "${token}" ]]; then
+    record_result "ok" "gateway ${username} login" "${base_url}" "token issued"
+    printf -v "${output_var}" '%s' "${token}"
+  else
+    record_result "fail" "gateway ${username} login" "${base_url}" "token missing"
+    printf -v "${output_var}" ''
+  fi
+}
+
 VM1_HOST="$(required_value VM1_HOST)"
 VM2_HOST="$(required_value VM2_HOST)"
 VM3_HOST="$(required_value VM3_HOST)"
 FRONTEND_PORT="$(value_or_default FRONTEND_PORT 80)"
 GATEWAY_PORT="$(value_or_default GATEWAY_PORT 8080)"
+GATEWAY_BASE_URL="http://${VM1_HOST}:${GATEWAY_PORT}"
 
 echo "Using env file: ${ENV_FILE}"
 echo "Checking VM1=${VM1_HOST} VM2=${VM2_HOST} VM3=${VM3_HOST}"
 
 check_http "VM1 frontend" "http://${VM1_HOST}:${FRONTEND_PORT}/"
-check_http "VM1 frontend api proxy" "http://${VM1_HOST}:${FRONTEND_PORT}/api/ai/status"
 check_http "VM1 gateway health" "http://${VM1_HOST}:${GATEWAY_PORT}/actuator/health"
-check_http "VM1 gateway ai route" "http://${VM1_HOST}:${GATEWAY_PORT}/api/ai/status"
+STUDENT_TOKEN=""
+gateway_token "${GATEWAY_BASE_URL}" "student" STUDENT_TOKEN
+check_http "VM1 frontend api proxy" "http://${VM1_HOST}:${FRONTEND_PORT}/api/ai/status" "${STUDENT_TOKEN}"
+check_http "VM1 gateway ai route" "http://${VM1_HOST}:${GATEWAY_PORT}/api/ai/status" "${STUDENT_TOKEN}"
 check_http "VM1 nacos console" "http://${VM1_HOST}:8848/nacos/"
 check_tcp "VM1 nacos grpc" "${VM1_HOST}" 9848
 

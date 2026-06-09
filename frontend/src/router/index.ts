@@ -23,7 +23,27 @@ router.beforeEach((to) => {
   if (to.path !== '/login' && !localStorage.getItem('token')) {
     return '/login'
   }
+  const role = localStorage.getItem('role')
+  if (to.path.startsWith('/student') && role !== 'STUDENT') {
+    return roleHome(role)
+  }
+  if (to.path.startsWith('/company') && role !== 'COMPANY') {
+    return roleHome(role)
+  }
+  if (to.path.startsWith('/admin') && role !== 'ADMIN') {
+    return roleHome(role)
+  }
   return true
 })
+
+function roleHome(role: string | null) {
+  if (role === 'COMPANY') {
+    return '/company/publish'
+  }
+  if (role === 'ADMIN') {
+    return '/admin/overview'
+  }
+  return '/student/resume'
+}
 
 export default router

@@ -754,11 +754,7 @@ async function request<T>(path: string, init: RequestInit, fallback: T): Promise
   try {
     const response = await fetch(resolveRequestPath(path), {
       ...init,
-      headers: {
-        ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-        Authorization: localStorage.getItem('token') || '',
-        ...(init.headers || {})
-      }
+      headers: requestHeaders(init)
     })
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`)
@@ -767,6 +763,26 @@ async function request<T>(path: string, init: RequestInit, fallback: T): Promise
     return payload.data
   } catch {
     return fallback
+  }
+}
+
+function requestHeaders(init: RequestInit) {
+  const headers = new Headers()
+  if (!(init.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json')
+  }
+  Object.entries(authorizationHeader()).forEach(([key, value]) => headers.set(key, value))
+  new Headers(init.headers).forEach((value, key) => headers.set(key, value))
+  return headers
+}
+
+function authorizationHeader(): Record<string, string> {
+  const token = localStorage.getItem('token')
+  if (!token) {
+    return {}
+  }
+  return {
+    Authorization: token.toLowerCase().startsWith('bearer ') ? token : `Bearer ${token}`
   }
 }
 

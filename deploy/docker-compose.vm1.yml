@@ -40,6 +40,10 @@ services:
       MATCH_SERVICE_URI: http://${VM2_HOST}:8105
       DELIVERY_SERVICE_URI: http://${VM2_HOST}:8107
       AI_SERVICE_URI: http://${VM3_HOST}:8106
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-ai-campus-recruit}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-86400}
+      GATEWAY_AUTH_ENABLED: ${GATEWAY_AUTH_ENABLED:-true}
     depends_on:
       - nacos
     ports:

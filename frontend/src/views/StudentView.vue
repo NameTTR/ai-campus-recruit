@@ -254,7 +254,11 @@ function formatTime(value: string) {
         <Brain :size="19" />
       </h2>
       <div class="actions">
-        <input type="file" accept=".pdf,.doc,.docx" @change="onFileChange" />
+        <label class="file-picker">
+          <input type="file" accept=".pdf,.doc,.docx" @change="onFileChange" />
+          <span>选择文件</span>
+        </label>
+        <span class="selected-file-name">{{ selectedFile?.name || '未选择文件' }}</span>
         <el-button type="primary" @click="submitResume">
           <FileUp :size="17" />
           上传
@@ -550,6 +554,44 @@ function formatTime(value: string) {
 </template>
 
 <style scoped>
+.file-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  min-width: 92px;
+  padding: 0 14px;
+  border: 1px solid #cfd8e3;
+  border-radius: 6px;
+  color: #344054;
+  background: #ffffff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.file-picker:hover {
+  border-color: #409eff;
+  color: #409eff;
+}
+
+.file-picker input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.selected-file-name {
+  align-self: center;
+  min-width: 0;
+  max-width: 280px;
+  color: #475467;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ai-status-strip {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) auto;
@@ -904,6 +946,11 @@ function formatTime(value: string) {
 }
 
 @media (max-width: 640px) {
+  .file-picker,
+  .selected-file-name {
+    width: 100%;
+  }
+
   .ai-status-meta,
   .feedback-head {
     align-items: flex-start;

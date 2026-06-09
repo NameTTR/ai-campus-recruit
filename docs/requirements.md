@@ -51,3 +51,4 @@
 - v1.7：岗位发布和 AI 岗位分析结果支持可选 MySQL 持久化和 Redis 岗位列表缓存，默认保留内存回退；单机 Compose 与三虚拟机部署可直接将 `job-service` 连接到 MySQL/Redis。
 - v1.8：匹配结果支持可选 MySQL 持久化和 Redis 学生/岗位查询缓存，默认保留内存回退；生成新匹配后清理相关缓存，保证学生端和企业端匹配视图可跨服务重启保留。
 - v1.9：简历摘要、诊断结果和抽取正文支持可选 MySQL 持久化和 Redis 详情缓存，默认保留内存回退；服务重启后仍可基于已抽取正文继续 AI 诊断。
+- v2.3：完成生产级鉴权基础版，登录成功返回 JWT，前端自动携带 `Authorization: Bearer <token>` 调用受保护 API；新增 `/api/auth/me` token 验证流程；JWT 和 Gateway 鉴权通过 `JWT_SECRET`、`JWT_ISSUER`、`JWT_TTL_SECONDS`、`GATEWAY_AUTH_ENABLED` 等环境配置控制，并保留 `STUDENT`、`COMPANY`、`ADMIN` 三类基础角色边界。

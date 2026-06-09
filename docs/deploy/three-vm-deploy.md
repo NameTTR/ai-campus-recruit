@@ -79,6 +79,10 @@ MYSQL_DATABASE=ai_campus_recruit
 MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=<strong_minio_password>
 MINIO_BUCKET=resumes
+JWT_SECRET=<same_long_random_secret_on_all_vms>
+JWT_ISSUER=ai-campus-recruit
+JWT_TTL_SECONDS=86400
+GATEWAY_AUTH_ENABLED=true
 
 DASHSCOPE_API_KEY=
 DASHSCOPE_MODEL=qwen-plus
@@ -113,6 +117,10 @@ GATEWAY_PORT=8080
 | `MINIO_ROOT_USER` | VM3 MinIO 管理账号，同时作为 VM2 `resume-service` 写入凭据 |
 | `MINIO_ROOT_PASSWORD` | VM3 MinIO 管理密码，不要提交真实值 |
 | `MINIO_BUCKET` | 简历对象存储 bucket，默认 `resumes` |
+| `JWT_SECRET` | Auth 与 Gateway 共用的 JWT 签名密钥；三台 VM 的 `deploy/three-vm.env` 必须保持一致，不要提交真实值 |
+| `JWT_ISSUER` | JWT 签发方，Auth 与 Gateway 必须一致 |
+| `JWT_TTL_SECONDS` | JWT 有效期，单位秒 |
+| `GATEWAY_AUTH_ENABLED` | Gateway 鉴权开关，生产和答辩演示建议保持 `true` |
 | `DASHSCOPE_API_KEY` | 阿里云百炼 API Key；为空时 AI 服务进入 mock 演示模式 |
 | `DASHSCOPE_MODEL` | 默认 `qwen-plus` |
 | `DASHSCOPE_BASE_URL` | 默认 `https://dashscope.aliyuncs.com/compatible-mode/v1` |
@@ -133,8 +141,8 @@ GATEWAY_PORT=8080
 
 服务内实际使用的关键环境变量：
 
-- VM1 `gateway-service`：`AUTH_SERVICE_URI=http://${VM2_HOST}:8101`、`USER_SERVICE_URI=http://${VM2_HOST}:8102`、`RESUME_SERVICE_URI=http://${VM2_HOST}:8103`、`JOB_SERVICE_URI=http://${VM2_HOST}:8104`、`MATCH_SERVICE_URI=http://${VM2_HOST}:8105`、`DELIVERY_SERVICE_URI=http://${VM2_HOST}:8107`、`AI_SERVICE_URI=http://${VM3_HOST}:8106`。
-- VM2 业务服务：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`；`resume-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`RESUME_OBJECT_STORAGE_ENABLED=true`、`MINIO_ENDPOINT=http://${VM3_HOST}:9000`、`MINIO_BUCKET=${MINIO_BUCKET}`、`RESUME_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`job-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`JOB_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`match-service` 额外使用 `MATCH_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`delivery-service` 额外使用 `DELIVERY_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`、`DELIVERY_EVENTS_ROCKETMQ_ENABLED=true`、`ROCKETMQ_NAME_SERVER=${VM3_HOST}:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
+- VM1 `gateway-service`：`AUTH_SERVICE_URI=http://${VM2_HOST}:8101`、`USER_SERVICE_URI=http://${VM2_HOST}:8102`、`RESUME_SERVICE_URI=http://${VM2_HOST}:8103`、`JOB_SERVICE_URI=http://${VM2_HOST}:8104`、`MATCH_SERVICE_URI=http://${VM2_HOST}:8105`、`DELIVERY_SERVICE_URI=http://${VM2_HOST}:8107`、`AI_SERVICE_URI=http://${VM3_HOST}:8106`、`JWT_SECRET=${JWT_SECRET}`、`JWT_ISSUER=${JWT_ISSUER}`、`GATEWAY_AUTH_ENABLED=${GATEWAY_AUTH_ENABLED}`。
+- VM2 业务服务：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`；`auth-service` 额外使用 `JWT_SECRET=${JWT_SECRET}`、`JWT_ISSUER=${JWT_ISSUER}`；`resume-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`RESUME_OBJECT_STORAGE_ENABLED=true`、`MINIO_ENDPOINT=http://${VM3_HOST}:9000`、`MINIO_BUCKET=${MINIO_BUCKET}`、`RESUME_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`job-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`JOB_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`match-service` 额外使用 `MATCH_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`delivery-service` 额外使用 `DELIVERY_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`、`DELIVERY_EVENTS_ROCKETMQ_ENABLED=true`、`ROCKETMQ_NAME_SERVER=${VM3_HOST}:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
 - VM3 `ai-service`：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`、`SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=redis`。
 
 ## 启动顺序
@@ -223,7 +231,10 @@ docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml p
 ```bash
 curl -f http://127.0.0.1:8080/actuator/health
 curl -I http://127.0.0.1/
-curl -sS http://127.0.0.1:8080/api/ai/status
+STUDENT_TOKEN=$(curl -sS -X POST "http://127.0.0.1:8080/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"student","password":"123456"}' | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" http://127.0.0.1:8080/api/ai/status
 ```
 
 浏览器访问：
@@ -263,15 +274,23 @@ bash scripts/check-three-vm-health.sh --env-file deploy/three-vm.env --timeout 5
 在任意能访问三台 VM 的机器上执行：
 
 ```bash
-curl -sS -X POST "http://<VM1_IP>:8080/api/auth/login" \
+STUDENT_TOKEN=$(curl -sS -X POST "http://<VM1_IP>:8080/api/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"student","password":"123456"}'
+  -d '{"username":"student","password":"123456"}' | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 
-curl -sS "http://<VM1_IP>:8080/api/students/profile"
-curl -sS "http://<VM1_IP>:8080/api/jobs"
-curl -sS "http://<VM1_IP>:8080/api/ai/status"
-curl -sS "http://<VM1_IP>/api/ai/status"
-curl -sS "http://<VM1_IP>:8080/api/deliveries/events"
+COMPANY_TOKEN=$(curl -sS -X POST "http://<VM1_IP>:8080/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"company","password":"123456"}' | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+
+ADMIN_TOKEN=$(curl -sS -X POST "http://<VM1_IP>:8080/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"123456"}' | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>:8080/api/students/profile"
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>:8080/api/jobs"
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>:8080/api/ai/status"
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>/api/ai/status"
+curl -sS -H "Authorization: Bearer ${ADMIN_TOKEN}" "http://<VM1_IP>:8080/api/admin/dashboard"
 ```
 
 OpenAPI 直连路径：
@@ -290,87 +309,92 @@ http://<VM3_IP>:8106/swagger-ui.html
 
 ```bash
 curl -sS -X POST "http://<VM1_IP>:8080/api/ai/candidates/screen" \
+  -H "Authorization: Bearer ${COMPANY_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"deliveryId":"D900","companyId":"C001","studentId":"S001","resumeId":"R001","jobId":"J001","targetRole":"Java 后端实习生","skills":["Java","Spring Boot","MySQL"],"projects":["校园招聘平台"],"jobRequirements":["Java","MySQL"],"resumeSummary":"Java Web 项目经验","jobDescription":"后端接口开发"}'
 
-curl -sS "http://<VM1_IP>:8080/api/ai/candidates/screenings?companyId=C001"
+curl -sS -H "Authorization: Bearer ${COMPANY_TOKEN}" "http://<VM1_IP>:8080/api/ai/candidates/screenings?companyId=C001"
 ```
 
 重启 VM3 的 `ai-service` 后再次查询，记录仍应存在：
 
 ```bash
 docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm3.yml restart ai-service
-curl -sS "http://<VM1_IP>:8080/api/ai/candidates/screenings?companyId=C001"
+curl -sS -H "Authorization: Bearer ${COMPANY_TOKEN}" "http://<VM1_IP>:8080/api/ai/candidates/screenings?companyId=C001"
 ```
 
 验证投递记录持久化：
 
 ```bash
 curl -sS -X POST "http://<VM1_IP>:8080/api/deliveries" \
+  -H "Authorization: Bearer ${STUDENT_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"studentId":"S001","resumeId":"R-PERSIST-001","jobId":"J001","resumeSourceFormat":"PDF","resumeParseStatus":"TEXT_EXTRACTED","resumeParsedTextLength":256}'
 
-curl -sS "http://<VM1_IP>:8080/api/deliveries/company?companyId=C001"
+curl -sS -H "Authorization: Bearer ${COMPANY_TOKEN}" "http://<VM1_IP>:8080/api/deliveries/company?companyId=C001"
 ```
 
 重启 VM2 的 `delivery-service` 后再次查询，投递记录仍应存在：
 
 ```bash
 docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm2.yml restart delivery-service
-curl -sS "http://<VM1_IP>:8080/api/deliveries/company?companyId=C001"
+curl -sS -H "Authorization: Bearer ${COMPANY_TOKEN}" "http://<VM1_IP>:8080/api/deliveries/company?companyId=C001"
 ```
 
 验证简历摘要和抽取正文持久化：
 
 ```bash
 curl -sS -X POST "http://<VM1_IP>:8080/api/resumes/upload" \
+  -H "Authorization: Bearer ${STUDENT_TOKEN}" \
   -F "file=@./真实简历.docx"
 
-curl -sS "http://<VM1_IP>:8080/api/resumes/<RESUME_ID>"
-curl -sS -X POST "http://<VM1_IP>:8080/api/resumes/<RESUME_ID>/analyze"
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>:8080/api/resumes/<RESUME_ID>"
+curl -sS -X POST -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>:8080/api/resumes/<RESUME_ID>/analyze"
 ```
 
 重启 VM2 的 `resume-service` 后再次查询和诊断，简历摘要和已抽取正文仍应存在：
 
 ```bash
 docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm2.yml restart resume-service
-curl -sS "http://<VM1_IP>:8080/api/resumes/<RESUME_ID>"
-curl -sS -X POST "http://<VM1_IP>:8080/api/resumes/<RESUME_ID>/analyze"
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>:8080/api/resumes/<RESUME_ID>"
+curl -sS -X POST -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>:8080/api/resumes/<RESUME_ID>/analyze"
 ```
 
 验证岗位记录持久化：
 
 ```bash
 curl -sS -X POST "http://<VM1_IP>:8080/api/jobs" \
+  -H "Authorization: Bearer ${COMPANY_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"companyId":"C001","title":"分布式后端实习生","city":"杭州","salaryRange":"200-280/天","requiredSkills":["Java","Spring Cloud Alibaba","Redis"],"description":"参与校园招聘平台微服务接口和缓存治理"}'
 
-curl -sS "http://<VM1_IP>:8080/api/jobs"
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>:8080/api/jobs"
 ```
 
 重启 VM2 的 `job-service` 后再次查询，岗位记录仍应存在：
 
 ```bash
 docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm2.yml restart job-service
-curl -sS "http://<VM1_IP>:8080/api/jobs"
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>:8080/api/jobs"
 ```
 
 验证匹配结果持久化：
 
 ```bash
 curl -sS -X POST "http://<VM1_IP>:8080/api/matches/resume-job" \
+  -H "Authorization: Bearer ${STUDENT_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"studentId":"S001","resumeId":"R001","jobId":"J001"}'
 
-curl -sS "http://<VM1_IP>:8080/api/matches/student/S001"
-curl -sS "http://<VM1_IP>:8080/api/matches/job/J001"
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>:8080/api/matches/student/S001"
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>:8080/api/matches/job/J001"
 ```
 
 重启 VM2 的 `match-service` 后再次查询，匹配结果仍应存在：
 
 ```bash
 docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm2.yml restart match-service
-curl -sS "http://<VM1_IP>:8080/api/matches/student/S001"
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>:8080/api/matches/student/S001"
 ```
 
 演示账号：
@@ -384,11 +408,15 @@ curl -sS "http://<VM1_IP>:8080/api/matches/student/S001"
 ```powershell
 .\scripts\check-three-vm-health.ps1 -EnvFile .\deploy\three-vm.env -TimeoutSeconds 5
 .\scripts\check-api-smoke.ps1 -BaseUrl http://<VM1_IP>:8080
+# 本地只启动 auth/user/gateway 时可用：
+.\scripts\check-api-smoke.ps1 -BaseUrl http://localhost:18080 -CoreOnly
 ```
 
 ```bash
 bash scripts/check-three-vm-health.sh --env-file deploy/three-vm.env --timeout 5
 bash scripts/check-api-smoke.sh --base-url http://<VM1_IP>:8080
+# 本地只启动 auth/user/gateway 时可用：
+bash scripts/check-api-smoke.sh --base-url http://localhost:18080 --core-only
 ```
 
 ## 基础监控与日志
@@ -558,7 +586,7 @@ docker logs recruit-vm2-resume-service --tail 100
 `delivery-service` 会降级记录事件状态，主投递流程不失败。先查询最近事件：
 
 ```bash
-curl -sS http://<VM1_IP>:8080/api/deliveries/events
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" http://<VM1_IP>:8080/api/deliveries/events
 ```
 
 如果 `publishStatus=FAILED`，检查 RocketMQ 地址和 VM3 端口：

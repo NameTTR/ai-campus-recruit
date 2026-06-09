@@ -101,6 +101,19 @@
 - `PUT /api/deliveries/{id}/status?status=INTERVIEW`：更新投递状态。
   - 支持状态：`SUBMITTED`、`VIEWED`、`INTERVIEW`、`OFFER`、`REJECTED`。
 
+## v2.3 JWT/Gateway 鉴权
+
+- `POST /api/auth/login`：登录成功后返回 `LoginResponse`，其中 `token` 为 JWT；前端应保存该 token，并在后续受保护 API 中使用 `Authorization: Bearer <token>`。
+- 受保护 API：除登录、健康检查、静态资源和明确放行的公开接口外，业务 API 默认需要携带 Bearer Token；缺失、过期或签名无效时返回统一 `ApiResponse<T>` 错误结构。
+- `GET /api/auth/me`：用于验证当前 JWT 并返回当前登录用户信息；请求头必须包含 `Authorization: Bearer <token>`。
+- Gateway 鉴权：开启后由 Gateway 校验 Bearer Token，并向下游服务透传已认证用户上下文；业务服务仍保持独立可运行。
+- 配置项：
+  - `JWT_SECRET`：JWT 签名密钥，必须通过环境变量或安全配置注入，禁止提交真实密钥。
+  - `JWT_ISSUER`：JWT 签发方，用于签发和校验时的一致性检查。
+  - `JWT_TTL_SECONDS`：JWT 有效期，单位秒。
+  - `GATEWAY_AUTH_ENABLED`：Gateway 鉴权开关；本地演示可关闭，生产环境应开启。
+- 基础角色规则：`STUDENT` 可访问学生个人资料、简历、投递、岗位浏览和模拟面试能力；`COMPANY` 可访问企业岗位发布/分析、投递审核和候选人初筛能力；`ADMIN` 可访问学校看板和系统管理能力。
+
 ## Admin
 
 - `GET /api/admin/system/status`: backend management status summary for the admin console.

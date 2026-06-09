@@ -15,6 +15,9 @@ services:
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-ai-campus-recruit}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-86400}
     ports:
       - "8101:8101"
     networks:

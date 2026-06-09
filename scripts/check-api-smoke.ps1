@@ -1,6 +1,7 @@
 param(
     [string]$BaseUrl = "http://localhost:8080",
-    [int]$TimeoutSeconds = 8
+    [int]$TimeoutSeconds = 8,
+    [switch]$CoreOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,14 +32,20 @@ function Invoke-Api {
         [string]$Name,
         [string]$Method,
         [string]$Path,
-        [object]$Body = $null
+        [object]$Body = $null,
+        [string]$BearerToken = ""
     )
+
+    $headers = @{ "Content-Type" = "application/json" }
+    if (-not [string]::IsNullOrWhiteSpace($BearerToken)) {
+        $headers["Authorization"] = "Bearer $BearerToken"
+    }
 
     $params = @{
         Uri = Resolve-Url -Path $Path
         Method = $Method
         TimeoutSec = $TimeoutSeconds
-        Headers = @{ "Content-Type" = "application/json" }
+        Headers = $headers
     }
 
     if ($null -ne $Body) {
@@ -58,28 +65,45 @@ function Invoke-Api {
 
 Write-Host "Running API smoke checks against $BaseUrl"
 
-Invoke-Api -Name "auth login" -Method "POST" -Path "/api/auth/login" -Body @{
+$studentLogin = Invoke-Api -Name "student auth login" -Method "POST" -Path "/api/auth/login" -Body @{
     username = "student"
     password = "123456"
-} | Out-Null
-
-Invoke-Api -Name "student profile" -Method "GET" -Path "/api/students/profile" | Out-Null
-Invoke-Api -Name "job list" -Method "GET" -Path "/api/jobs" | Out-Null
-Invoke-Api -Name "ai status" -Method "GET" -Path "/api/ai/status" | Out-Null
-
-$delivery = Invoke-Api -Name "create delivery" -Method "POST" -Path "/api/deliveries" -Body @{
-    studentId = "S001"
-    resumeId = "R001"
-    jobId = "J001"
 }
+$studentToken = if ($null -ne $studentLogin -and $null -ne $studentLogin.data) { $studentLogin.data.token } else { "" }
 
-if ($null -ne $delivery -and $null -ne $delivery.data.deliveryId) {
-    Invoke-Api -Name "delivery events" -Method "GET" -Path "/api/deliveries/events" | Out-Null
-} else {
-    Write-CheckResult -Name "delivery events" -Ok $false -Detail "delivery creation did not return an id"
+$companyLogin = Invoke-Api -Name "company auth login" -Method "POST" -Path "/api/auth/login" -Body @{
+    username = "company"
+    password = "123456"
 }
+$companyToken = if ($null -ne $companyLogin -and $null -ne $companyLogin.data) { $companyLogin.data.token } else { "" }
 
-Invoke-Api -Name "admin dashboard" -Method "GET" -Path "/api/admin/dashboard" | Out-Null
+$adminLogin = Invoke-Api -Name "admin auth login" -Method "POST" -Path "/api/auth/login" -Body @{
+    username = "admin"
+    password = "123456"
+}
+$adminToken = if ($null -ne $adminLogin -and $null -ne $adminLogin.data) { $adminLogin.data.token } else { "" }
+
+Invoke-Api -Name "auth me" -Method "GET" -Path "/api/auth/me" -BearerToken $studentToken | Out-Null
+Invoke-Api -Name "student profile" -Method "GET" -Path "/api/students/profile" -BearerToken $studentToken | Out-Null
+Invoke-Api -Name "admin dashboard" -Method "GET" -Path "/api/admin/dashboard" -BearerToken $adminToken | Out-Null
+
+if (-not $CoreOnly) {
+    Invoke-Api -Name "job list" -Method "GET" -Path "/api/jobs" -BearerToken $studentToken | Out-Null
+    Invoke-Api -Name "ai status" -Method "GET" -Path "/api/ai/status" -BearerToken $studentToken | Out-Null
+    Invoke-Api -Name "company delivery list" -Method "GET" -Path "/api/deliveries/company?companyId=C001" -BearerToken $companyToken | Out-Null
+
+    $delivery = Invoke-Api -Name "create delivery" -Method "POST" -Path "/api/deliveries" -BearerToken $studentToken -Body @{
+        studentId = "S001"
+        resumeId = "R001"
+        jobId = "J001"
+    }
+
+    if ($null -ne $delivery -and $null -ne $delivery.data.deliveryId) {
+        Invoke-Api -Name "delivery events" -Method "GET" -Path "/api/deliveries/events" -BearerToken $studentToken | Out-Null
+    } else {
+        Write-CheckResult -Name "delivery events" -Ok $false -Detail "delivery creation did not return an id"
+    }
+}
 
 if ($script:FailedChecks -gt 0) {
     Write-Host "$script:FailedChecks API smoke check(s) failed." -ForegroundColor Red

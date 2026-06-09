@@ -97,11 +97,16 @@ function Write-CheckResult {
 function Test-HttpEndpoint {
     param(
         [string]$Name,
-        [string]$Url
+        [string]$Url,
+        [string]$BearerToken = ""
     )
 
     try {
-        $response = Invoke-WebRequest -Uri $Url -Method Get -TimeoutSec $TimeoutSeconds -UseBasicParsing
+        $headers = @{}
+        if (-not [string]::IsNullOrWhiteSpace($BearerToken)) {
+            $headers["Authorization"] = "Bearer $BearerToken"
+        }
+        $response = Invoke-WebRequest -Uri $Url -Method Get -Headers $headers -TimeoutSec $TimeoutSeconds -UseBasicParsing
         $ok = $response.StatusCode -ge 200 -and $response.StatusCode -lt 400
         Write-CheckResult -Name $Name -Target $Url -Ok $ok -Detail ("HTTP {0}" -f $response.StatusCode)
     } catch {
@@ -135,20 +140,46 @@ function Test-TcpPort {
     }
 }
 
+function Get-GatewayToken {
+    param(
+        [string]$GatewayBaseUrl,
+        [string]$Username
+    )
+
+    try {
+        $response = Invoke-RestMethod -Uri ("{0}/api/auth/login" -f $GatewayBaseUrl.TrimEnd("/")) `
+            -Method Post `
+            -ContentType "application/json" `
+            -Body (@{ username = $Username; password = "123456" } | ConvertTo-Json -Depth 4) `
+            -TimeoutSec $TimeoutSeconds
+        if ($null -ne $response -and $null -ne $response.data -and -not [string]::IsNullOrWhiteSpace($response.data.token)) {
+            Write-CheckResult -Name ("gateway {0} login" -f $Username) -Target $GatewayBaseUrl -Ok $true -Detail "token issued"
+            return $response.data.token
+        }
+        Write-CheckResult -Name ("gateway {0} login" -f $Username) -Target $GatewayBaseUrl -Ok $false -Detail "token missing"
+    } catch {
+        Write-CheckResult -Name ("gateway {0} login" -f $Username) -Target $GatewayBaseUrl -Ok $false -Detail $_.Exception.Message
+    }
+
+    return ""
+}
+
 $envValues = Import-DotEnv -Path $EnvFile
 $vm1Host = Get-RequiredValue -Values $envValues -Key "VM1_HOST"
 $vm2Host = Get-RequiredValue -Values $envValues -Key "VM2_HOST"
 $vm3Host = Get-RequiredValue -Values $envValues -Key "VM3_HOST"
 $frontendPort = Get-ValueOrDefault -Values $envValues -Key "FRONTEND_PORT" -DefaultValue "80"
 $gatewayPort = Get-ValueOrDefault -Values $envValues -Key "GATEWAY_PORT" -DefaultValue "8080"
+$gatewayBaseUrl = "http://${vm1Host}:${gatewayPort}"
 
 Write-Host "Using env file: $EnvFile"
 Write-Host "Checking VM1=$vm1Host VM2=$vm2Host VM3=$vm3Host"
 
 Test-HttpEndpoint -Name "VM1 frontend" -Url "http://${vm1Host}:${frontendPort}/"
-Test-HttpEndpoint -Name "VM1 frontend api proxy" -Url "http://${vm1Host}:${frontendPort}/api/ai/status"
 Test-HttpEndpoint -Name "VM1 gateway health" -Url "http://${vm1Host}:${gatewayPort}/actuator/health"
-Test-HttpEndpoint -Name "VM1 gateway ai route" -Url "http://${vm1Host}:${gatewayPort}/api/ai/status"
+$studentToken = Get-GatewayToken -GatewayBaseUrl $gatewayBaseUrl -Username "student"
+Test-HttpEndpoint -Name "VM1 frontend api proxy" -Url "http://${vm1Host}:${frontendPort}/api/ai/status" -BearerToken $studentToken
+Test-HttpEndpoint -Name "VM1 gateway ai route" -Url "http://${vm1Host}:${gatewayPort}/api/ai/status" -BearerToken $studentToken
 Test-HttpEndpoint -Name "VM1 nacos console" -Url "http://${vm1Host}:8848/nacos/"
 Test-TcpPort -Name "VM1 nacos grpc" -HostName $vm1Host -Port 9848
 
