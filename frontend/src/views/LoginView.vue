@@ -3,7 +3,7 @@ import { reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { LogIn } from 'lucide-vue-next'
-import { login } from '../api/client'
+import { login, saveAuthSession } from '../api/client'
 
 const router = useRouter()
 const form = reactive({
@@ -13,9 +13,7 @@ const form = reactive({
 
 async function submit() {
   const result = await login(form.username, form.password)
-  localStorage.setItem('token', result.token)
-  localStorage.setItem('role', result.role)
-  localStorage.setItem('displayName', result.displayName)
+  saveAuthSession(result)
   ElMessage.success('登录成功')
   const target = result.role === 'COMPANY'
     ? '/company/publish'

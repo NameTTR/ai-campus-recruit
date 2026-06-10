@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getAuthSession, type Role } from '../api/client'
 
 const LoginView = () => import('../views/LoginView.vue')
 const StudentView = () => import('../views/StudentView.vue')
@@ -20,10 +21,11 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  if (to.path !== '/login' && !localStorage.getItem('token')) {
+  const session = getAuthSession()
+  if (to.path !== '/login' && !session) {
     return '/login'
   }
-  const role = localStorage.getItem('role')
+  const role = session?.role
   if (to.path.startsWith('/student') && role !== 'STUDENT') {
     return roleHome(role)
   }
@@ -36,7 +38,7 @@ router.beforeEach((to) => {
   return true
 })
 
-function roleHome(role: string | null) {
+function roleHome(role: Role | undefined) {
   if (role === 'COMPANY') {
     return '/company/publish'
   }

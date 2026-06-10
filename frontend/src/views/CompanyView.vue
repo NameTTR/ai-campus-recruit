@@ -6,6 +6,7 @@ import { Bot, ClipboardList, Plus, RefreshCw } from 'lucide-vue-next'
 import {
   analyzeJob,
   createJob,
+  currentCompanyId,
   listCandidateScreenRecords,
   listCompanyDeliveries,
   listJobs,
@@ -56,8 +57,8 @@ const hasAnyDeliveryParseMetadata = computed(() =>
 onMounted(async () => {
   const [jobList, deliveryList, screeningList] = await Promise.all([
     listJobs(),
-    listCompanyDeliveries('C001'),
-    listCandidateScreenRecords('C001')
+    listCompanyDeliveries(),
+    listCandidateScreenRecords()
   ])
   jobs.value = jobList
   deliveries.value = deliveryList
@@ -66,7 +67,7 @@ onMounted(async () => {
 
 async function publish() {
   const job = await createJob({
-    companyId: 'C001',
+    companyId: currentCompanyId(),
     title: form.title,
     city: form.city,
     salaryRange: form.salaryRange,
@@ -124,7 +125,7 @@ async function runCandidateScreen(delivery: DeliveryRecord) {
 }
 
 async function refreshCandidateScreenRecords(localRecord?: CandidateScreenRecord, requestedAt = 0) {
-  const records = await listCandidateScreenRecords('C001')
+  const records = await listCandidateScreenRecords()
   if (!localRecord) {
     screeningRecords.value = records
     return

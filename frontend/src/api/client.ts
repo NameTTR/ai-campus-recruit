@@ -7,6 +7,13 @@ export interface LoginResponse {
   role: Role
 }
 
+export interface AuthSession {
+  token: string
+  userId: string
+  displayName: string
+  role: Role
+}
+
 export interface UserProfile {
   userId: string
   displayName: string
@@ -282,6 +289,8 @@ interface ApiResponse<T> {
 }
 
 type DeliveryResumeInput = string | (ResumeParseMetadata & { resumeId?: string })
+const authStorageKeys = ['token', 'userId', 'role', 'displayName'] as const
+const roleValues: Role[] = ['STUDENT', 'COMPANY', 'ADMIN']
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
@@ -289,6 +298,61 @@ function trimTrailingSlash(value: string) {
 
 function getEnvValue(key: string) {
   return (import.meta.env[key] || '').trim()
+}
+
+function isRole(value: string | null): value is Role {
+  return Boolean(value && roleValues.includes(value as Role))
+}
+
+function fallbackUserIdForRole(role: Role) {
+  if (role === 'COMPANY') {
+    return 'C001'
+  }
+  if (role === 'ADMIN') {
+    return 'A001'
+  }
+  return 'S001'
+}
+
+export function saveAuthSession(result: LoginResponse) {
+  localStorage.setItem('token', result.token)
+  localStorage.setItem('userId', result.userId)
+  localStorage.setItem('role', result.role)
+  localStorage.setItem('displayName', result.displayName)
+}
+
+export function getAuthSession(): AuthSession | null {
+  const token = localStorage.getItem('token')?.trim()
+  const roleValue = localStorage.getItem('role')
+  if (!token || !isRole(roleValue)) {
+    return null
+  }
+  const userId = localStorage.getItem('userId')?.trim() || fallbackUserIdForRole(roleValue)
+  const displayName = localStorage.getItem('displayName')?.trim() || userId
+  return {
+    token,
+    userId,
+    displayName,
+    role: roleValue
+  }
+}
+
+export function clearAuthSession() {
+  authStorageKeys.forEach((key) => localStorage.removeItem(key))
+}
+
+export function currentRole() {
+  return getAuthSession()?.role
+}
+
+export function currentStudentId(defaultValue = 'S001') {
+  const session = getAuthSession()
+  return session?.role === 'STUDENT' ? session.userId : defaultValue
+}
+
+export function currentCompanyId(defaultValue = 'C001') {
+  const session = getAuthSession()
+  return session?.role === 'COMPANY' ? session.userId : defaultValue
 }
 
 function resolveRequestPath(path: string) {
@@ -777,7 +841,7 @@ function requestHeaders(init: RequestInit) {
 }
 
 function authorizationHeader(): Record<string, string> {
-  const token = localStorage.getItem('token')
+  const token = getAuthSession()?.token || localStorage.getItem('token')?.trim()
   if (!token) {
     return {}
   }
@@ -822,8 +886,9 @@ export function listJobs() {
 }
 
 export function createJob(job: Partial<JobSummary>) {
-  const created = { ...fallbackJobs[0], ...job, jobId: `J${Date.now().toString().slice(-6)}` }
-  return request<JobSummary>('/api/jobs', { method: 'POST', body: JSON.stringify(job) }, created)
+  const payload = { ...job, companyId: job.companyId || currentCompanyId() }
+  const created = { ...fallbackJobs[0], ...payload, jobId: `J${Date.now().toString().slice(-6)}` }
+  return request<JobSummary>('/api/jobs', { method: 'POST', body: JSON.stringify(payload) }, created)
 }
 
 export function analyzeJob(jobId: string) {
@@ -831,10 +896,11 @@ export function analyzeJob(jobId: string) {
 }
 
 export function matchResumeJob(resumeId = 'R001', jobId = 'J001') {
+  const studentId = currentStudentId()
   return request<MatchResult>('/api/matches/resume-job', {
     method: 'POST',
-    body: JSON.stringify({ resumeId, jobId, studentId: 'S001' })
-  }, fallbackMatch)
+    body: JSON.stringify({ resumeId, jobId, studentId })
+  }, { ...fallbackMatch, resumeId, jobId, studentId })
 }
 
 export function screenCandidate(payload: CandidateScreenRequest) {
@@ -852,7 +918,7 @@ export function screenCandidate(payload: CandidateScreenRequest) {
   })
 }
 
-export function listCandidateScreenRecords(companyId = 'C001', deliveryId?: string) {
+export function listCandidateScreenRecords(companyId = currentCompanyId(), deliveryId?: string) {
   const params = new URLSearchParams()
   if (companyId) {
     params.set('companyId', companyId)
@@ -885,7 +951,7 @@ export function getAiStatus() {
   return request<AiModuleStatus>('/api/ai/status', { method: 'GET' }, fallbackAiModuleStatus)
 }
 
-export function listInterviewRecords(studentId = 'S001') {
+export function listInterviewRecords(studentId = currentStudentId()) {
   return request<InterviewRecord[]>(`/api/ai/interview/records?studentId=${encodeURIComponent(studentId)}`, {
     method: 'GET'
   }, fallbackInterviewRecords.filter((record) => record.studentId === studentId))
@@ -893,14 +959,15 @@ export function listInterviewRecords(studentId = 'S001') {
 
 export async function createDelivery(resume: DeliveryResumeInput = 'R001', jobId = 'J001') {
   const resumeId = deliveryResumeId(resume)
+  const studentId = currentStudentId()
   const resumeMetadata = normalizeResumeParseMetadata(typeof resume === 'string' ? undefined : resume)
   const payloadMetadata = deliveryResumePayloadMetadata(resume)
   const record = await request<DeliveryRecord>('/api/deliveries', {
     method: 'POST',
-    body: JSON.stringify({ studentId: 'S001', resumeId, jobId, ...payloadMetadata })
+    body: JSON.stringify({ studentId, resumeId, jobId, ...payloadMetadata })
   }, {
     deliveryId: `D${Date.now().toString().slice(-6)}`,
-    studentId: 'S001',
+    studentId,
     resumeId,
     jobId,
     companyId: fallbackJobs.find((job) => job.jobId === jobId)?.companyId || 'C001',
@@ -912,12 +979,13 @@ export async function createDelivery(resume: DeliveryResumeInput = 'R001', jobId
 }
 
 export function listDeliveries() {
+  const studentId = currentStudentId()
   return request<DeliveryRecord[]>('/api/deliveries/my', { method: 'GET' },
-    fallbackDeliveries.filter((delivery) => delivery.studentId === 'S001'))
+    fallbackDeliveries.filter((delivery) => delivery.studentId === studentId))
     .then((records) => records.map((record) => withResumeParseMetadata(record)))
 }
 
-export function listCompanyDeliveries(companyId = 'C001') {
+export function listCompanyDeliveries(companyId = currentCompanyId()) {
   return request<DeliveryRecord[]>(`/api/deliveries/company?companyId=${encodeURIComponent(companyId)}`, { method: 'GET' },
     fallbackDeliveries.filter((delivery) => delivery.companyId === companyId))
     .then((records) => records.map((record) => withResumeParseMetadata(record)))

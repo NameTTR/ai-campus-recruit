@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createDelivery,
+  getAuthSession,
   generateInterviewQuestions,
   getAiStatus,
   getDeploymentGuide,
@@ -14,6 +15,7 @@ import {
   listCompanyDeliveries,
   login,
   matchResumeJob,
+  saveAuthSession,
   screenCandidate,
   submitInterviewFeedback
 } from './client'
@@ -79,6 +81,23 @@ describe('api fallback behavior', () => {
     expect(result.token).toBe('demo-company-token')
   })
 
+  it('saves login session with user identity', () => {
+    saveAuthSession({
+      token: 'session-token',
+      userId: 'S777',
+      displayName: 'Session Student',
+      role: 'STUDENT'
+    })
+
+    expect(localStorage.getItem('userId')).toBe('S777')
+    expect(getAuthSession()).toEqual({
+      token: 'session-token',
+      userId: 'S777',
+      displayName: 'Session Student',
+      role: 'STUDENT'
+    })
+  })
+
   it('returns match fallback when gateway is offline', async () => {
     const result = await matchResumeJob('R001', 'J001')
 
@@ -86,8 +105,50 @@ describe('api fallback behavior', () => {
     expect(result.suggestions.length).toBeGreaterThan(0)
   })
 
+  it('sends current student identity when matching resume and job', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080/')
+    saveAuthSession({
+      token: 'student-token',
+      userId: 'S777',
+      displayName: 'Session Student',
+      role: 'STUDENT'
+    })
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          matchId: 'M777',
+          resumeId: 'R777',
+          jobId: 'J001',
+          studentId: 'S777',
+          score: 91,
+          strengths: ['fit'],
+          gaps: [],
+          suggestions: []
+        }
+      })
+    } as Response)
+
+    await matchResumeJob('R777', 'J001')
+
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(requestInit.body))).toMatchObject({
+      studentId: 'S777',
+      resumeId: 'R777',
+      jobId: 'J001'
+    })
+  })
+
   it('sends resume parse metadata when creating a delivery', async () => {
     vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080/')
+    saveAuthSession({
+      token: 'student-token',
+      userId: 'S777',
+      displayName: 'Session Student',
+      role: 'STUDENT'
+    })
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({
@@ -95,7 +156,7 @@ describe('api fallback behavior', () => {
         message: 'ok',
         data: {
           deliveryId: 'D900',
-          studentId: 'S001',
+          studentId: 'S777',
           resumeId: 'R900',
           jobId: 'J001',
           companyId: 'C001',
@@ -118,7 +179,7 @@ describe('api fallback behavior', () => {
     const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
     const body = JSON.parse(String(requestInit.body))
     expect(body).toEqual({
-      studentId: 'S001',
+      studentId: 'S777',
       resumeId: 'R900',
       jobId: 'J001',
       resumeSourceFormat: 'PDF',
@@ -260,6 +321,28 @@ describe('api fallback behavior', () => {
     expect(result[0].screeningId).toBe('CS-DEMO-001')
     expect(result[0].companyId).toBe('C001')
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('uses current company identity when loading candidate screen history', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    saveAuthSession({
+      token: 'company-token',
+      userId: 'C777',
+      displayName: 'Company HR',
+      role: 'COMPANY'
+    })
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: []
+      })
+    } as Response)
+
+    await listCandidateScreenRecords()
+
+    expect(fetch).toHaveBeenCalledWith('/api/ai/candidates/screenings?companyId=C777', expect.any(Object))
   })
 
   it('calls ai candidate screen history endpoint when ai proxy is configured', async () => {

@@ -60,3 +60,11 @@
 - Company-owned flows include job publishing, company delivery query, AI candidate screening, and candidate screening history.
 - Direct service calls without gateway identity headers must keep the existing demo fallback values so each service remains independently runnable.
 - `ADMIN` requests keep cross-tenant query behavior for management and review screens.
+
+## v2.5 Frontend Session Identity Requirement
+
+- Login must persist the authenticated `userId` as part of the frontend session together with token, role, display name, and session metadata.
+- Student-owned frontend API calls should derive `studentId` from the current session before using the legacy `S001` demo fallback.
+- Company-owned frontend API calls should derive `companyId` from the current session before using the legacy `C001` demo fallback.
+- Admin workflows may keep explicit target ids for cross-role review and management screens.
+- Verification must include frontend unit tests, frontend build, and a browser UI check across student, company, and admin demo sessions.

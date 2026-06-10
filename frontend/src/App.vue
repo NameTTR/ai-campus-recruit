@@ -15,13 +15,19 @@ import {
   ServerCog,
   Send
 } from 'lucide-vue-next'
+import { clearAuthSession, getAuthSession } from './api/client'
 
 const route = useRoute()
 const router = useRouter()
 
-const userName = computed(() => localStorage.getItem('displayName') || '')
-const role = computed(() => localStorage.getItem('role') || '')
-const authed = computed(() => Boolean(localStorage.getItem('token')) && route.path !== '/login')
+const session = computed(() => {
+  void route.fullPath
+  return getAuthSession()
+})
+const userName = computed(() => session.value?.displayName || '')
+const role = computed(() => session.value?.role || '')
+const userId = computed(() => session.value?.userId || '')
+const authed = computed(() => Boolean(session.value) && route.path !== '/login')
 const section = computed(() => route.path.split('/')[1] || 'student')
 
 const navGroups = {
@@ -60,7 +66,7 @@ const navGroup = computed(() => navGroups[section.value as keyof typeof navGroup
 const navItems = computed(() => navGroup.value.items)
 
 function logout() {
-  localStorage.clear()
+  clearAuthSession()
   router.push('/login')
 }
 </script>
@@ -72,7 +78,7 @@ function logout() {
         <div class="brand-mark">AI</div>
         <div>
           <strong>Campus Recruit</strong>
-          <span>{{ userName }} · {{ role }}</span>
+          <span>{{ userName }} · {{ userId }} · {{ role }}</span>
         </div>
       </div>
 

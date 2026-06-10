@@ -6,6 +6,7 @@ import { Brain, BriefcaseBusiness, Clock3, FileUp, RefreshCw, Send } from 'lucid
 import {
   analyzeResume,
   createDelivery,
+  currentStudentId,
   generateInterviewQuestions,
   getAiStatus,
   getProfile,
@@ -55,6 +56,7 @@ const capabilityLabels: Record<string, string> = {
 }
 
 const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'resume')
+const activeStudentId = computed(() => currentStudentId(profile.value?.userId || 'S001'))
 const hasInterviewContext = computed(() => Boolean(match.value || deliveries.value.length))
 const interviewJobId = computed(() => match.value?.jobId || deliveries.value[0]?.jobId || jobs.value[0]?.jobId || 'J001')
 const interviewJob = computed(() => jobs.value.find((job) => job.jobId === interviewJobId.value))
@@ -131,7 +133,7 @@ async function runInterviewQuestions() {
   interviewAnswer.value = ''
   try {
     interviewQuestions.value = await generateInterviewQuestions({
-      studentId: profile.value?.userId || 'S001',
+      studentId: activeStudentId.value,
       resumeId: resume.value?.resumeId || 'R001',
       jobId: interviewJobId.value,
       targetRole: interviewRole.value,
@@ -156,7 +158,7 @@ async function submitInterviewAnswer() {
   interviewFeedbackLoading.value = true
   try {
     interviewFeedback.value = await submitInterviewFeedback({
-      studentId: profile.value?.userId || 'S001',
+      studentId: activeStudentId.value,
       questionId: selectedQuestion.value.questionId,
       question: selectedQuestion.value.question,
       answer: interviewAnswer.value.trim(),
@@ -181,7 +183,7 @@ async function refreshAiStatus() {
 async function refreshInterviewRecords() {
   interviewRecordsLoading.value = true
   try {
-    interviewRecords.value = await listInterviewRecords(profile.value?.userId || 'S001')
+    interviewRecords.value = await listInterviewRecords(activeStudentId.value)
   } finally {
     interviewRecordsLoading.value = false
   }
