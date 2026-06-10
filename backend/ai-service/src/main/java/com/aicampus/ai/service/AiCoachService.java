@@ -269,6 +269,17 @@ public class AiCoachService {
         return candidateScreenRecordStore.list(companyId, deliveryId);
     }
 
+    public List<CandidateScreenRecord> listCandidateScreenRecordsByStudent(String studentId) {
+        String studentFilter = valueOr(studentId, "");
+        if (studentFilter.isBlank()) {
+            return List.of();
+        }
+        return candidateScreenRecordStore.list(null, null).stream()
+                .filter(record -> studentFilter.equals(record.studentId()))
+                .sorted(Comparator.comparing(CandidateScreenRecord::createdAt).reversed())
+                .toList();
+    }
+
     private void recordDashScopeCall(
             String operation,
             boolean success,

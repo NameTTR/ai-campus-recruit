@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { Brain, BriefcaseBusiness, Clock3, FileUp, RefreshCw, Send } from 'lucide-vue-next'
+import { Brain, BriefcaseBusiness, ClipboardList, Clock3, FileUp, RefreshCw, Send } from 'lucide-vue-next'
 import {
   analyzeResume,
   createDelivery,
@@ -14,10 +14,12 @@ import {
   listDeliveries,
   listInterviewRecords,
   listJobs,
+  listMyCandidateScreenRecords,
   matchResumeJob,
   submitInterviewFeedback,
   uploadResume,
   type AiModuleStatus,
+  type CandidateScreenRecord,
   type DeliveryRecord,
   type DeliveryStatus,
   type InterviewFeedback,
@@ -46,6 +48,8 @@ const aiStatus = ref<AiModuleStatus>()
 const aiStatusLoading = ref(false)
 const interviewRecords = ref<InterviewRecord[]>([])
 const interviewRecordsLoading = ref(false)
+const candidateScreenRecords = ref<CandidateScreenRecord[]>([])
+const lifecycleLoading = ref(false)
 
 const capabilityLabels: Record<string, string> = {
   'resume-analysis': '简历诊断',
@@ -70,13 +74,64 @@ const aiProviderText = computed(() => {
   }
   return `${aiStatus.value.provider} · ${aiStatus.value.model}`
 })
+const lifecycleSteps = computed(() => {
+  const resumeMeta = resume.value
+  const deliveryCount = deliveries.value.length
+  const latestDelivery = deliveries.value[0]
+  const latestScreening = candidateScreenRecords.value[0]
+  return [
+    {
+      key: 'upload',
+      title: '简历文件',
+      time: resumeMeta?.fileName || '未上传',
+      type: resumeMeta ? 'success' : 'info',
+      lines: resumeMeta
+        ? [
+            `${resumeMeta.sourceFormat || 'UNKNOWN'} / ${parseStatusText(resumeMeta.parseStatus || 'UNKNOWN')}`,
+            `${resumeMeta.storageProvider || 'storage'} / ${resumeMeta.storageStatus || 'UNKNOWN'}`
+          ]
+        : ['等待上传 PDF/DOC/DOCX']
+    },
+    {
+      key: 'diagnosis',
+      title: 'AI 诊断',
+      time: resumeMeta ? `${resumeMeta.score} 分` : '未生成',
+      type: resumeMeta?.diagnosis ? 'primary' : 'info',
+      lines: resumeMeta?.diagnosis ? [resumeMeta.diagnosis] : ['上传简历后可生成诊断']
+    },
+    {
+      key: 'deliveries',
+      title: '投递快照',
+      time: deliveryCount ? `${deliveryCount} 条投递` : '暂无投递',
+      type: deliveryCount ? 'warning' : 'info',
+      lines: latestDelivery
+        ? [
+            `${latestDelivery.deliveryId} / ${latestDelivery.jobId} / ${statusText(latestDelivery.status)}`,
+            `${latestDelivery.resumeSourceFormat || latestDelivery.sourceFormat || 'UNKNOWN'} / ${parseStatusText(latestDelivery.resumeParseStatus || latestDelivery.parseStatus || 'UNKNOWN')}`
+          ]
+        : ['投递后会保留简历解析快照']
+    },
+    {
+      key: 'screening',
+      title: 'AI 初筛反馈',
+      time: latestScreening ? `${latestScreening.score} 分` : '暂无反馈',
+      type: latestScreening ? 'success' : 'info',
+      lines: latestScreening
+        ? [
+            `${latestScreening.recommendation} / ${latestScreening.mocked ? '演示' : '真实'}`,
+            `来自 ${latestScreening.companyId} / ${formatTime(latestScreening.createdAt)}`
+          ]
+        : ['企业完成 AI 初筛后在这里展示']
+    }
+  ] as const
+})
 
 onMounted(async () => {
   profile.value = await getProfile()
   resume.value = await getResume()
   jobs.value = await listJobs()
   deliveries.value = await listDeliveries()
-  await Promise.all([refreshAiStatus(), refreshInterviewRecords()])
+  await Promise.all([refreshAiStatus(), refreshInterviewRecords(), refreshCandidateScreenRecords()])
 })
 
 function onFileChange(event: Event) {
@@ -107,6 +162,7 @@ async function runMatch(jobId: string) {
 async function deliver(jobId: string) {
   const record = await createDelivery(resume.value || 'R001', jobId)
   deliveries.value = [record, ...deliveries.value]
+  await refreshCandidateScreenRecords()
   resetInterview()
   ElMessage.success('投递成功')
 }
@@ -189,6 +245,15 @@ async function refreshInterviewRecords() {
   }
 }
 
+async function refreshCandidateScreenRecords() {
+  lifecycleLoading.value = true
+  try {
+    candidateScreenRecords.value = await listMyCandidateScreenRecords(activeStudentId.value)
+  } finally {
+    lifecycleLoading.value = false
+  }
+}
+
 function statusText(status: DeliveryStatus) {
   const labels: Record<DeliveryStatus, string> = {
     SUBMITTED: '已投递',
@@ -246,7 +311,7 @@ function formatTime(value: string) {
         <p class="page-subtitle">{{ profile?.school }} · {{ profile?.major }} · {{ profile?.targetPosition }}</p>
       </div>
       <div class="tag-row">
-        <el-tag v-for="skill in profile?.skills" :key="skill">{{ skill }}</el-tag>
+        <span v-for="skill in profile?.skills" :key="skill" class="tag-pill primary">{{ skill }}</span>
       </div>
     </header>
 
@@ -552,6 +617,89 @@ function formatTime(value: string) {
         <el-table-column prop="createdAt" label="时间" min-width="150" />
       </el-table>
     </section>
+
+    <section v-if="activeModule === 'lifecycle'" v-loading="lifecycleLoading" class="panel module-panel lifecycle-panel">
+      <div class="panel-title history-title">
+        <span>
+          简历闭环
+          <ClipboardList :size="19" />
+        </span>
+        <el-button size="small" :loading="lifecycleLoading" @click="refreshCandidateScreenRecords">
+          <RefreshCw :size="15" />
+          刷新
+        </el-button>
+      </div>
+
+      <el-timeline class="lifecycle-timeline">
+        <el-timeline-item
+          v-for="step in lifecycleSteps"
+          :key="step.key"
+          :type="step.type"
+          :timestamp="step.time"
+          placement="top"
+        >
+          <div class="lifecycle-step">
+            <strong>{{ step.title }}</strong>
+            <span v-for="line in step.lines" :key="line">{{ line }}</span>
+          </div>
+        </el-timeline-item>
+      </el-timeline>
+
+      <div class="lifecycle-grid">
+        <article v-if="resume" class="item-card lifecycle-card">
+          <div class="resume-card-header">
+            <strong>{{ resume.fileName }}</strong>
+            <span class="status-pill success">{{ resume.score }} 分</span>
+          </div>
+          <span>{{ resume.sourceFormat }} / {{ parseStatusText(resume.parseStatus) }} / {{ resume.parsedTextLength }} 字</span>
+          <p>{{ resume.diagnosis }}</p>
+        </article>
+
+        <article v-for="delivery in deliveries.slice(0, 3)" :key="delivery.deliveryId" class="item-card lifecycle-card">
+          <div class="resume-card-header">
+            <strong>{{ delivery.deliveryId }} / {{ delivery.jobId }}</strong>
+            <span class="status-pill" :class="statusTagType(delivery.status)">{{ statusText(delivery.status) }}</span>
+          </div>
+          <span>{{ delivery.resumeSourceFormat || delivery.sourceFormat || 'UNKNOWN' }} / {{ parseStatusText(delivery.resumeParseStatus || delivery.parseStatus || 'UNKNOWN') }}</span>
+          <span>{{ formatTime(delivery.createdAt) }}</span>
+        </article>
+      </div>
+
+      <div class="screening-section">
+        <h3>初筛反馈</h3>
+        <el-empty v-if="candidateScreenRecords.length === 0" class="compact-empty" description="暂无初筛反馈" />
+        <article v-for="record in candidateScreenRecords" v-else :key="record.screeningId" class="screening-card">
+          <div class="screening-head">
+            <span class="history-score">{{ record.score }}</span>
+            <div>
+              <strong>{{ record.recommendation }}</strong>
+              <span>{{ record.companyId }} / {{ record.jobId }} / {{ formatTime(record.createdAt) }}</span>
+            </div>
+            <span class="status-pill" :class="record.mocked ? 'warning' : 'success'">{{ record.mocked ? '演示' : '真实' }}</span>
+          </div>
+          <div class="screening-lists">
+            <div>
+              <strong>优势</strong>
+              <ul class="plain-list">
+                <li v-for="item in record.strengths" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+            <div>
+              <strong>风险</strong>
+              <ul class="plain-list">
+                <li v-for="item in record.risks" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+            <div>
+              <strong>下一步</strong>
+              <ul class="plain-list">
+                <li v-for="item in record.nextActions" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
   </section>
 </template>
 
@@ -855,6 +1003,57 @@ function formatTime(value: string) {
   display: none;
 }
 
+.tag-pill,
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid #93c5fd;
+  border-radius: 6px;
+  color: #075985;
+  background: #dbeafe;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.status-pill {
+  min-height: 24px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.tag-pill.success,
+.status-pill.success {
+  color: #0f766e;
+  border-color: #5eead4;
+  background: #ccfbf1;
+}
+
+.tag-pill.info,
+.status-pill.info {
+  color: #334155;
+  border-color: #cbd5e1;
+  background: #e2e8f0;
+}
+
+.tag-pill.warning,
+.status-pill.warning {
+  color: #78350f;
+  border-color: #f59e0b;
+  background: #fde68a;
+}
+
+.tag-pill.danger,
+.status-pill.danger {
+  color: #b42318;
+  border-color: #fecdca;
+  background: #fee4e2;
+}
+
 .history-table,
 .delivery-table {
   min-width: 0;
@@ -914,6 +1113,104 @@ function formatTime(value: string) {
   padding: 10px 0 0;
 }
 
+.lifecycle-panel {
+  min-width: 0;
+}
+
+.lifecycle-timeline {
+  max-width: 980px;
+  margin: 4px 0 18px;
+  padding-left: 4px;
+}
+
+.lifecycle-step {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.lifecycle-step strong {
+  color: #18212f;
+}
+
+.lifecycle-step span {
+  color: #475467;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.lifecycle-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.lifecycle-card {
+  min-width: 0;
+}
+
+.screening-section {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding-top: 16px;
+  border-top: 1px solid #dde5ed;
+}
+
+.screening-section h3 {
+  margin: 0;
+  color: #18212f;
+  font-size: 16px;
+}
+
+.screening-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dde5ed;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.screening-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.screening-head strong,
+.screening-head div > span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.screening-head div > span {
+  margin-top: 2px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.screening-lists {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.screening-lists > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.screening-lists strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
 @media (max-width: 920px) {
   .ai-status-strip {
     grid-template-columns: 1fr;
@@ -929,7 +1226,9 @@ function formatTime(value: string) {
   }
 
   .interview-grid,
-  .feedback-lists {
+  .feedback-lists,
+  .lifecycle-grid,
+  .screening-lists {
     grid-template-columns: 1fr;
   }
 
@@ -954,7 +1253,8 @@ function formatTime(value: string) {
   }
 
   .ai-status-meta,
-  .feedback-head {
+  .feedback-head,
+  .screening-head {
     align-items: flex-start;
     flex-direction: column;
   }

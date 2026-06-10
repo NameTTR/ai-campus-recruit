@@ -305,6 +305,35 @@ class AiControllerTest {
     }
 
     @Test
+    void studentCanQueryOwnCandidateScreeningFeedback() throws Exception {
+        screenCandidate("C-STUDENT-LOOP-001", "D-STUDENT-LOOP-001", "S-STUDENT-LOOP-001", "J-STUDENT-LOOP-001");
+        screenCandidate("C-STUDENT-LOOP-001", "D-STUDENT-LOOP-002", "S-OTHER-LOOP-001", "J-STUDENT-LOOP-001");
+
+        mockMvc.perform(get("/api/ai/screenings/my")
+                        .header("X-User-Id", "S-STUDENT-LOOP-001")
+                        .header("X-User-Role", "STUDENT")
+                        .param("studentId", "S-OTHER-LOOP-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].studentId").value("S-STUDENT-LOOP-001"))
+                .andExpect(jsonPath("$.data[0].deliveryId").value("D-STUDENT-LOOP-001"));
+    }
+
+    @Test
+    void companyGetsEmptyArrayFromStudentScreeningFeedbackEndpoint() throws Exception {
+        screenCandidate("C-COMPANY-LOOP-001", "D-COMPANY-LOOP-001", "S-COMPANY-LOOP-001", "J-COMPANY-LOOP-001");
+
+        mockMvc.perform(get("/api/ai/screenings/my")
+                        .header("X-User-Id", "C-COMPANY-LOOP-001")
+                        .header("X-User-Role", "COMPANY")
+                        .param("studentId", "S-COMPANY-LOOP-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
     void interviewQuestionGenerationReturnsMultipleQuestions() throws Exception {
         mockMvc.perform(post("/api/ai/interview/questions")
                         .contentType(MediaType.APPLICATION_JSON)

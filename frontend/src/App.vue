@@ -39,6 +39,7 @@ const navGroups = {
       { path: '/student/jobs', label: '岗位匹配', icon: BriefcaseBusiness },
       { path: '/student/interview', label: 'AI 模拟面试', icon: Bot },
       { path: '/student/history', label: '面试记录', icon: Clock3 },
+      { path: '/student/lifecycle', label: '简历闭环', icon: ClipboardList },
       { path: '/student/deliveries', label: '投递记录', icon: Send }
     ]
   },

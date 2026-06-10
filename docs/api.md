@@ -71,6 +71,11 @@
   - 默认使用内存回退；设置 `AI_SCREENING_PERSISTENCE_ENABLED=true` 且提供 `SPRING_DATASOURCE_URL` 后写入 MySQL 表 `ai_candidate_screen_record`，查询结果通过 Redis cache-aside 缓存。
   - Redis key 格式：`ai:screening:records:company:{companyId|ALL}:delivery:{deliveryId|ALL}`。
   - `AI_SCREENING_DB_HEALTH_ENABLED` 默认关闭，避免 MySQL 临时不可用时影响演示接口健康状态。
+- `GET /api/ai/screenings/my?studentId=S001`：学生查看自己的 AI 候选人初筛反馈。
+  - 返回：`CandidateScreenRecord[]`，字段与企业初筛历史一致。
+  - Gateway 已注入 `X-User-Role=STUDENT` 和 `X-User-Id` 时，下游服务必须以注入的学生身份为准，忽略查询参数中的其他 `studentId`。
+  - `ADMIN` 可通过 `studentId` 参数查询指定学生记录；`COMPANY` 仍应使用 `/api/ai/candidates/screenings`，前端学生闭环页面不向企业角色展示该入口。
+  - 前端开发模式未配置 gateway 或 AI proxy 时返回确定性的演示数据，且不调用 `fetch`。
 - `POST /api/ai/interview/questions`：基于学生、简历和目标岗位生成模拟面试题。
   - 请求体：`studentId`、`resumeId`、`jobId`、`targetRole`、`skills`。
   - 返回：`InterviewQuestion[]`，每项包含 `questionId`、`category`、`difficulty`、`question`、`referencePoints`。

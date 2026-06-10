@@ -1163,6 +1163,12 @@ export function listCandidateScreenRecords(companyId = currentCompanyId(), deliv
       (!companyId || record.companyId === companyId) && (!deliveryId || record.deliveryId === deliveryId)))
 }
 
+export function listMyCandidateScreenRecords(studentId = currentStudentId()) {
+  const path = `/api/ai/screenings/my?studentId=${encodeURIComponent(studentId)}`
+  return request<CandidateScreenRecord[]>(path, { method: 'GET' },
+    fallbackCandidateScreenRecords.filter((record) => record.studentId === studentId))
+}
+
 export function generateInterviewQuestions(payload: InterviewQuestionRequest) {
   return request<InterviewQuestion[]>('/api/ai/interview/questions', {
     method: 'POST',

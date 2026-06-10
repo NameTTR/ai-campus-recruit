@@ -17,6 +17,7 @@ import {
   listAiCallRecords,
   listAccounts,
   listCandidateScreenRecords,
+  listMyCandidateScreenRecords,
   listInterviewRecords,
   listCompanyDeliveries,
   login,
@@ -470,6 +471,68 @@ describe('api fallback behavior', () => {
 
     expect(result[0].screeningId).toBe('CS200')
     expect(fetch).toHaveBeenCalledWith('/api/ai/candidates/screenings?companyId=C001&deliveryId=D200', expect.any(Object))
+  })
+
+  it('returns my candidate screen records fallback for the current student', async () => {
+    const result = await listMyCandidateScreenRecords('S001')
+
+    expect(result.length).toBeGreaterThan(0)
+    expect(result.every((record) => record.studentId === 'S001')).toBe(true)
+    expect(result[0].screeningId).toBe('CS-DEMO-001')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('uses current student identity when loading my candidate screen records', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    saveAuthSession({
+      token: 'student-token',
+      userId: 'S777',
+      displayName: 'Session Student',
+      role: 'STUDENT'
+    })
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: []
+      })
+    } as Response)
+
+    await listMyCandidateScreenRecords()
+
+    expect(fetch).toHaveBeenCalledWith('/api/ai/screenings/my?studentId=S777', expect.any(Object))
+  })
+
+  it('calls my candidate screening endpoint with encoded student id when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: [{
+          screeningId: 'CS300',
+          companyId: 'C001',
+          deliveryId: 'D300',
+          studentId: 'S 300',
+          jobId: 'J300',
+          score: 89,
+          recommendation: '进入技术面',
+          strengths: ['匹配 Java 后端岗位'],
+          risks: ['项目指标需要确认'],
+          interviewQuestions: ['介绍一次接口优化'],
+          nextActions: ['安排一面'],
+          mocked: false,
+          createdAt: '2026-06-10T01:00:00Z'
+        }]
+      })
+    } as Response)
+
+    const result = await listMyCandidateScreenRecords('S 300')
+
+    expect(result[0].screeningId).toBe('CS300')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/screenings/my?studentId=S%20300', expect.any(Object))
   })
 
   it('returns ai module status fallback when gateway is offline', async () => {

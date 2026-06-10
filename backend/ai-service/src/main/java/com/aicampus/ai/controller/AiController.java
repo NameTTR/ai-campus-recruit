@@ -113,6 +113,18 @@ public class AiController {
         return ApiResponse.ok(aiCoachService.listCandidateScreenRecords(resolveCompanyId(companyId, userId, userRole), deliveryId));
     }
 
+    @Operation(summary = "List student candidate screening feedback")
+    @GetMapping("/screenings/my")
+    public ApiResponse<List<CandidateScreenRecord>> myCandidateScreeningRecords(
+            @RequestParam(required = false) String studentId,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        if (isRole(userRole, ROLE_COMPANY)) {
+            return ApiResponse.ok(List.of());
+        }
+        return ApiResponse.ok(aiCoachService.listCandidateScreenRecordsByStudent(resolveStudentId(studentId, userId, userRole)));
+    }
+
     @Operation(summary = "List interview feedback records")
     @GetMapping("/interview/records")
     public ApiResponse<List<InterviewRecord>> interviewRecords(

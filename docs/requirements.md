@@ -87,3 +87,12 @@
 - The frontend client must target `GET /api/ai/observability/summary`, `GET /api/ai/observability/calls`, and `POST /api/ai/search`, and all responses continue to use `ApiResponse<T>`.
 - Demo mode must keep deterministic fallback data and avoid calling `fetch` when no gateway or AI proxy is configured.
 - Observability and search responses must not expose API keys, tokens, raw prompts, full resume text, or other sensitive payloads.
+
+## v2.8 Resume File and Data Loop Requirement
+
+- Student users need a compact resume lifecycle view that connects resume file upload and parse status, AI diagnosis, delivery snapshots created from that resume, and AI candidate-screening feedback from companies.
+- The frontend client must target `GET /api/ai/screenings/my?studentId=S001` through `listMyCandidateScreenRecords(studentId?)`; all responses continue to use `ApiResponse<CandidateScreenRecord[]>`.
+- Gateway-injected `STUDENT` identity must override the query `studentId`, so students can only see their own screening feedback. `ADMIN` may query by student id for review.
+- Company users keep using `/api/ai/candidates/screenings`; the student lifecycle UI should not depend on company-only endpoints.
+- Demo mode must keep deterministic fallback data and avoid calling `fetch` when no gateway or AI proxy is configured.
+- Screening feedback displayed to students must not expose raw prompts, API keys, tokens, or hidden employer-only notes.

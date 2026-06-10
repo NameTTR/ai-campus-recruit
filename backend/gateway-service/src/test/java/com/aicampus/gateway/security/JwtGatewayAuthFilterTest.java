@@ -150,6 +150,17 @@ class JwtGatewayAuthFilterTest {
 
         assertThat(studentScreening.getResponse().getStatusCode().value()).isEqualTo(403);
 
+        MockServerWebExchange studentOwnScreenings = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/ai/screenings/my")
+                        .header("Authorization", "Bearer " + studentToken)
+                        .build());
+        CapturingChain studentOwnScreeningsChain = new CapturingChain();
+
+        filter.filter(studentOwnScreenings, studentOwnScreeningsChain).block();
+
+        assertThat(studentOwnScreenings.getResponse().getStatusCode()).isNull();
+        assertThat(studentOwnScreeningsChain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("STUDENT");
+
         String companyToken = jwtTokenService.issue("C001", "Company", Role.COMPANY);
         MockServerWebExchange companyInterview = MockServerWebExchange.from(
                 MockServerHttpRequest.post("/api/ai/interview/questions")
