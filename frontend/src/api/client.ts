@@ -207,6 +207,63 @@ export interface AiSearchResponse {
   generatedAt: string
 }
 
+export type AdminAuditEntityType = 'STUDENT' | 'JOB' | 'DELIVERY' | 'AI_SCREENING' | 'AI_INTERVIEW'
+export type AdminAuditRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH'
+
+export interface AdminAuditQuery {
+  keyword?: string
+  entityType?: AdminAuditEntityType | ''
+  studentId?: string
+  companyId?: string
+  jobId?: string
+  limit?: number
+}
+
+export interface AdminAuditMetric {
+  key: string
+  label: string
+  value: number
+  unit?: string
+}
+
+export interface AdminAuditRecord {
+  auditId: string
+  entityType: AdminAuditEntityType
+  entityId: string
+  title: string
+  ownerId: string
+  studentId?: string
+  companyId?: string
+  jobId?: string
+  service: string
+  status: string
+  riskLevel: AdminAuditRiskLevel
+  score?: number
+  summary: string
+  tags: string[]
+  occurredAt: string
+}
+
+export interface AdminAuditOverview {
+  generatedAt: string
+  source: string
+  query: AdminAuditQuery
+  metrics: AdminAuditMetric[]
+  records: AdminAuditRecord[]
+  warnings: string[]
+}
+
+export interface AdminAuditExportResult {
+  exportId: string
+  format: 'CSV'
+  fileName: string
+  downloadUrl: string
+  expiresAt: string
+  rowCount: number
+  generatedAt: string
+  query: AdminAuditQuery
+}
+
 export interface InterviewRecord {
   recordId: string
   studentId: string
@@ -235,6 +292,8 @@ export type PermissionCode =
   | 'admin:account:read'
   | 'admin:account:write'
   | 'admin:rbac:read'
+  | 'admin:audit:read'
+  | 'admin:audit:export'
 
 export interface AccountSummary {
   accountId: string
@@ -767,10 +826,99 @@ const fallbackDeliveryStatistics: DeliveryStatistics = {
   pendingCount: fallbackDeliveryStatusCounts.SUBMITTED
 }
 
+const fallbackAdminAuditRecords: AdminAuditRecord[] = [
+  {
+    auditId: 'AUD-STUDENT-001',
+    entityType: 'STUDENT',
+    entityId: 'S001',
+    title: 'Demo Student resume profile',
+    ownerId: 'S001',
+    studentId: 'S001',
+    service: 'user-service',
+    status: 'ACTIVE',
+    riskLevel: 'LOW',
+    score: 86,
+    summary: 'Student profile and resume parse metadata are available for recruitment review.',
+    tags: ['profile', 'resume', 'PDF'],
+    occurredAt: '2026-06-10T08:00:00Z'
+  },
+  {
+    auditId: 'AUD-JOB-001',
+    entityType: 'JOB',
+    entityId: 'J001',
+    title: 'Java backend intern',
+    ownerId: 'C001',
+    companyId: 'C001',
+    jobId: 'J001',
+    service: 'job-service',
+    status: 'PUBLISHED',
+    riskLevel: 'LOW',
+    score: 87,
+    summary: 'Job description has AI summary, required skills, and active delivery traffic.',
+    tags: ['Java', 'Spring Boot', 'published'],
+    occurredAt: '2026-06-10T08:08:00Z'
+  },
+  {
+    auditId: 'AUD-DELIVERY-001',
+    entityType: 'DELIVERY',
+    entityId: 'D001',
+    title: 'S001 delivery to J001',
+    ownerId: 'C001',
+    studentId: 'S001',
+    companyId: 'C001',
+    jobId: 'J001',
+    service: 'delivery-service',
+    status: 'SUBMITTED',
+    riskLevel: 'MEDIUM',
+    summary: 'Delivery keeps resume parse snapshot for downstream candidate screening.',
+    tags: ['submitted', 'TEXT_EXTRACTED', 'screening-ready'],
+    occurredAt: '2026-06-10T08:16:00Z'
+  },
+  {
+    auditId: 'AUD-AI-SCREEN-001',
+    entityType: 'AI_SCREENING',
+    entityId: 'CS-DEMO-001',
+    title: 'Candidate screening recommendation',
+    ownerId: 'C001',
+    studentId: 'S001',
+    companyId: 'C001',
+    jobId: 'J001',
+    service: 'ai-service',
+    status: 'MOCKED',
+    riskLevel: 'MEDIUM',
+    score: 86,
+    summary: 'AI screening used deterministic fallback because the AI provider is not configured.',
+    tags: ['candidate-screening', 'mocked', 'DashScope'],
+    occurredAt: '2026-06-10T08:24:00Z'
+  },
+  {
+    auditId: 'AUD-AI-INTERVIEW-001',
+    entityType: 'AI_INTERVIEW',
+    entityId: 'IR-DEMO-001',
+    title: 'Mock interview feedback',
+    ownerId: 'S001',
+    studentId: 'S001',
+    jobId: 'J001',
+    service: 'ai-service',
+    status: 'COMPLETED',
+    riskLevel: 'LOW',
+    score: 82,
+    summary: 'Interview answer feedback is stored without exposing raw prompt or credential data.',
+    tags: ['interview', 'feedback', 'redacted'],
+    occurredAt: '2026-06-10T08:32:00Z'
+  }
+]
+
+const fallbackAdminAuditOverviewBase = {
+  generatedAt: '2026-06-10T08:40:00Z',
+  source: 'frontend-demo',
+  warnings: ['Gateway is not configured; showing deterministic frontend audit fallback data.']
+}
+
 const rolePermissions: Record<Role, PermissionCode[]> = {
   STUDENT: ['student:profile:read', 'student:resume:write', 'student:delivery:write', 'student:interview:write'],
   COMPANY: ['company:job:write', 'company:delivery:read', 'company:screening:write'],
-  ADMIN: ['admin:dashboard:read', 'admin:account:read', 'admin:account:write', 'admin:rbac:read']
+  ADMIN: ['admin:dashboard:read', 'admin:account:read', 'admin:account:write', 'admin:rbac:read', 'admin:audit:read', 'admin:audit:export']
 }
 
 const fallbackAccounts: AccountSummary[] = [
@@ -1362,6 +1510,101 @@ export function getDashboard() {
       REJECTED: 32
     },
     pendingDeliveryCount: 72
+  })
+}
+
+function normalizeAdminAuditQuery(query: AdminAuditQuery = {}): AdminAuditQuery {
+  return {
+    ...(query.keyword?.trim() ? { keyword: query.keyword.trim() } : {}),
+    ...(query.entityType ? { entityType: query.entityType } : {}),
+    ...(query.studentId?.trim() ? { studentId: query.studentId.trim() } : {}),
+    ...(query.companyId?.trim() ? { companyId: query.companyId.trim() } : {}),
+    ...(query.jobId?.trim() ? { jobId: query.jobId.trim() } : {}),
+    limit: query.limit ?? 20
+  }
+}
+
+function adminAuditQueryString(query: AdminAuditQuery) {
+  const params = new URLSearchParams()
+  if (query.keyword) {
+    params.set('keyword', query.keyword)
+  }
+  if (query.entityType) {
+    params.set('entityType', query.entityType)
+  }
+  if (query.studentId) {
+    params.set('studentId', query.studentId)
+  }
+  if (query.companyId) {
+    params.set('companyId', query.companyId)
+  }
+  if (query.jobId) {
+    params.set('jobId', query.jobId)
+  }
+  params.set('limit', String(query.limit ?? 20))
+  return params.toString()
+}
+
+function filterAdminAuditRecords(query: AdminAuditQuery) {
+  const keyword = query.keyword?.toLowerCase()
+  return fallbackAdminAuditRecords
+    .filter((record) => !query.entityType || record.entityType === query.entityType)
+    .filter((record) => !query.studentId || record.studentId === query.studentId)
+    .filter((record) => !query.companyId || record.companyId === query.companyId)
+    .filter((record) => !query.jobId || record.jobId === query.jobId)
+    .filter((record) => !keyword
+      || record.auditId.toLowerCase().includes(keyword)
+      || record.entityId.toLowerCase().includes(keyword)
+      || record.title.toLowerCase().includes(keyword)
+      || record.summary.toLowerCase().includes(keyword)
+      || record.tags.some((tag) => tag.toLowerCase().includes(keyword)))
+    .slice(0, query.limit ?? 20)
+}
+
+function buildAdminAuditOverviewFallback(query: AdminAuditQuery): AdminAuditOverview {
+  const records = filterAdminAuditRecords(query)
+  const highRiskCount = records.filter((record) => record.riskLevel === 'HIGH').length
+  const aiRecordCount = records.filter((record) => record.entityType.startsWith('AI_')).length
+  return {
+    ...fallbackAdminAuditOverviewBase,
+    query,
+    metrics: [
+      { key: 'records', label: 'Records', value: records.length },
+      { key: 'students', label: 'Students', value: new Set(records.map((record) => record.studentId).filter(Boolean)).size },
+      { key: 'jobs', label: 'Jobs', value: new Set(records.map((record) => record.jobId).filter(Boolean)).size },
+      { key: 'aiRecords', label: 'AI Records', value: aiRecordCount },
+      { key: 'highRisk', label: 'High Risk', value: highRiskCount }
+    ],
+    records,
+    warnings: query.keyword || query.entityType || query.studentId || query.companyId || query.jobId
+      ? fallbackAdminAuditOverviewBase.warnings
+      : []
+  }
+}
+
+export function getAdminAuditOverview(query: AdminAuditQuery = {}) {
+  const normalizedQuery = normalizeAdminAuditQuery(query)
+  const queryString = adminAuditQueryString(normalizedQuery)
+  return request<AdminAuditOverview>(`/api/admin/audit/overview?${queryString}`, {
+    method: 'GET'
+  }, buildAdminAuditOverviewFallback(normalizedQuery))
+}
+
+export function exportAdminAudit(query: AdminAuditQuery = {}) {
+  const normalizedQuery = normalizeAdminAuditQuery(query)
+  const rowCount = filterAdminAuditRecords(normalizedQuery).length
+  return request<AdminAuditExportResult>('/api/admin/audit/export', {
+    method: 'POST',
+    body: JSON.stringify({ ...normalizedQuery, format: 'CSV' })
+  }, {
+    exportId: 'AUDIT-EXPORT-DEMO-001',
+    format: 'CSV',
+    fileName: 'admin-audit-overview-demo.csv',
+    downloadUrl: '/downloads/admin-audit-overview-demo.csv',
+    expiresAt: '2026-06-10T10:40:00Z',
+    rowCount,
+    generatedAt: fallbackAdminAuditOverviewBase.generatedAt,
+    query: normalizedQuery
   })
 }
 

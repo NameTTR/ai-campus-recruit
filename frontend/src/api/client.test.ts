@@ -3,8 +3,10 @@ import {
   changeAccountPassword,
   createAccount,
   createDelivery,
+  exportAdminAudit,
   getAuthSession,
   generateInterviewQuestions,
+  getAdminAuditOverview,
   getAiObservabilitySummary,
   getAiStatus,
   getCurrentPermissions,
@@ -775,5 +777,87 @@ describe('api fallback behavior', () => {
 
     expect(result.summary).toBe('guide')
     expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/admin/system/deployment-guide', expect.any(Object))
+  })
+
+  it('returns admin audit overview fallback with filters when gateway is offline', async () => {
+    const result = await getAdminAuditOverview({
+      entityType: 'AI_SCREENING',
+      studentId: 'S001',
+      keyword: 'screening',
+      limit: 10
+    })
+
+    expect(result.source).toBe('frontend-demo')
+    expect(result.records).toHaveLength(1)
+    expect(result.records[0].entityType).toBe('AI_SCREENING')
+    expect(result.records[0].studentId).toBe('S001')
+    expect(result.metrics.some((metric) => metric.key === 'aiRecords' && metric.value === 1)).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls admin audit overview endpoint when api proxy is configured', async () => {
+    vi.stubEnv('VITE_API_PROXY_TARGET', 'http://localhost:8080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          generatedAt: '2026-06-10T00:00:00Z',
+          source: 'gateway',
+          query: { entityType: 'DELIVERY', companyId: 'C001', limit: 50 },
+          metrics: [],
+          records: [],
+          warnings: []
+        }
+      })
+    } as Response)
+
+    const result = await getAdminAuditOverview({ entityType: 'DELIVERY', companyId: 'C001', limit: 50 })
+
+    expect(result.source).toBe('gateway')
+    expect(fetch).toHaveBeenCalledWith('/api/admin/audit/overview?entityType=DELIVERY&companyId=C001&limit=50', expect.any(Object))
+  })
+
+  it('returns admin audit export fallback without calling fetch when gateway is offline', async () => {
+    const result = await exportAdminAudit({ entityType: 'AI_INTERVIEW', studentId: 'S001' })
+
+    expect(result.exportId).toBe('AUDIT-EXPORT-DEMO-001')
+    expect(result.format).toBe('CSV')
+    expect(result.rowCount).toBe(1)
+    expect(result.query.entityType).toBe('AI_INTERVIEW')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls admin audit export endpoint with normalized body when api proxy is configured', async () => {
+    vi.stubEnv('VITE_API_PROXY_TARGET', 'http://localhost:8080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          exportId: 'EXP-001',
+          format: 'CSV',
+          fileName: 'audit.csv',
+          downloadUrl: '/api/admin/audit/export/EXP-001',
+          expiresAt: '2026-06-10T02:00:00Z',
+          rowCount: 3,
+          generatedAt: '2026-06-10T00:00:00Z',
+          query: { keyword: 'java', limit: 20 }
+        }
+      })
+    } as Response)
+
+    const result = await exportAdminAudit({ keyword: ' java ', limit: 20 })
+
+    expect(result.exportId).toBe('EXP-001')
+    expect(fetch).toHaveBeenCalledWith('/api/admin/audit/export', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(requestInit.body))).toEqual({
+      keyword: 'java',
+      limit: 20,
+      format: 'CSV'
+    })
   })
 })

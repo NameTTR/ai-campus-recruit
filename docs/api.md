@@ -217,3 +217,26 @@
 
 - `GET /api/admin/dashboard`：学校端统计看板。
   - 返回：`studentCount`、`companyCount`、`jobCount`、`deliveryCount`、`averageMatchScore`、`deliveryStatusCounts`、`pendingDeliveryCount`。
+
+## v2.9 Admin Audit Data Center
+
+- `GET /api/admin/audit/overview`: cross-service audit overview for the admin console.
+  - Query parameters are optional: `keyword`, `entityType`, `studentId`, `companyId`, `jobId`, and `limit`.
+  - `entityType` supports `STUDENT`, `JOB`, `DELIVERY`, `AI_SCREENING`, and `AI_INTERVIEW`.
+  - Returns: `ApiResponse<AdminAuditOverview>`.
+  - `AdminAuditOverview` fields: `generatedAt`, `source`, `query`, `metrics`, `records`, and `warnings`.
+  - `metrics` items include `key`, `label`, `value`, and optional `unit`.
+  - `records` items include `auditId`, `entityType`, `entityId`, `title`, `ownerId`, optional `studentId`, optional `companyId`, optional `jobId`, `service`, `status`, `riskLevel`, optional `score`, `summary`, `tags`, and `occurredAt`.
+  - The endpoint must not return API keys, tokens, raw AI prompts, full resume text, password hashes, or other secret values.
+  - Expected permission: `admin:audit:read`.
+
+- `POST /api/admin/audit/export`: create an admin audit export task.
+  - Request body accepts the same filters as overview plus `format`, initially `CSV`.
+  - Returns: `ApiResponse<AdminAuditExportResult>`.
+  - `AdminAuditExportResult` fields: `exportId`, `format`, `fileName`, `downloadUrl`, `expiresAt`, `rowCount`, `generatedAt`, and `query`.
+  - The export must apply the same redaction rules as the overview endpoint.
+  - Expected permission: `admin:audit:export`.
+
+- Frontend fallback:
+  - Without `VITE_API_BASE_URL` or `VITE_API_PROXY_TARGET` in development, audit client functions return deterministic demo data and do not call `fetch`.
+  - `/admin/audit` uses the same Vue route family as other admin modules and is backed by `GET /api/admin/audit/overview` and `POST /api/admin/audit/export` once the backend is available.

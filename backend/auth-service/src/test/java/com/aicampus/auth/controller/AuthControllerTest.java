@@ -95,6 +95,22 @@ class AuthControllerTest {
     }
 
     @Test
+    void adminPermissionsIncludeAuditCapabilities() throws Exception {
+        MvcResult login = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"123456\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String token = com.jayway.jsonpath.JsonPath.read(login.getResponse().getContentAsString(), "$.data.token");
+
+        mockMvc.perform(get("/api/auth/permissions").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.role").value("ADMIN"))
+                .andExpect(jsonPath("$.data.permissions").value(org.hamcrest.Matchers.hasItem("admin:audit:read")))
+                .andExpect(jsonPath("$.data.permissions").value(org.hamcrest.Matchers.hasItem("admin:audit:export")));
+    }
+
+    @Test
     void meRejectsMissingToken() throws Exception {
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isUnauthorized())

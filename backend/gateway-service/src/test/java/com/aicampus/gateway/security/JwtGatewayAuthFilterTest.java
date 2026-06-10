@@ -197,6 +197,34 @@ class JwtGatewayAuthFilterTest {
         assertThat(chain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("ADMIN");
     }
 
+    @Test
+    void limitsAdminAuditToAdminRole() {
+        String studentToken = jwtTokenService.issue("S001", "Student", Role.STUDENT);
+        MockServerWebExchange studentAudit = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/admin/audit/overview")
+                        .header("Authorization", "Bearer " + studentToken)
+                        .build());
+
+        filter.filter(studentAudit, passThrough()).block();
+
+        assertThat(studentAudit.getResponse().getStatusCode().value()).isEqualTo(403);
+
+        String adminToken = jwtTokenService.issue("A001", "Admin", Role.ADMIN);
+        MockServerWebExchange adminAuditExport = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/admin/audit/export")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .build());
+        CapturingChain chain = new CapturingChain();
+
+        filter.filter(adminAuditExport, chain).block();
+
+        assertThat(adminAuditExport.getResponse().getStatusCode()).isNull();
+        assertThat(chain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("ADMIN");
+        assertThat(chain.exchange.getRequest().getHeaders().getFirst("X-User-Permissions"))
+                .contains("admin:audit:read")
+                .contains("admin:audit:export");
+    }
+
     private GatewayFilterChain passThrough() {
         return exchange -> Mono.empty();
     }

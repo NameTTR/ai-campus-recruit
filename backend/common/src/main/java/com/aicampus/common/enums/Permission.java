@@ -6,6 +6,8 @@ public enum Permission {
     ACCOUNT_WRITE("admin:account:write", true),
     ADMIN_DASHBOARD("admin:dashboard:read", true),
     ADMIN_RBAC_READ("admin:rbac:read", true),
+    ADMIN_AUDIT_READ("admin:audit:read", true),
+    ADMIN_AUDIT_EXPORT("admin:audit:export", true),
     STUDENT_PROFILE("student:profile:read", true),
     STUDENT_RESUME_WRITE("student:resume:write", true),
     STUDENT_DELIVERY_WRITE("student:delivery:write", true),

@@ -96,3 +96,13 @@
 - Company users keep using `/api/ai/candidates/screenings`; the student lifecycle UI should not depend on company-only endpoints.
 - Demo mode must keep deterministic fallback data and avoid calling `fetch` when no gateway or AI proxy is configured.
 - Screening feedback displayed to students must not expose raw prompts, API keys, tokens, or hidden employer-only notes.
+
+## v2.9 Admin Audit Data Center Requirement
+
+- Admin users need a compact audit data center at `/admin/audit` for cross-service review of students, jobs, deliveries, AI candidate-screening records, and AI interview records.
+- The frontend client must target `GET /api/admin/audit/overview` for query results and `POST /api/admin/audit/export` for CSV export preparation; all responses continue to use `ApiResponse<T>`.
+- Audit query filters should include `keyword`, `entityType`, `studentId`, `companyId`, `jobId`, and `limit`, with `entityType` covering `STUDENT`, `JOB`, `DELIVERY`, `AI_SCREENING`, and `AI_INTERVIEW`.
+- The UI must remain an admin tool: dense filters, metrics, table rows, and mobile-safe wrapping instead of a marketing layout.
+- Demo mode must keep deterministic fallback data and avoid calling `fetch` when no gateway or API proxy is configured.
+- Audit and export payloads must not expose API keys, tokens, raw prompts, full resume text, password hashes, or hidden employer-only notes.
+- Expected permission codes are `admin:audit:read` and `admin:audit:export`.

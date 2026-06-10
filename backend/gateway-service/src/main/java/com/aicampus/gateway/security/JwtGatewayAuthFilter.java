@@ -119,6 +119,9 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
                 || path.startsWith("/api/auth/password/change")) {
             return Permission.AUTH_SELF;
         }
+        if (path.startsWith("/api/admin/audit")) {
+            return method == HttpMethod.POST ? Permission.ADMIN_AUDIT_EXPORT : Permission.ADMIN_AUDIT_READ;
+        }
         if (path.startsWith("/api/admin")) {
             return path.startsWith("/api/admin/system") ? Permission.SYSTEM_VIEW : Permission.ADMIN_DASHBOARD;
         }

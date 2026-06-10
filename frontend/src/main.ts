@@ -1,4 +1,5 @@
 import { createApp } from 'vue'
+import { ElAlert } from 'element-plus/es/components/alert/index'
 import { ElButton } from 'element-plus/es/components/button/index'
 import { ElEmpty } from 'element-plus/es/components/empty/index'
 import { ElForm, ElFormItem } from 'element-plus/es/components/form/index'
@@ -19,6 +20,7 @@ import './styles/app.css'
 const app = createApp(App)
 
 const elementPlusComponents = [
+  ElAlert,
   ElButton,
   ElEmpty,
   ElForm,

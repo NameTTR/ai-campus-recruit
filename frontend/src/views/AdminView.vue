@@ -25,6 +25,8 @@ import {
 import {
   changeAccountPassword,
   createAccount,
+  exportAdminAudit,
+  getAdminAuditOverview,
   getAiObservabilitySummary,
   getDeploymentTopology,
   getDeploymentGuide,
@@ -36,6 +38,10 @@ import {
   searchAiKnowledge,
   updateAccountStatus,
   type AccountStatus,
+  type AdminAuditEntityType,
+  type AdminAuditExportResult,
+  type AdminAuditOverview,
+  type AdminAuditRecord,
   type AiCallRecord,
   type AiObservabilitySummary,
   type AiSearchResponse,
@@ -58,11 +64,15 @@ const deploymentGuide = ref<DeploymentGuide>()
 const aiObservabilitySummary = ref<AiObservabilitySummary>()
 const aiCallRecords = ref<AiCallRecord[]>([])
 const aiSearchResponse = ref<AiSearchResponse>()
+const auditOverview = ref<AdminAuditOverview>()
+const auditExport = ref<AdminAuditExportResult>()
 const accounts = ref<AccountSummary[]>([])
 const currentPermissions = ref<CurrentPermissions>()
 const systemStatusLoading = ref(false)
 const aiLoading = ref(false)
 const aiSearchLoading = ref(false)
+const auditLoading = ref(false)
+const auditExportLoading = ref(false)
 const accountsLoading = ref(false)
 const aiCallFilters = reactive({
   provider: '',
@@ -73,6 +83,14 @@ const aiSearchForm = reactive({
   query: 'Java backend',
   role: 'ADMIN',
   limit: 5
+})
+const auditFilters = reactive({
+  keyword: '',
+  entityType: '' as AdminAuditEntityType | '',
+  studentId: '',
+  companyId: '',
+  jobId: '',
+  limit: 20
 })
 const accountFilters = reactive({
   role: '',
@@ -104,6 +122,13 @@ const statusTypes: Record<DeliveryStatus, 'primary' | 'success' | 'warning' | 'i
   OFFER: 'success',
   REJECTED: 'danger'
 }
+const auditEntityLabels: Record<AdminAuditEntityType, string> = {
+  STUDENT: '学生',
+  JOB: '岗位',
+  DELIVERY: '投递',
+  AI_SCREENING: 'AI 初筛',
+  AI_INTERVIEW: 'AI 面试'
+}
 const statusRows = computed(() => {
   const counts = stats.value?.deliveryStatusCounts
   if (!counts) {
@@ -130,6 +155,9 @@ const permissionTags = computed(() => currentPermissions.value?.permissions || [
 const aiProviderRows = computed(() => aiCallBreakdown('provider'))
 const aiTaskRows = computed(() => aiCallBreakdown('operation'))
 const aiSearchResults = computed(() => aiSearchResponse.value?.results || [])
+const auditMetrics = computed(() => auditOverview.value?.metrics || [])
+const auditRows = computed(() => auditOverview.value?.records || [])
+const auditWarnings = computed(() => auditOverview.value?.warnings || [])
 
 function aiCallBreakdown(field: 'provider' | 'operation') {
   const counts = new Map<string, number>()
@@ -141,7 +169,7 @@ function aiCallBreakdown(field: 'provider' | 'operation') {
 }
 
 onMounted(async () => {
-  const [dashboard, status, topology, guide, accountList, permissions, aiSummary, aiCalls, aiSearch] = await Promise.all([
+  const [dashboard, status, topology, guide, accountList, permissions, aiSummary, aiCalls, aiSearch, audit] = await Promise.all([
     getDashboard(),
     getSystemStatus(),
     getDeploymentTopology(),
@@ -150,7 +178,8 @@ onMounted(async () => {
     getCurrentPermissions(),
     getAiObservabilitySummary(),
     listAiCallRecords(),
-    searchAiKnowledge(aiSearchForm)
+    searchAiKnowledge(aiSearchForm),
+    getAdminAuditOverview(auditFilters)
   ])
   stats.value = dashboard
   systemStatus.value = status
@@ -161,6 +190,7 @@ onMounted(async () => {
   aiObservabilitySummary.value = aiSummary
   aiCallRecords.value = aiCalls
   aiSearchResponse.value = aiSearch
+  auditOverview.value = audit
 })
 
 function statusPercent(count: number) {
@@ -229,6 +259,26 @@ async function runAiSearch() {
     })
   } finally {
     aiSearchLoading.value = false
+  }
+}
+
+async function refreshAuditOverview() {
+  auditLoading.value = true
+  auditExport.value = undefined
+  try {
+    auditOverview.value = await getAdminAuditOverview(auditFilters)
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+async function runAuditExport() {
+  auditExportLoading.value = true
+  try {
+    auditExport.value = await exportAdminAudit(auditFilters)
+    ElMessage.success('审计导出任务已准备')
+  } finally {
+    auditExportLoading.value = false
   }
 }
 
@@ -312,6 +362,20 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
     return 'warning'
   }
   return 'info'
+}
+
+function auditEntityLabel(value: AdminAuditEntityType) {
+  return auditEntityLabels[value] || value
+}
+
+function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' {
+  if (row.riskLevel === 'HIGH') {
+    return 'danger'
+  }
+  if (row.riskLevel === 'MEDIUM') {
+    return 'warning'
+  }
+  return 'success'
 }
 </script>
 
@@ -642,6 +706,191 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
       </section>
     </div>
 
+    <div v-if="activeModule === 'audit'" class="module-stack">
+      <section class="panel module-panel audit-hero">
+        <div>
+          <h2 class="panel-title">
+            审计数据中心
+            <Database :size="20" />
+          </h2>
+          <p>按学生、岗位、投递、AI 初筛和 AI 面试记录聚合跨服务查询结果。</p>
+        </div>
+        <span class="generated-at">{{ formatDateTime(auditOverview?.generatedAt) }}</span>
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          查询条件
+          <span class="panel-title-actions">
+            <el-button circle size="small" :loading="auditLoading" @click="refreshAuditOverview">
+              <RefreshCw :size="15" />
+            </el-button>
+            <Search :size="19" />
+          </span>
+        </h2>
+        <div class="audit-toolbar">
+          <el-input v-model="auditFilters.keyword" clearable placeholder="关键词 / ID / 摘要" @keyup.enter="refreshAuditOverview" />
+          <el-select v-model="auditFilters.entityType" clearable placeholder="数据类型">
+            <el-option label="学生" value="STUDENT" />
+            <el-option label="岗位" value="JOB" />
+            <el-option label="投递" value="DELIVERY" />
+            <el-option label="AI 初筛" value="AI_SCREENING" />
+            <el-option label="AI 面试" value="AI_INTERVIEW" />
+          </el-select>
+          <el-input v-model="auditFilters.studentId" clearable placeholder="studentId" @keyup.enter="refreshAuditOverview" />
+          <el-input v-model="auditFilters.companyId" clearable placeholder="companyId" @keyup.enter="refreshAuditOverview" />
+          <el-input v-model="auditFilters.jobId" clearable placeholder="jobId" @keyup.enter="refreshAuditOverview" />
+          <el-select v-model="auditFilters.limit" placeholder="limit">
+            <el-option label="20" :value="20" />
+            <el-option label="50" :value="50" />
+            <el-option label="100" :value="100" />
+          </el-select>
+          <el-button type="primary" :loading="auditLoading" @click="refreshAuditOverview">查询</el-button>
+          <el-button :loading="auditExportLoading" @click="runAuditExport">导出</el-button>
+        </div>
+      </section>
+
+      <div class="grid three audit-metrics">
+        <div v-for="metric in auditMetrics" :key="metric.key" class="metric audit-metric">
+          <Database :size="22" />
+          <span>{{ metric.label }}</span>
+          <strong>{{ metric.value }}{{ metric.unit || '' }}</strong>
+        </div>
+      </div>
+
+      <section v-if="auditExport" class="panel module-panel audit-export-panel">
+        <h2 class="panel-title">
+          导出结果
+          <ClipboardCheck :size="19" />
+        </h2>
+        <div class="audit-export-grid">
+          <div>
+            <span>文件</span>
+            <strong>{{ auditExport.fileName }}</strong>
+          </div>
+          <div>
+            <span>行数</span>
+            <strong>{{ auditExport.rowCount }}</strong>
+          </div>
+          <div>
+            <span>有效期</span>
+            <strong>{{ formatDateTime(auditExport.expiresAt) }}</strong>
+          </div>
+          <div>
+            <span>下载地址</span>
+            <code>{{ auditExport.downloadUrl }}</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          跨服务审计记录
+          <span class="panel-title-actions">
+            <span class="generated-at">{{ auditOverview?.source || 'frontend-demo' }}</span>
+            <Database :size="19" />
+          </span>
+        </h2>
+
+        <el-table v-loading="auditLoading" class="audit-table" :data="auditRows" style="width: 100%">
+          <el-table-column label="对象" min-width="190">
+            <template #default="{ row }">
+              <div class="audit-record-title">
+                <strong>{{ row.title }}</strong>
+                <span>{{ row.auditId }} / {{ row.entityId }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="类型" width="110">
+            <template #default="{ row }">
+              <el-tag type="info">{{ auditEntityLabel(row.entityType) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="关联" min-width="160">
+            <template #default="{ row }">
+              <div class="audit-links">
+                <span v-if="row.studentId">S: {{ row.studentId }}</span>
+                <span v-if="row.companyId">C: {{ row.companyId }}</span>
+                <span v-if="row.jobId">J: {{ row.jobId }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="service" label="服务" min-width="130" />
+          <el-table-column prop="status" label="状态" width="112" />
+          <el-table-column label="风险" width="96">
+            <template #default="{ row }">
+              <el-tag :type="auditRiskType(row)">{{ row.riskLevel }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="分数" width="86">
+            <template #default="{ row }">{{ row.score ?? '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="summary" label="摘要" min-width="240" />
+          <el-table-column label="标签" min-width="180">
+            <template #default="{ row }">
+              <div class="audit-tags">
+                <span v-for="tag in row.tags" :key="`${row.auditId}-${tag}`">{{ tag }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="时间" width="128">
+            <template #default="{ row }">{{ formatDateTime(row.occurredAt) }}</template>
+          </el-table-column>
+        </el-table>
+        <div v-if="auditRows.length" v-loading="auditLoading" class="audit-cards">
+          <article v-for="row in auditRows" :key="row.auditId" class="audit-card">
+            <header>
+              <div class="audit-record-title">
+                <strong>{{ row.title }}</strong>
+                <span>{{ row.auditId }} / {{ row.entityId }}</span>
+              </div>
+              <span class="audit-pill info">{{ auditEntityLabel(row.entityType) }}</span>
+            </header>
+            <div class="audit-card-grid">
+              <div>
+                <span>Service</span>
+                <strong>{{ row.service }}</strong>
+              </div>
+              <div>
+                <span>Status</span>
+                <strong>{{ row.status }}</strong>
+              </div>
+              <div>
+                <span>Risk</span>
+                <strong class="audit-pill" :class="auditRiskType(row)">{{ row.riskLevel }}</strong>
+              </div>
+              <div>
+                <span>Score</span>
+                <strong>{{ row.score ?? '-' }}</strong>
+              </div>
+            </div>
+            <div class="audit-links">
+              <span v-if="row.studentId">S: {{ row.studentId }}</span>
+              <span v-if="row.companyId">C: {{ row.companyId }}</span>
+              <span v-if="row.jobId">J: {{ row.jobId }}</span>
+            </div>
+            <p>{{ row.summary }}</p>
+            <div class="audit-tags">
+              <span v-for="tag in row.tags" :key="`${row.auditId}-card-${tag}`">{{ tag }}</span>
+            </div>
+            <time>{{ formatDateTime(row.occurredAt) }}</time>
+          </article>
+        </div>
+        <el-empty v-if="!auditRows.length && !auditLoading" description="暂无审计记录" />
+      </section>
+
+      <div v-if="auditWarnings.length" class="warning-list">
+        <el-alert
+          v-for="warning in auditWarnings"
+          :key="warning"
+          :title="warning"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+      </div>
+    </div>
+
     <div v-if="activeModule === 'system'" class="module-stack">
       <div class="grid three">
         <div class="metric system-metric">
@@ -907,6 +1156,206 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
   color: #667085;
   font-size: 13px;
   font-weight: 500;
+}
+
+.audit-hero {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.audit-hero p {
+  color: #475467;
+  margin: 8px 0 0;
+}
+
+.audit-toolbar {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 1.4fr) 132px repeat(3, minmax(110px, 0.8fr)) 96px auto auto;
+  min-width: 0;
+}
+
+.audit-toolbar :deep(.el-select),
+.audit-toolbar :deep(.el-input) {
+  width: 100%;
+}
+
+.audit-metric strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.audit-export-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(96px, 0.45fr) minmax(140px, 0.6fr) minmax(0, 1.4fr);
+}
+
+.audit-export-grid > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.audit-export-grid span {
+  color: #667085;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.audit-export-grid strong,
+.audit-export-grid code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.audit-export-grid code {
+  background: #f2f4f7;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  color: #344054;
+  padding: 6px 8px;
+  white-space: normal;
+}
+
+.audit-table {
+  min-width: 0;
+}
+
+.audit-cards {
+  display: none;
+}
+
+:deep(.audit-table .cell) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.audit-record-title {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.audit-record-title span,
+.audit-links span {
+  color: #667085;
+  font-size: 13px;
+}
+
+.audit-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.audit-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.audit-tags span {
+  background: #f2f4f7;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 3px 7px;
+}
+
+.audit-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid #5eead4;
+  border-radius: 6px;
+  color: #0f766e;
+  background: #ccfbf1;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.audit-pill.info {
+  color: #334155;
+  border-color: #cbd5e1;
+  background: #e2e8f0;
+}
+
+.audit-pill.warning {
+  color: #78350f;
+  border-color: #f59e0b;
+  background: #fde68a;
+}
+
+.audit-pill.danger {
+  color: #b42318;
+  border-color: #fecdca;
+  background: #fee4e2;
+}
+
+.audit-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dde5ed;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.audit-card header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+}
+
+.audit-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.audit-card-grid > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.audit-card-grid span,
+.audit-card time {
+  color: #667085;
+  font-size: 13px;
+}
+
+.audit-card-grid strong,
+.audit-card p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.audit-card p {
+  margin: 0;
+  color: #475467;
+  line-height: 1.55;
 }
 
 .system-metric strong {
@@ -1479,6 +1928,8 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
   .permission-summary,
   .account-toolbar,
   .account-grid,
+  .audit-toolbar,
+  .audit-export-grid,
   .ai-observability-grid,
   .ai-call-toolbar,
   .ai-search-toolbar {
@@ -1497,6 +1948,7 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
   }
 
   .deploy-hero,
+  .audit-hero,
   .deploy-step-header,
   .ai-search-result header {
     align-items: flex-start;
@@ -1520,6 +1972,20 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
     border-radius: 7px;
     height: 30px;
     width: 30px;
+  }
+
+  .audit-table {
+    display: none;
+  }
+
+  .audit-cards {
+    display: grid;
+    gap: 10px;
+  }
+
+  .audit-card header,
+  .audit-card-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
