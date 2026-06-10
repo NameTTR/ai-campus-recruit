@@ -25,6 +25,7 @@ public class CandidateScreenTaskService implements DisposableBean {
     private final int maxTasks;
     private final ExecutorService executor;
     private final Map<String, CandidateScreenTask> tasks = new ConcurrentHashMap<>();
+    private final Map<String, CandidateScreenRequest> taskRequests = new ConcurrentHashMap<>();
 
     @Autowired
     public CandidateScreenTaskService(
@@ -44,6 +45,34 @@ public class CandidateScreenTaskService implements DisposableBean {
     }
 
     public CandidateScreenTask submit(CandidateScreenRequest request, CandidateScreenTaskSource source) {
+        return submit(request, source, "Queued for async AI screening");
+    }
+
+    public CandidateScreenTask get(String taskId, String companyId) {
+        String taskKey = blankToNull(taskId);
+        if (taskKey == null) {
+            return null;
+        }
+        CandidateScreenTask task = tasks.get(taskKey);
+        if (task == null || !matchesCompany(task, companyId)) {
+            return null;
+        }
+        return task;
+    }
+
+    public CandidateScreenTask retry(String taskId, String companyId) {
+        CandidateScreenTask task = get(taskId, companyId);
+        if (task == null || task.status() != CandidateScreenTaskStatus.FAILED) {
+            return null;
+        }
+        CandidateScreenRequest originalRequest = taskRequests.get(task.taskId());
+        if (originalRequest == null) {
+            return null;
+        }
+        return submit(originalRequest, task.source(), "Retried and queued for async AI screening");
+    }
+
+    private CandidateScreenTask submit(CandidateScreenRequest request, CandidateScreenTaskSource source, String message) {
         CandidateScreenRequest normalizedRequest = request == null
                 ? new CandidateScreenRequest(null, null, null, null, null, null, null, 0, null, null, null, null, null, null)
                 : request;
@@ -57,11 +86,12 @@ public class CandidateScreenTaskService implements DisposableBean {
                 normalizedRequest.jobId(),
                 CandidateScreenTaskStatus.PENDING,
                 source,
-                "Queued for async AI screening",
+                message,
                 null,
                 now,
                 now);
         tasks.put(task.taskId(), task);
+        taskRequests.put(task.taskId(), normalizedRequest);
         trimOldTasks();
         executor.submit(() -> runTask(task, normalizedRequest));
         return task;
@@ -116,7 +146,17 @@ public class CandidateScreenTaskService implements DisposableBean {
                 .sorted(Comparator.comparing(CandidateScreenTask::createdAt))
                 .limit(tasks.size() - maxTasks)
                 .map(CandidateScreenTask::taskId)
-                .forEach(tasks::remove);
+                .forEach(this::removeTask);
+    }
+
+    private void removeTask(String taskId) {
+        tasks.remove(taskId);
+        taskRequests.remove(taskId);
+    }
+
+    private static boolean matchesCompany(CandidateScreenTask task, String companyId) {
+        String companyFilter = blankToNull(companyId);
+        return companyFilter == null || companyFilter.equals(task.companyId());
     }
 
     private static String safeMessage(RuntimeException ex) {

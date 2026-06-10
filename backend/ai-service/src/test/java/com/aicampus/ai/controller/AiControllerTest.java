@@ -13,6 +13,7 @@ import com.aicampus.ai.service.AiCoachService;
 import com.aicampus.ai.service.DashScopeClient;
 import com.aicampus.common.dto.CandidateScreenRequest;
 import com.aicampus.common.dto.CandidateScreenResult;
+import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -326,6 +327,52 @@ class AiControllerTest {
     }
 
     @Test
+    void asyncCandidateScreeningTaskDetailCanBeQueriedByTaskId() throws Exception {
+        String taskId = submitAsyncTask("C-ASYNC-DETAIL-001", "D-ASYNC-DETAIL-001");
+
+        mockMvc.perform(get("/api/ai/candidates/screen/tasks/{taskId}", taskId)
+                        .param("companyId", "C-ASYNC-DETAIL-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.taskId").value(taskId))
+                .andExpect(jsonPath("$.data.companyId").value("C-ASYNC-DETAIL-001"))
+                .andExpect(jsonPath("$.data.deliveryId").value("D-ASYNC-DETAIL-001"))
+                .andExpect(jsonPath("$.data.source").value("RUNTIME"));
+    }
+
+    @Test
+    void asyncCandidateScreeningTaskDetailIsIsolatedByCompanyHeader() throws Exception {
+        String taskId = submitAsyncTask("C-ASYNC-DETAIL-OWNER", "D-ASYNC-DETAIL-OWNER");
+
+        mockMvc.perform(get("/api/ai/candidates/screen/tasks/{taskId}", taskId)
+                        .header("X-User-Id", "C-ASYNC-DETAIL-OTHER")
+                        .header("X-User-Role", "COMPANY")
+                        .param("companyId", "C-ASYNC-DETAIL-OWNER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        mockMvc.perform(get("/api/ai/candidates/screen/tasks/{taskId}", taskId)
+                        .header("X-User-Id", "C-ASYNC-DETAIL-OWNER")
+                        .header("X-User-Role", "COMPANY")
+                        .param("companyId", "C-ASYNC-DETAIL-OTHER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.companyId").value("C-ASYNC-DETAIL-OWNER"));
+    }
+
+    @Test
+    void retryRejectedForNonFailedAsyncCandidateScreeningTask() throws Exception {
+        String taskId = submitAsyncTask("C-ASYNC-RETRY-ACTIVE", "D-ASYNC-RETRY-ACTIVE");
+
+        mockMvc.perform(post("/api/ai/candidates/screen/tasks/{taskId}/retry", taskId)
+                        .param("companyId", "C-ASYNC-RETRY-ACTIVE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
     void candidateScreeningRecordsInitiallyReturnsEmptyArrayForUnknownCompany() throws Exception {
         mockMvc.perform(get("/api/ai/candidates/screenings")
                         .param("companyId", "C-HISTORY-EMPTY"))
@@ -579,6 +626,36 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data.deliveryId").value(deliveryId))
                 .andExpect(jsonPath("$.data.studentId").value(studentId))
                 .andExpect(jsonPath("$.data.jobId").value(jobId));
+    }
+
+    private String submitAsyncTask(String companyId, String deliveryId) throws Exception {
+        String response = mockMvc.perform(post("/api/ai/candidates/screen/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "companyId": "%s",
+                                  "deliveryId": "%s",
+                                  "studentId": "S-ASYNC-HELPER-001",
+                                  "resumeId": "R-ASYNC-HELPER-001",
+                                  "jobId": "J-ASYNC-HELPER-001",
+                                  "resumeSourceFormat": "PDF",
+                                  "resumeParseStatus": "TEXT_EXTRACTED",
+                                  "resumeParsedTextLength": 128,
+                                  "targetRole": "Java Backend Intern",
+                                  "skills": ["Java", "Spring Boot"],
+                                  "projects": ["Campus recruitment platform"],
+                                  "jobRequirements": ["Java", "Spring Boot"],
+                                  "resumeSummary": "Java backend project experience",
+                                  "jobDescription": "Build backend APIs"
+                                }
+                                """.formatted(companyId, deliveryId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.taskId").isNotEmpty())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return JsonPath.read(response, "$.data.taskId");
     }
 
     private void waitUntilTaskCompleted(String companyId, String deliveryId) throws Exception {

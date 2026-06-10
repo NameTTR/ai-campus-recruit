@@ -710,8 +710,36 @@ const fallbackCandidateScreenTasks: CandidateScreenTask[] = [
     message: 'Demo async screening task is running.',
     createdAt: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
     updatedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString()
+  },
+  {
+    ...buildFallbackCandidateScreenTask({
+      deliveryId: 'D003',
+      companyId: 'C001',
+      studentId: 'S003',
+      resumeId: 'R003',
+      jobId: 'J001',
+      targetRole: 'Java backend intern',
+      skills: ['Java'],
+      projects: ['Course management platform'],
+      jobRequirements: ['Java', 'Spring Boot', 'MySQL', 'Redis'],
+      resumeSummary: 'Demo candidate task failed before model execution.',
+      jobDescription: 'Backend API development internship.',
+      resumeSourceFormat: 'PDF',
+      resumeParseStatus: 'UNPARSED',
+      resumeParsedTextLength: 0
+    }, 'FAILED'),
+    taskId: 'TASK-DEMO-003',
+    message: 'Demo async screening task failed. Retry is available.',
+    createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 24 * 60 * 1000).toISOString()
   }
 ]
+
+function findFallbackCandidateScreenTask(taskId: string, companyId = currentCompanyId()) {
+  const normalizedTaskId = taskId.trim()
+  return fallbackCandidateScreenTasks.find((task) =>
+    task.taskId === normalizedTaskId && (!companyId || task.companyId === companyId))
+}
 
 const fallbackInterviewQuestions: InterviewQuestion[] = [
   {
@@ -1413,6 +1441,48 @@ export function listCandidateScreenTasks(companyId = currentCompanyId(), deliver
   return request<CandidateScreenTask[]>(path, { method: 'GET' },
     fallbackCandidateScreenTasks.filter((task) =>
       (!companyId || task.companyId === companyId) && (!deliveryId || task.deliveryId === deliveryId)))
+}
+
+export function getCandidateScreenTask(taskId: string, companyId = currentCompanyId()) {
+  const params = new URLSearchParams()
+  if (companyId) {
+    params.set('companyId', companyId)
+  }
+  const query = params.toString()
+  const fallback = findFallbackCandidateScreenTask(taskId, companyId)
+    || { ...fallbackCandidateScreenTasks[0], taskId }
+  return request<CandidateScreenTask>(
+    `/api/ai/candidates/screen/tasks/${encodeURIComponent(taskId)}${query ? `?${query}` : ''}`,
+    { method: 'GET' },
+    fallback)
+}
+
+export function retryCandidateScreenTask(taskId: string, companyId = currentCompanyId()) {
+  const params = new URLSearchParams()
+  if (companyId) {
+    params.set('companyId', companyId)
+  }
+  const query = params.toString()
+  const original = findFallbackCandidateScreenTask(taskId, companyId) || fallbackCandidateScreenTasks[0]
+  const fallback = original.status === 'FAILED'
+    ? {
+        ...original,
+        taskId: `TASK-DEMO-RETRY-${original.deliveryId}`,
+        status: 'PENDING' as CandidateScreenTaskStatus,
+        source: 'DEMO' as CandidateScreenTaskSource,
+        message: 'Demo retry task accepted.',
+        result: undefined,
+        updatedAt: new Date().toISOString()
+      }
+    : {
+        ...original,
+        message: 'Only failed async screening tasks can be retried.',
+        updatedAt: new Date().toISOString()
+      }
+  return request<CandidateScreenTask>(
+    `/api/ai/candidates/screen/tasks/${encodeURIComponent(taskId)}/retry${query ? `?${query}` : ''}`,
+    { method: 'POST' },
+    fallback)
 }
 
 export function listCandidateScreenRecords(companyId = currentCompanyId(), deliveryId?: string) {

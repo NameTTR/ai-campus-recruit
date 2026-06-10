@@ -10,6 +10,7 @@ import {
   getAdminAuditOverview,
   getAiObservabilitySummary,
   getAiStatus,
+  getCandidateScreenTask,
   getCurrentPermissions,
   getDeploymentGuide,
   getProfile,
@@ -30,6 +31,7 @@ import {
   screenCandidate,
   searchAiKnowledge,
   submitInterviewFeedback,
+  retryCandidateScreenTask,
   updateAccountStatus
 } from './client'
 
@@ -520,6 +522,84 @@ describe('api fallback behavior', () => {
 
     expect(result[0].taskId).toBe('TASK-300')
     expect(fetch).toHaveBeenCalledWith('/api/ai/candidates/screen/tasks?companyId=C001&deliveryId=D300', expect.any(Object))
+  })
+
+  it('returns async candidate screen task detail fallback when ai proxy is not configured', async () => {
+    const result = await getCandidateScreenTask('TASK-DEMO-003', 'C001')
+
+    expect(result.taskId).toBe('TASK-DEMO-003')
+    expect(result.status).toBe('FAILED')
+    expect(result.message).toContain('Retry')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls async candidate screen task detail endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          taskId: 'TASK-DETAIL-001',
+          deliveryId: 'D301',
+          companyId: 'C001',
+          studentId: 'S301',
+          resumeId: 'R301',
+          jobId: 'J301',
+          status: 'RUNNING',
+          source: 'RUNTIME',
+          message: 'running',
+          createdAt: '2026-06-10T00:00:00Z',
+          updatedAt: '2026-06-10T00:01:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await getCandidateScreenTask('TASK-DETAIL-001', 'C001')
+
+    expect(result.status).toBe('RUNNING')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/candidates/screen/tasks/TASK-DETAIL-001?companyId=C001', expect.any(Object))
+  })
+
+  it('returns retry fallback for failed async candidate screen task', async () => {
+    const result = await retryCandidateScreenTask('TASK-DEMO-003', 'C001')
+
+    expect(result.taskId).toBe('TASK-DEMO-RETRY-D003')
+    expect(result.status).toBe('PENDING')
+    expect(result.message).toContain('retry')
+    expect(result.result).toBeUndefined()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls async candidate screen task retry endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          taskId: 'TASK-RETRY-001',
+          deliveryId: 'D303',
+          companyId: 'C001',
+          studentId: 'S303',
+          resumeId: 'R303',
+          jobId: 'J303',
+          status: 'PENDING',
+          source: 'RUNTIME',
+          message: 'retry queued',
+          createdAt: '2026-06-10T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await retryCandidateScreenTask('TASK-FAILED-001', 'C001')
+
+    expect(result.taskId).toBe('TASK-RETRY-001')
+    expect(result.status).toBe('PENDING')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/candidates/screen/tasks/TASK-FAILED-001/retry?companyId=C001', expect.any(Object))
   })
 
   it('returns candidate screen history fallback when ai proxy is not configured', async () => {

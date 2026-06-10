@@ -8,10 +8,12 @@ import {
   createJob,
   createCandidateScreenTask,
   currentCompanyId,
+  getCandidateScreenTask,
   listCandidateScreenTasks,
   listCompanyDeliveries,
   listJobs,
   matchResumeJob,
+  retryCandidateScreenTask,
   updateDeliveryStatus,
   type CandidateScreenTask,
   type CandidateScreenTaskStatus,
@@ -34,6 +36,7 @@ const candidate = ref<MatchResult>()
 const deliveries = ref<DeliveryRecord[]>([])
 const screeningTasks = ref<CandidateScreenTask[]>([])
 const screeningLoading = ref<Record<string, boolean>>({})
+const taskActionLoading = ref<Record<string, boolean>>({})
 const historyRefreshing = ref(false)
 const form = reactive({
   title: 'Java 后端实习生',
@@ -145,6 +148,27 @@ async function manualRefreshCandidateScreenRecords() {
   }
 }
 
+async function refreshCandidateScreenTask(task: CandidateScreenTask) {
+  taskActionLoading.value = { ...taskActionLoading.value, [task.taskId]: true }
+  try {
+    upsertTask(await getCandidateScreenTask(task.taskId, task.companyId))
+    ElMessage.success('任务状态已刷新')
+  } finally {
+    taskActionLoading.value = { ...taskActionLoading.value, [task.taskId]: false }
+  }
+}
+
+async function retryCandidateScreen(task: CandidateScreenTask) {
+  taskActionLoading.value = { ...taskActionLoading.value, [task.taskId]: true }
+  try {
+    const retried = await retryCandidateScreenTask(task.taskId, task.companyId)
+    upsertTask(retried)
+    ElMessage.success(retried.status === 'PENDING' ? '重试任务已提交' : '任务状态已更新')
+  } finally {
+    taskActionLoading.value = { ...taskActionLoading.value, [task.taskId]: false }
+  }
+}
+
 function upsertLocalScreeningTask(delivery: DeliveryRecord, task: CandidateScreenTask) {
   const now = new Date().toISOString()
   const record: CandidateScreenTask = {
@@ -159,11 +183,15 @@ function upsertLocalScreeningTask(delivery: DeliveryRecord, task: CandidateScree
     createdAt: task.createdAt || now,
     updatedAt: task.updatedAt || now
   }
+  upsertTask(record)
+  return record
+}
+
+function upsertTask(record: CandidateScreenTask) {
   screeningTasks.value = [
     record,
     ...screeningTasks.value.filter((item) => item.taskId !== record.taskId)
   ]
-  return record
 }
 
 function statusText(status: DeliveryStatus) {
@@ -515,6 +543,24 @@ function formatDateTime(value: string) {
                   {{ tag.text }}
                 </el-tag>
               </div>
+              <div class="screening-task-actions">
+                <el-button
+                  size="small"
+                  :loading="taskActionLoading[task.taskId]"
+                  @click="refreshCandidateScreenTask(task)"
+                >
+                  刷新
+                </el-button>
+                <el-button
+                  v-if="task.status === 'FAILED'"
+                  size="small"
+                  type="primary"
+                  :loading="taskActionLoading[task.taskId]"
+                  @click="retryCandidateScreen(task)"
+                >
+                  重试
+                </el-button>
+              </div>
             </div>
           </div>
           <p v-if="task.status !== 'COMPLETED' || !task.result" class="screening-task-message">
@@ -713,6 +759,17 @@ function formatDateTime(value: string) {
   color: #667085;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.screening-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.screening-task-actions :deep(.el-button) {
+  margin-left: 0 !important;
 }
 
 .screening-score {

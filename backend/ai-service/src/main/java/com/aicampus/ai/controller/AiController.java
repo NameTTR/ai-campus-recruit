@@ -24,6 +24,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import java.util.List;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -127,6 +128,34 @@ public class AiController {
             @RequestHeader(value = X_USER_ID, required = false) String userId,
             @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
         return ApiResponse.ok(candidateScreenTaskService.list(resolveCompanyId(companyId, userId, userRole), deliveryId));
+    }
+
+    @Operation(summary = "Get async candidate screening task detail")
+    @GetMapping("/candidates/screen/tasks/{taskId}")
+    public ApiResponse<CandidateScreenTask> candidateScreeningTask(
+            @PathVariable String taskId,
+            @RequestParam(required = false) String companyId,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        CandidateScreenTask task = candidateScreenTaskService.get(taskId, resolveCompanyId(companyId, userId, userRole));
+        if (task == null) {
+            return ApiResponse.fail("Candidate screening task not found");
+        }
+        return ApiResponse.ok(task);
+    }
+
+    @Operation(summary = "Retry failed async candidate screening task")
+    @PostMapping("/candidates/screen/tasks/{taskId}/retry")
+    public ApiResponse<CandidateScreenTask> retryCandidateScreeningTask(
+            @PathVariable String taskId,
+            @RequestParam(required = false) String companyId,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        CandidateScreenTask task = candidateScreenTaskService.retry(taskId, resolveCompanyId(companyId, userId, userRole));
+        if (task == null) {
+            return ApiResponse.fail("Candidate screening task retry is not allowed");
+        }
+        return ApiResponse.ok(task);
     }
 
     @Operation(summary = "List candidate screening records")

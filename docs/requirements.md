@@ -121,3 +121,15 @@
 - Demo mode must keep deterministic fallback task data, including at least one completed task with `result` and one in-progress task, and avoid calling `fetch` when no gateway or AI proxy is configured.
 - No frontend or documentation examples may hardcode AI provider keys, tokens, raw prompts, or full resume text.
 - Acceptance commands for this slice: `mvn -s settings.xml.example -pl common,ai-service -am test` from `backend/`, `npm run test:unit` from `frontend/`, and `npm run build` after TypeScript/template changes.
+
+## v3.1 AI Screening Task Recovery Requirement
+
+- Company users need task-level operations on async candidate-screening tasks: refresh a single task and retry a failed task from the company screening view.
+- `ai-service` must expose `GET /api/ai/candidates/screen/tasks/{taskId}` and `POST /api/ai/candidates/screen/tasks/{taskId}/retry`, both wrapped in `ApiResponse<T>`.
+- Gateway-injected `COMPANY` identity must override query parameters so companies cannot view or retry another company's task.
+- Retry is allowed only for `FAILED` tasks; pending, running, completed, missing, or company-mismatched tasks must return a controlled failure response.
+- A successful retry should enqueue a new task using the original `CandidateScreenRequest` snapshot and preserve the original task for auditability.
+- The frontend client must expose `getCandidateScreenTask(taskId, companyId?)` and `retryCandidateScreenTask(taskId, companyId?)` with deterministic fallback data.
+- Demo mode must include at least one failed task so the retry action can be demonstrated without a backend.
+- The company UI must keep retry and refresh controls compact and mobile-safe.
+- No retry response may expose API keys, raw prompts, full resume text, or hidden employer-only notes.

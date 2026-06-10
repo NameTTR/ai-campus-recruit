@@ -75,6 +75,14 @@
   - 查询参数：`companyId`、`deliveryId` 均可选；为空时不过滤。
   - 返回：`CandidateScreenTask[]`，字段同创建接口。
   - 企业端投递审核和 AI 筛选历史优先使用该任务列表展示异步状态；开发模式未配置 gateway 或 AI proxy 时前端返回确定性的 `DEMO` 任务数据，且不调用 `fetch`。
+- `GET /api/ai/candidates/screen/tasks/{taskId}?companyId=C001`：查询单个 AI 候选人异步初筛任务。
+  - 路径参数：`taskId`。
+  - 查询参数：`companyId` 可选；Gateway 注入 `X-User-Role=COMPANY` 和 `X-User-Id` 时，下游服务必须以注入的企业身份为准。
+  - 返回：`ApiResponse<CandidateScreenTask>`；任务不存在或企业身份不匹配时返回失败响应，不暴露其他企业任务。
+- `POST /api/ai/candidates/screen/tasks/{taskId}/retry?companyId=C001`：重试失败的 AI 候选人异步初筛任务。
+  - 仅允许 `FAILED` 任务重试；`PENDING`、`RUNNING`、`COMPLETED`、任务不存在或企业身份不匹配时返回失败响应。
+  - 重试成功后返回新的 `CandidateScreenTask`，通常为 `PENDING` 状态，`source` 沿用原任务来源。
+  - 前端企业端任务卡片使用该接口提供失败任务重试操作；开发模式未配置 gateway 或 AI proxy 时返回确定性的重试 fallback。
 - `GET /api/ai/candidates/screenings?companyId=C001&deliveryId=D001`：查询 AI 候选人初筛历史。
   - 查询参数：`companyId`、`deliveryId` 均可选；为空时不过滤。
   - 返回：`CandidateScreenRecord[]`，每项包含 `screeningId`、`companyId`、`deliveryId`、`studentId`、`jobId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`、`score`、`recommendation`、`strengths`、`risks`、`interviewQuestions`、`nextActions`、`mocked`、`createdAt`。
