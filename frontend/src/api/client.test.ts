@@ -1,15 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  changeAccountPassword,
+  createAccount,
   createDelivery,
   getAuthSession,
   generateInterviewQuestions,
   getAiStatus,
+  getCurrentPermissions,
   getDeploymentGuide,
   getProfile,
   getResume,
   getDeliveryStatistics,
   getDeploymentTopology,
   getSystemStatus,
+  listAccounts,
   listCandidateScreenRecords,
   listInterviewRecords,
   listCompanyDeliveries,
@@ -17,7 +21,8 @@ import {
   matchResumeJob,
   saveAuthSession,
   screenCandidate,
-  submitInterviewFeedback
+  submitInterviewFeedback,
+  updateAccountStatus
 } from './client'
 
 describe('api fallback behavior', () => {
@@ -35,6 +40,94 @@ describe('api fallback behavior', () => {
     const result = await getProfile()
 
     expect(result.userId).toBe('S001')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('returns account list fallback with filters when gateway is offline', async () => {
+    const result = await listAccounts({ role: 'ADMIN', status: 'ACTIVE', keyword: 'admin' })
+
+    expect(result).toHaveLength(1)
+    expect(result[0].accountId).toBe('A001')
+    expect(result[0].permissions).toContain('admin:account:read')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('creates account fallback with role permissions when gateway is offline', async () => {
+    const result = await createAccount({
+      username: 'new-company',
+      password: 'change-me',
+      displayName: 'New Company',
+      role: 'COMPANY'
+    })
+
+    expect(result.role).toBe('COMPANY')
+    expect(result.status).toBe('ACTIVE')
+    expect(result.permissions).toContain('company:job:write')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls account status endpoint when api base url is configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          accountId: 'S001',
+          username: 'student',
+          displayName: 'Student',
+          role: 'STUDENT',
+          status: 'DISABLED',
+          permissions: ['student:profile:read'],
+          createdAt: '2026-06-10T00:00:00Z',
+          updatedAt: '2026-06-10T01:00:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await updateAccountStatus('S001', 'DISABLED')
+
+    expect(result.status).toBe('DISABLED')
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/admin/accounts/S001/status', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(requestInit.body))).toEqual({ status: 'DISABLED' })
+  })
+
+  it('calls password change endpoint when api base url is configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: true
+      })
+    } as Response)
+
+    const result = await changeAccountPassword({
+      accountId: 'S001',
+      oldPassword: 'old-pass',
+      newPassword: 'new-pass'
+    })
+
+    expect(result).toBe(true)
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/accounts/S001/password', expect.any(Object))
+  })
+
+  it('returns current permissions fallback from the saved session', async () => {
+    saveAuthSession({
+      token: 'admin-token',
+      userId: 'A777',
+      displayName: 'Admin User',
+      role: 'ADMIN'
+    })
+
+    const result = await getCurrentPermissions()
+
+    expect(result.userId).toBe('A777')
+    expect(result.role).toBe('ADMIN')
+    expect(result.permissions).toContain('admin:rbac:read')
     expect(fetch).not.toHaveBeenCalled()
   })
 

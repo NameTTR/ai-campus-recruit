@@ -136,6 +136,39 @@
   - `GET /api/ai/candidates/screenings`
 - `ADMIN` keeps cross-tenant query behavior for review and management screens; request parameters such as `studentId` and `companyId` are still honored for admin calls.
 
+## v2.6 Account and RBAC APIs
+
+- `GET /api/admin/accounts?role=ADMIN&status=ACTIVE&keyword=admin`: list accounts for admin management screens.
+  - Query parameters are optional: `role` supports `STUDENT`, `COMPANY`, `ADMIN`; `status` supports `ACTIVE`, `DISABLED`, `LOCKED`; `keyword` matches username or display name.
+  - Returns: `AccountSummary[]`.
+  - `AccountSummary` fields: `accountId`, `username`, `displayName`, `role`, `status`, `permissions`, `createdAt`, `updatedAt`.
+  - Required permission: `admin:account:read`.
+
+- `POST /api/admin/accounts`: create an account.
+  - Request body: `username`, `password`, `displayName`, `role`, optional `status`, optional `permissions`.
+  - Returns: `AccountSummary`.
+  - Responses must not include plaintext password or password hash fields.
+  - Required permission: `admin:account:write`.
+
+- `PUT /api/admin/accounts/{accountId}/status`: update account status.
+  - Request body: `{ "status": "ACTIVE" | "DISABLED" | "LOCKED" }`.
+  - Returns: updated `AccountSummary`.
+  - Required permission: `admin:account:write`.
+
+- `PUT /api/accounts/{accountId}/password`: change an account password.
+  - Request body: `accountId`, optional `oldPassword`, `newPassword`.
+  - Returns: `boolean` success flag.
+  - Self-service password changes require the authenticated user to match `accountId`; admin resets require `admin:account:write`.
+  - Responses must not include plaintext password or password hash fields.
+
+- `GET /api/auth/permissions`: get current authenticated permissions.
+  - Returns: `CurrentPermissions` with `userId`, `role`, and `permissions`.
+  - Frontend views should prefer these permission codes for RBAC gating and keep role checks only as a coarse fallback.
+
+- Frontend fallback:
+  - Without `VITE_API_BASE_URL` or `VITE_API_PROXY_TARGET` in development, account and RBAC client functions return deterministic demo data and do not call `fetch`.
+  - Demo role permission defaults are `STUDENT`: `student:profile:read`, `student:resume:write`, `student:delivery:write`, `student:interview:write`; `COMPANY`: `company:job:write`, `company:delivery:read`, `company:screening:write`; `ADMIN`: `admin:dashboard:read`, `admin:account:read`, `admin:account:write`, `admin:rbac:read`.
+
 ## Admin
 
 - `GET /api/admin/system/status`: backend management status summary for the admin console.

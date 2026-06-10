@@ -68,3 +68,13 @@
 - Company-owned frontend API calls should derive `companyId` from the current session before using the legacy `C001` demo fallback.
 - Admin workflows may keep explicit target ids for cross-role review and management screens.
 - Verification must include frontend unit tests, frontend build, and a browser UI check across student, company, and admin demo sessions.
+
+## v2.6 Production User and RBAC Requirement
+
+- The platform must prepare for a production-grade user system with account lifecycle management, password maintenance, account status control, and fine-grained permission discovery.
+- `ADMIN` users can list accounts, create accounts, and update account status for student, company, and admin users.
+- Users or authorized admins can change account passwords through a protected API; plaintext passwords must never be returned by any response.
+- The frontend must be able to query current permissions for the logged-in user and render RBAC-gated views from permission codes instead of role names alone.
+- Permission codes should be stable string identifiers, for example `admin:account:read`, `admin:account:write`, `company:screening:write`, and `student:resume:write`.
+- All account and permission APIs continue to use `ApiResponse<T>` and must keep deterministic frontend fallback data so the demo remains usable when no gateway is configured.
+- Production credentials and signing secrets must remain environment-driven and must not be hardcoded in frontend or documentation examples.

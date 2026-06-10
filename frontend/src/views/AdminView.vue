@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import {
   AlertTriangle,
   BarChart3,
@@ -11,21 +12,32 @@ import {
   Database,
   GraduationCap,
   HardDrive,
+  LockKeyhole,
   RefreshCw,
   Rocket,
   Send,
   ServerCog,
+  ShieldCheck,
   Timer
 } from 'lucide-vue-next'
 import {
+  changeAccountPassword,
+  createAccount,
   getDeploymentTopology,
   getDeploymentGuide,
   getDashboard,
+  getCurrentPermissions,
   getSystemStatus,
+  listAccounts,
+  updateAccountStatus,
+  type AccountStatus,
+  type AccountSummary,
+  type CurrentPermissions,
   type DashboardStats,
   type DeploymentGuide,
   type DeploymentTopology,
   type DeliveryStatus,
+  type Role,
   type SystemServiceStatus,
   type SystemStatus
 } from '../api/client'
@@ -35,7 +47,26 @@ const stats = ref<DashboardStats>()
 const systemStatus = ref<SystemStatus>()
 const deploymentTopology = ref<DeploymentTopology>()
 const deploymentGuide = ref<DeploymentGuide>()
+const accounts = ref<AccountSummary[]>([])
+const currentPermissions = ref<CurrentPermissions>()
 const systemStatusLoading = ref(false)
+const accountsLoading = ref(false)
+const accountFilters = reactive({
+  role: '',
+  status: '',
+  keyword: ''
+})
+const accountForm = reactive({
+  username: 'student02',
+  password: '123456',
+  displayName: 'Student 02',
+  role: 'STUDENT' as Role,
+  status: 'ACTIVE' as AccountStatus
+})
+const passwordForm = reactive({
+  accountId: '',
+  newPassword: '123456'
+})
 const statusLabels: Record<DeliveryStatus, string> = {
   SUBMITTED: '已投递',
   VIEWED: '已查看',
@@ -72,18 +103,23 @@ const topologyWarnings = computed(() => deploymentTopology.value?.warnings || []
 const deploymentSteps = computed(() => deploymentGuide.value?.steps || [])
 const acceptanceChecks = computed(() => deploymentGuide.value?.acceptanceChecks || [])
 const deploymentWarnings = computed(() => deploymentGuide.value?.warnings || [])
+const permissionTags = computed(() => currentPermissions.value?.permissions || [])
 
 onMounted(async () => {
-  const [dashboard, status, topology, guide] = await Promise.all([
+  const [dashboard, status, topology, guide, accountList, permissions] = await Promise.all([
     getDashboard(),
     getSystemStatus(),
     getDeploymentTopology(),
-    getDeploymentGuide()
+    getDeploymentGuide(),
+    listAccounts(),
+    getCurrentPermissions()
   ])
   stats.value = dashboard
   systemStatus.value = status
   deploymentTopology.value = topology
   deploymentGuide.value = guide
+  accounts.value = accountList
+  currentPermissions.value = permissions
 })
 
 function statusPercent(count: number) {
@@ -102,6 +138,51 @@ async function refreshSystemStatus() {
   } finally {
     systemStatusLoading.value = false
   }
+}
+
+async function refreshAccounts() {
+  accountsLoading.value = true
+  try {
+    accounts.value = await listAccounts({
+      role: accountFilters.role as Role || undefined,
+      status: accountFilters.status as AccountStatus || undefined,
+      keyword: accountFilters.keyword
+    })
+    currentPermissions.value = await getCurrentPermissions()
+  } finally {
+    accountsLoading.value = false
+  }
+}
+
+async function submitAccount() {
+  const account = await createAccount({
+    username: accountForm.username,
+    password: accountForm.password,
+    displayName: accountForm.displayName,
+    role: accountForm.role,
+    status: accountForm.status
+  })
+  accounts.value = [account, ...accounts.value.filter((item) => item.accountId !== account.accountId)]
+  passwordForm.accountId = account.accountId
+  ElMessage.success('账号已创建')
+}
+
+async function setAccountStatus(account: AccountSummary, status: AccountStatus) {
+  const updated = await updateAccountStatus(account.accountId, status)
+  accounts.value = accounts.value.map((item) => item.accountId === updated.accountId ? updated : item)
+  ElMessage.success('账号状态已更新')
+}
+
+async function resetAccountPassword() {
+  if (!passwordForm.accountId.trim()) {
+    ElMessage.warning('请选择账号')
+    return
+  }
+  await changeAccountPassword({
+    accountId: passwordForm.accountId.trim(),
+    newPassword: passwordForm.newPassword
+  })
+  ElMessage.success('密码已重置')
 }
 
 function systemTagType(status: string): 'success' | 'warning' | 'info' | 'danger' {
@@ -214,6 +295,142 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
         </el-table-column>
       </el-table>
     </section>
+
+    <div v-if="activeModule === 'accounts'" class="module-stack">
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          当前权限
+          <ShieldCheck :size="19" />
+        </h2>
+        <div class="permission-summary">
+          <div>
+            <strong>{{ currentPermissions?.userId || 'A001' }}</strong>
+            <span>{{ currentPermissions?.role || 'ADMIN' }}</span>
+          </div>
+          <div class="permission-tags">
+            <span v-for="permission in permissionTags" :key="permission" class="permission-chip">
+              {{ permission }}
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          用户账号
+          <span class="panel-title-actions">
+            <el-button circle size="small" :loading="accountsLoading" @click="refreshAccounts">
+              <RefreshCw :size="15" />
+            </el-button>
+            <ShieldCheck :size="19" />
+          </span>
+        </h2>
+        <div class="account-toolbar">
+          <el-select v-model="accountFilters.role" clearable placeholder="角色" style="width: 100%">
+            <el-option label="STUDENT" value="STUDENT" />
+            <el-option label="COMPANY" value="COMPANY" />
+            <el-option label="ADMIN" value="ADMIN" />
+          </el-select>
+          <el-select v-model="accountFilters.status" clearable placeholder="状态" style="width: 100%">
+            <el-option label="ACTIVE" value="ACTIVE" />
+            <el-option label="DISABLED" value="DISABLED" />
+            <el-option label="LOCKED" value="LOCKED" />
+          </el-select>
+          <el-input v-model="accountFilters.keyword" clearable placeholder="账号 / 姓名 / ID" />
+          <el-button :loading="accountsLoading" @click="refreshAccounts">筛选</el-button>
+        </div>
+
+        <el-table v-loading="accountsLoading" class="account-table" :data="accounts" style="width: 100%">
+          <el-table-column prop="accountId" label="ID" min-width="86" />
+          <el-table-column prop="username" label="账号" min-width="120" />
+          <el-table-column prop="displayName" label="名称" min-width="140" />
+          <el-table-column label="角色" width="104">
+            <template #default="{ row }">
+              <span class="account-badge role">{{ row.role }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="112">
+            <template #default="{ row }">
+              <span class="account-badge" :class="row.status.toLowerCase()">{{ row.status }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="权限" min-width="260">
+            <template #default="{ row }">
+              <div class="permission-tags compact">
+                <span v-for="permission in row.permissions" :key="permission" class="permission-chip compact">
+                  {{ permission }}
+                </span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" min-width="260">
+            <template #default="{ row }">
+              <div class="account-actions">
+                <el-button size="small" :type="row.status === 'ACTIVE' ? 'success' : 'default'" @click="setAccountStatus(row, 'ACTIVE')">启用</el-button>
+                <el-button size="small" :type="row.status === 'DISABLED' ? 'warning' : 'default'" @click="setAccountStatus(row, 'DISABLED')">禁用</el-button>
+                <el-button size="small" :type="row.status === 'LOCKED' ? 'danger' : 'default'" @click="setAccountStatus(row, 'LOCKED')">锁定</el-button>
+                <el-button size="small" @click="passwordForm.accountId = row.accountId">重置密码</el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </section>
+
+      <div class="account-grid">
+        <section class="panel module-panel">
+          <h2 class="panel-title">
+            创建账号
+            <ShieldCheck :size="19" />
+          </h2>
+          <el-form label-position="top">
+            <div class="grid two">
+              <el-form-item label="账号">
+                <el-input v-model="accountForm.username" />
+              </el-form-item>
+              <el-form-item label="初始密码">
+                <el-input v-model="accountForm.password" type="password" show-password />
+              </el-form-item>
+            </div>
+            <el-form-item label="显示名称">
+              <el-input v-model="accountForm.displayName" />
+            </el-form-item>
+            <div class="grid two">
+              <el-form-item label="角色">
+                <el-select v-model="accountForm.role">
+                  <el-option label="STUDENT" value="STUDENT" />
+                  <el-option label="COMPANY" value="COMPANY" />
+                  <el-option label="ADMIN" value="ADMIN" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="状态">
+                <el-select v-model="accountForm.status">
+                  <el-option label="ACTIVE" value="ACTIVE" />
+                  <el-option label="DISABLED" value="DISABLED" />
+                  <el-option label="LOCKED" value="LOCKED" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <el-button type="primary" @click="submitAccount">创建</el-button>
+          </el-form>
+        </section>
+
+        <section class="panel module-panel">
+          <h2 class="panel-title">
+            密码重置
+            <LockKeyhole :size="19" />
+          </h2>
+          <el-form label-position="top">
+            <el-form-item label="账号 ID">
+              <el-input v-model="passwordForm.accountId" />
+            </el-form-item>
+            <el-form-item label="新密码">
+              <el-input v-model="passwordForm.newPassword" type="password" show-password />
+            </el-form-item>
+            <el-button type="primary" @click="resetAccountPassword">重置</el-button>
+          </el-form>
+        </section>
+      </div>
+    </div>
 
     <div v-if="activeModule === 'system'" class="module-stack">
       <div class="grid three">
@@ -514,6 +731,126 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
   gap: 10px;
 }
 
+.permission-summary {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(160px, 0.35fr) minmax(0, 1fr);
+  min-width: 0;
+}
+
+.permission-summary > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.permission-summary span {
+  color: #667085;
+}
+
+.permission-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.permission-tags.compact {
+  gap: 6px;
+}
+
+.permission-chip {
+  border: 1px solid #b7d6ff;
+  border-radius: 6px;
+  background: #eef6ff;
+  color: #1d4ed8;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  max-width: 100%;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.permission-chip.compact {
+  min-height: 22px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.account-toolbar {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 150px 150px minmax(180px, 1fr) auto;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+
+.account-toolbar :deep(.el-select),
+.account-toolbar :deep(.el-input) {
+  width: 100%;
+}
+
+.account-table {
+  min-width: 0;
+}
+
+:deep(.account-table .cell) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.account-badge {
+  border: 1px solid #d0d5dd;
+  border-radius: 5px;
+  color: #344054;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.account-badge.role {
+  background: #f8fafc;
+}
+
+.account-badge.active {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.account-badge.disabled {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.account-badge.locked {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.account-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+}
+
 .topology-list {
   display: grid;
   gap: 0;
@@ -743,6 +1080,12 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
   .topology-node-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .permission-summary,
+  .account-toolbar,
+  .account-grid {
+    grid-template-columns: 1fr;
   }
 
   .topology-service {

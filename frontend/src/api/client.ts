@@ -166,6 +166,57 @@ export interface InterviewRecord {
 }
 
 export type DeliveryStatus = 'SUBMITTED' | 'VIEWED' | 'INTERVIEW' | 'OFFER' | 'REJECTED'
+export type AccountStatus = 'ACTIVE' | 'DISABLED' | 'LOCKED'
+export type PermissionCode =
+  | 'student:profile:read'
+  | 'student:resume:write'
+  | 'student:delivery:write'
+  | 'student:interview:write'
+  | 'company:job:write'
+  | 'company:delivery:read'
+  | 'company:screening:write'
+  | 'admin:dashboard:read'
+  | 'admin:account:read'
+  | 'admin:account:write'
+  | 'admin:rbac:read'
+
+export interface AccountSummary {
+  accountId: string
+  username: string
+  displayName: string
+  role: Role
+  status: AccountStatus
+  permissions: PermissionCode[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AccountListQuery {
+  role?: Role
+  status?: AccountStatus
+  keyword?: string
+}
+
+export interface CreateAccountRequest {
+  username: string
+  password: string
+  displayName: string
+  role: Role
+  status?: AccountStatus
+  permissions?: PermissionCode[]
+}
+
+export interface ChangePasswordRequest {
+  accountId: string
+  oldPassword?: string
+  newPassword: string
+}
+
+export interface CurrentPermissions {
+  userId: string
+  role: Role
+  permissions: PermissionCode[]
+}
 
 export interface DeliveryRecord extends ResumeParseMetadata {
   deliveryId: string
@@ -575,6 +626,45 @@ const fallbackDeliveryStatistics: DeliveryStatistics = {
   statusCounts: fallbackDeliveryStatusCounts,
   pendingCount: fallbackDeliveryStatusCounts.SUBMITTED
 }
+
+const rolePermissions: Record<Role, PermissionCode[]> = {
+  STUDENT: ['student:profile:read', 'student:resume:write', 'student:delivery:write', 'student:interview:write'],
+  COMPANY: ['company:job:write', 'company:delivery:read', 'company:screening:write'],
+  ADMIN: ['admin:dashboard:read', 'admin:account:read', 'admin:account:write', 'admin:rbac:read']
+}
+
+const fallbackAccounts: AccountSummary[] = [
+  {
+    accountId: 'S001',
+    username: 'student',
+    displayName: 'Demo Student',
+    role: 'STUDENT',
+    status: 'ACTIVE',
+    permissions: rolePermissions.STUDENT,
+    createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    accountId: 'C001',
+    username: 'company',
+    displayName: 'Demo Company HR',
+    role: 'COMPANY',
+    status: 'ACTIVE',
+    permissions: rolePermissions.COMPANY,
+    createdAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    accountId: 'A001',
+    username: 'admin',
+    displayName: 'Demo Admin',
+    role: 'ADMIN',
+    status: 'ACTIVE',
+    permissions: rolePermissions.ADMIN,
+    createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
+  }
+]
 
 const fallbackSystemStatus: SystemStatus = {
   generatedAt: new Date().toISOString(),
@@ -1000,6 +1090,74 @@ export function updateDeliveryStatus(delivery: DeliveryRecord, status: DeliveryS
 
 export function getDeliveryStatistics() {
   return request<DeliveryStatistics>('/api/deliveries/statistics', { method: 'GET' }, fallbackDeliveryStatistics)
+}
+
+export function listAccounts(query: AccountListQuery = {}) {
+  const params = new URLSearchParams()
+  if (query.role) {
+    params.set('role', query.role)
+  }
+  if (query.status) {
+    params.set('status', query.status)
+  }
+  if (query.keyword?.trim()) {
+    params.set('keyword', query.keyword.trim())
+  }
+  const queryString = params.toString()
+  const fallback = fallbackAccounts.filter((account) =>
+    (!query.role || account.role === query.role)
+    && (!query.status || account.status === query.status)
+    && (!query.keyword?.trim()
+      || account.username.toLowerCase().includes(query.keyword.trim().toLowerCase())
+      || account.displayName.toLowerCase().includes(query.keyword.trim().toLowerCase())))
+  return request<AccountSummary[]>(`/api/admin/accounts${queryString ? `?${queryString}` : ''}`, { method: 'GET' }, fallback)
+}
+
+export function createAccount(payload: CreateAccountRequest) {
+  const account: AccountSummary = {
+    accountId: `${payload.role.charAt(0)}${Date.now().toString().slice(-6)}`,
+    username: payload.username,
+    displayName: payload.displayName,
+    role: payload.role,
+    status: payload.status || 'ACTIVE',
+    permissions: payload.permissions || rolePermissions[payload.role],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+  return request<AccountSummary>('/api/admin/accounts', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, account)
+}
+
+export function updateAccountStatus(accountId: string, status: AccountStatus) {
+  const fallback = {
+    ...(fallbackAccounts.find((account) => account.accountId === accountId) || fallbackAccounts[0]),
+    accountId,
+    status,
+    updatedAt: new Date().toISOString()
+  }
+  return request<AccountSummary>(`/api/admin/accounts/${encodeURIComponent(accountId)}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status })
+  }, fallback)
+}
+
+export function changeAccountPassword(payload: ChangePasswordRequest) {
+  return request<boolean>(`/api/accounts/${encodeURIComponent(payload.accountId)}/password`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  }, true)
+}
+
+export function getCurrentPermissions() {
+  const session = getAuthSession()
+  const role = session?.role || 'STUDENT'
+  return request<CurrentPermissions>('/api/auth/permissions', { method: 'GET' }, {
+    userId: session?.userId || fallbackUserIdForRole(role),
+    role,
+    permissions: rolePermissions[role]
+  })
 }
 
 export function getDashboard() {

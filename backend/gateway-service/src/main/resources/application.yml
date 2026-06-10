@@ -21,7 +21,7 @@ spring:
         - id: auth-service
           uri: ${AUTH_SERVICE_URI:http://localhost:8101}
           predicates:
-            - Path=/api/auth/**
+            - Path=/api/auth/**,/api/admin/accounts/**,/api/accounts/**
         - id: user-service
           uri: ${USER_SERVICE_URI:http://localhost:8102}
           predicates:
@@ -52,4 +52,3 @@ management:
     web:
       exposure:
         include: health,info,gateway
-

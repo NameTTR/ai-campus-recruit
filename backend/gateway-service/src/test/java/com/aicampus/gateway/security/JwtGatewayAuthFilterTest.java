@@ -39,6 +39,18 @@ class JwtGatewayAuthFilterTest {
     }
 
     @Test
+    void skipsAuthForRegistration() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/auth/register").build());
+        CapturingChain chain = new CapturingChain();
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.exchange.getRequest().getPath().value()).isEqualTo("/api/auth/register");
+        assertThat(exchange.getResponse().getStatusCode()).isNull();
+    }
+
+    @Test
     void rejectsStudentTokenForAdminApi() {
         String token = jwtTokenService.issue("S001", "Student", Role.STUDENT);
         MockServerWebExchange exchange = MockServerWebExchange.from(
@@ -64,6 +76,7 @@ class JwtGatewayAuthFilterTest {
 
         assertThat(chain.exchange.getRequest().getHeaders().getFirst("X-User-Id")).isEqualTo("A001");
         assertThat(chain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("ADMIN");
+        assertThat(chain.exchange.getRequest().getHeaders().getFirst("X-User-Permissions")).contains("admin:account:write");
     }
 
     @Test
@@ -74,6 +87,7 @@ class JwtGatewayAuthFilterTest {
                         .header("Authorization", "Bearer " + token)
                         .header("X-User-Id", "A001")
                         .header("X-User-Role", "ADMIN")
+                        .header("X-User-Permissions", "admin:account:write")
                         .build());
         CapturingChain chain = new CapturingChain();
 
@@ -81,6 +95,7 @@ class JwtGatewayAuthFilterTest {
 
         assertThat(chain.exchange.getRequest().getHeaders().get("X-User-Id")).containsExactly("S001");
         assertThat(chain.exchange.getRequest().getHeaders().get("X-User-Role")).containsExactly("STUDENT");
+        assertThat(chain.exchange.getRequest().getHeaders().getFirst("X-User-Permissions")).doesNotContain("admin:account:write");
     }
 
     @Test
@@ -88,6 +103,19 @@ class JwtGatewayAuthFilterTest {
         String token = jwtTokenService.issue("S001", "Student", Role.STUDENT);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.post("/api/jobs")
+                        .header("Authorization", "Bearer " + token)
+                        .build());
+
+        filter.filter(exchange, passThrough()).block();
+
+        assertThat(exchange.getResponse().getStatusCode().value()).isEqualTo(403);
+    }
+
+    @Test
+    void rejectsStudentFromAccountManagement() {
+        String token = jwtTokenService.issue("S001", "Student", Role.STUDENT);
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/admin/accounts")
                         .header("Authorization", "Bearer " + token)
                         .build());
 

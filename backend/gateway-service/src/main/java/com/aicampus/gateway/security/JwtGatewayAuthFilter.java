@@ -1,9 +1,11 @@
 package com.aicampus.gateway.security;
 
 import com.aicampus.common.enums.Role;
+import com.aicampus.common.enums.Permission;
 import com.aicampus.common.security.JwtTokenException;
 import com.aicampus.common.security.JwtTokenService;
 import com.aicampus.common.security.JwtTokenService.TokenClaims;
+import com.aicampus.common.security.RolePermissionPolicy;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +26,7 @@ import reactor.core.publisher.Mono;
 public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
     private static final List<String> PUBLIC_PREFIXES = List.of(
             "/api/auth/login",
+            "/api/auth/register",
             "/api/auth/logout",
             "/actuator",
             "/v3/api-docs",
@@ -52,12 +55,15 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
             if (!isAllowed(path, exchange.getRequest().getMethod(), claims.role())) {
                 return reject(exchange, HttpStatus.FORBIDDEN, "forbidden");
             }
+            String permissions = String.join(",", RolePermissionPolicy.permissionNames(claims.role()));
             ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
                     .headers(headers -> {
                         headers.remove("X-User-Id");
                         headers.remove("X-User-Role");
+                        headers.remove("X-User-Permissions");
                         headers.set("X-User-Id", claims.userId());
                         headers.set("X-User-Role", claims.role().name());
+                        headers.set("X-User-Permissions", permissions);
                     })
                     .build();
             return chain.filter(exchange.mutate().request(mutatedRequest).build());
@@ -94,61 +100,70 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
     }
 
     private boolean isAllowed(String path, HttpMethod method, Role role) {
-        if (path.startsWith("/api/admin")) {
-            return role == Role.ADMIN;
+        Permission permission = requiredPermission(path, method);
+        if (permission != null) {
+            return RolePermissionPolicy.has(role, permission);
         }
-        if (path.startsWith("/api/auth/me")) {
-            return true;
+        return RolePermissionPolicy.has(role, Permission.AUTH_SELF);
+    }
+
+    private Permission requiredPermission(String path, HttpMethod method) {
+        if (path.startsWith("/api/auth/admin") || path.startsWith("/api/admin/accounts")) {
+            return method == HttpMethod.GET ? Permission.ACCOUNT_READ : Permission.ACCOUNT_WRITE;
+        }
+        if (path.startsWith("/api/accounts/") && path.endsWith("/password")) {
+            return Permission.AUTH_SELF;
+        }
+        if (path.startsWith("/api/auth/me")
+                || path.startsWith("/api/auth/permissions")
+                || path.startsWith("/api/auth/password/change")) {
+            return Permission.AUTH_SELF;
+        }
+        if (path.startsWith("/api/admin")) {
+            return path.startsWith("/api/admin/system") ? Permission.SYSTEM_VIEW : Permission.ADMIN_DASHBOARD;
         }
         if (path.startsWith("/api/students") || path.startsWith("/api/resumes") || path.startsWith("/api/matches")) {
-            return role == Role.STUDENT || role == Role.ADMIN;
+            if (path.startsWith("/api/students")) {
+                return Permission.STUDENT_PROFILE;
+            }
+            if (path.startsWith("/api/resumes")) {
+                return Permission.STUDENT_RESUME_WRITE;
+            }
+            return Permission.MATCH_RUN;
         }
         if (path.startsWith("/api/deliveries")) {
-            return isDeliveryAllowed(path, method, role);
+            return deliveryPermission(path, method);
         }
         if (path.startsWith("/api/jobs")) {
-            return isJobAllowed(path, method, role);
+            return method == HttpMethod.GET ? Permission.JOB_READ : Permission.COMPANY_JOB_WRITE;
         }
         if (path.startsWith("/api/ai")) {
-            return isAiAllowed(path, method, role);
+            return aiPermission(path);
         }
-        return path.startsWith("/api/");
+        return null;
     }
 
-    private boolean isDeliveryAllowed(String path, HttpMethod method, Role role) {
-        if (role == Role.ADMIN) {
-            return true;
-        }
+    private Permission deliveryPermission(String path, HttpMethod method) {
         if (path.startsWith("/api/deliveries/company") || method == HttpMethod.PUT) {
-            return role == Role.COMPANY;
+            return Permission.COMPANY_DELIVERY_READ;
         }
         if (path.startsWith("/api/deliveries/my") || method == HttpMethod.POST) {
-            return role == Role.STUDENT;
+            return Permission.STUDENT_DELIVERY_WRITE;
         }
-        return role == Role.STUDENT || role == Role.COMPANY;
+        return Permission.AUTH_SELF;
     }
 
-    private boolean isJobAllowed(String path, HttpMethod method, Role role) {
-        if (role == Role.ADMIN) {
-            return true;
-        }
-        if (method == HttpMethod.GET) {
-            return role == Role.STUDENT || role == Role.COMPANY;
-        }
-        return role == Role.COMPANY;
-    }
-
-    private boolean isAiAllowed(String path, HttpMethod method, Role role) {
-        if (role == Role.ADMIN) {
-            return true;
-        }
+    private Permission aiPermission(String path) {
         if (path.startsWith("/api/ai/candidates")) {
-            return role == Role.COMPANY;
+            return Permission.COMPANY_SCREENING_WRITE;
         }
         if (path.startsWith("/api/ai/interview")) {
-            return role == Role.STUDENT;
+            return Permission.STUDENT_INTERVIEW_WRITE;
         }
-        return role == Role.STUDENT || role == Role.COMPANY;
+        if (path.startsWith("/api/ai/status")) {
+            return Permission.AUTH_SELF;
+        }
+        return Permission.AI_ANALYZE;
     }
 
     private Mono<Void> reject(ServerWebExchange exchange, HttpStatus status, String message) {

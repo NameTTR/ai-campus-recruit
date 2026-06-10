@@ -7,6 +7,7 @@ import { ElLoading } from 'element-plus/es/components/loading/index'
 import { ElProgress } from 'element-plus/es/components/progress/index'
 import { ElRadio, ElRadioGroup } from 'element-plus/es/components/radio/index'
 import { ElSegmented } from 'element-plus/es/components/segmented/index'
+import { ElOption, ElSelect } from 'element-plus/es/components/select/index'
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index'
 import { ElTag } from 'element-plus/es/components/tag/index'
 import { ElTimeline, ElTimelineItem } from 'element-plus/es/components/timeline/index'
@@ -28,6 +29,8 @@ const elementPlusComponents = [
   ElRadio,
   ElRadioGroup,
   ElSegmented,
+  ElSelect,
+  ElOption,
   ElTable,
   ElTableColumn,
   ElTag,
