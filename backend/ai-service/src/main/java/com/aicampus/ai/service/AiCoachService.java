@@ -4,7 +4,12 @@ import com.aicampus.ai.service.screening.CandidateScreenRecordStore;
 import com.aicampus.ai.service.screening.InMemoryCandidateScreenRecordStore;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
+import com.aicampus.common.dto.AiCallRecord;
 import com.aicampus.common.dto.AiModuleStatus;
+import com.aicampus.common.dto.AiObservabilitySummary;
+import com.aicampus.common.dto.AiSearchRequest;
+import com.aicampus.common.dto.AiSearchResponse;
+import com.aicampus.common.dto.AiSearchResult;
 import com.aicampus.common.dto.CandidateScreenRecord;
 import com.aicampus.common.dto.CandidateScreenRequest;
 import com.aicampus.common.dto.CandidateScreenResult;
@@ -18,8 +23,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -57,58 +64,132 @@ public class AiCoachService {
             "面试重点追问 Java 基础、Spring Boot 分层设计、MySQL 索引和 Redis 缓存",
             "要求候选人补充项目量化指标和个人负责模块");
 
+    private static final String LOCAL_SEARCH_PROVIDER = "local-semantic-search";
+    private static final String LOCAL_SEARCH_MODEL = "keyword-ranker-v1";
+    private static final List<SearchDocument> BASE_SEARCH_DOCUMENTS = List.of(
+            new SearchDocument(
+                    "JOB-JAVA-001",
+                    "job",
+                    "Java Backend Intern",
+                    "Campus Recruit",
+                    "Spring Boot API development, MySQL schema design, Redis cache and microservice deployment.",
+                    List.of("STUDENT", "COMPANY", "ADMIN")),
+            new SearchDocument(
+                    "JOB-AI-001",
+                    "job",
+                    "AI Application Engineer Intern",
+                    "Campus Recruit",
+                    "Prompt engineering, resume diagnosis, candidate screening and AI observability dashboards.",
+                    List.of("STUDENT", "COMPANY", "ADMIN")),
+            new SearchDocument(
+                    "RESUME-DEMO-001",
+                    "resume",
+                    "Demo Student Resume",
+                    "S001",
+                    "Java, Spring Boot, MyBatis Plus, MySQL, Redis and Docker based campus recruitment project.",
+                    List.of("STUDENT", "ADMIN")),
+            new SearchDocument(
+                    "GUIDE-RBAC-001",
+                    "guide",
+                    "Account RBAC Playbook",
+                    "admin",
+                    "Admin account management, role permission policy, JWT gateway headers and permission auditing.",
+                    List.of("ADMIN")),
+            new SearchDocument(
+                    "GUIDE-DEPLOY-001",
+                    "guide",
+                    "Three VM Deployment Guide",
+                    "admin",
+                    "Gateway, microservices, MySQL, Redis, Nacos and Docker deployment split across three virtual machines.",
+                    List.of("ADMIN")));
+
     private final DashScopeClient dashScopeClient;
     private final CandidateScreenRecordStore candidateScreenRecordStore;
+    private final AiObservabilityService observabilityService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, List<InterviewRecord>> interviewRecords = new ConcurrentHashMap<>();
 
     public AiCoachService(DashScopeClient dashScopeClient) {
-        this(dashScopeClient, new InMemoryCandidateScreenRecordStore());
+        this(dashScopeClient, new InMemoryCandidateScreenRecordStore(), new AiObservabilityService());
+    }
+
+    public AiCoachService(DashScopeClient dashScopeClient, CandidateScreenRecordStore candidateScreenRecordStore) {
+        this(dashScopeClient, candidateScreenRecordStore, new AiObservabilityService());
     }
 
     @Autowired
-    public AiCoachService(DashScopeClient dashScopeClient, CandidateScreenRecordStore candidateScreenRecordStore) {
+    public AiCoachService(
+            DashScopeClient dashScopeClient,
+            CandidateScreenRecordStore candidateScreenRecordStore,
+            AiObservabilityService observabilityService) {
         this.dashScopeClient = dashScopeClient;
         this.candidateScreenRecordStore = candidateScreenRecordStore == null
                 ? new InMemoryCandidateScreenRecordStore()
                 : candidateScreenRecordStore;
+        this.observabilityService = observabilityService == null
+                ? new AiObservabilityService()
+                : observabilityService;
     }
 
     public AiAnalyzeResponse analyze(AiAnalyzeRequest request) {
+        long startedAt = System.nanoTime();
+        String prompt = buildAnalyzePrompt(request);
         if (!dashScopeClient.isConfigured()) {
-            return mockAnalyze(request);
+            AiAnalyzeResponse response = mockAnalyze(request);
+            recordDashScopeCall("analyze", true, true, startedAt, prompt, response.content(), dashScopeClient.status().fallbackReason());
+            return response;
         }
         try {
-            String content = dashScopeClient.complete(SYSTEM_PROMPT, buildAnalyzePrompt(request), false);
+            String content = dashScopeClient.complete(SYSTEM_PROMPT, prompt, false);
+            recordDashScopeCall("analyze", true, false, startedAt, prompt, content, null);
             return new AiAnalyzeResponse(taskType(request), "dashscope", content, false);
         } catch (RuntimeException ex) {
-            return mockAnalyze(request);
+            AiAnalyzeResponse response = mockAnalyze(request);
+            recordDashScopeCall("analyze", false, true, startedAt, prompt, response.content(), ex.getMessage());
+            return response;
         }
     }
 
     public List<InterviewQuestion> generateInterviewQuestions(InterviewQuestionRequest request) {
+        long startedAt = System.nanoTime();
+        String prompt = buildInterviewQuestionPrompt(request);
         if (!dashScopeClient.isConfigured()) {
-            return mockInterviewQuestions(request);
+            List<InterviewQuestion> questions = mockInterviewQuestions(request);
+            recordDashScopeCall("interview-questions", true, true, startedAt, prompt, String.valueOf(questions.size()), dashScopeClient.status().fallbackReason());
+            return questions;
         }
         try {
-            String content = dashScopeClient.complete(SYSTEM_PROMPT, buildInterviewQuestionPrompt(request), true);
+            String content = dashScopeClient.complete(SYSTEM_PROMPT, prompt, true);
             List<InterviewQuestion> questions = parseInterviewQuestions(content);
-            return questions.size() >= 3 ? questions : mockInterviewQuestions(request);
+            if (questions.size() >= 3) {
+                recordDashScopeCall("interview-questions", true, false, startedAt, prompt, content, null);
+                return questions;
+            }
+            List<InterviewQuestion> fallback = mockInterviewQuestions(request);
+            recordDashScopeCall("interview-questions", false, true, startedAt, prompt, content, "AI response did not contain enough questions");
+            return fallback;
         } catch (RuntimeException ex) {
-            return mockInterviewQuestions(request);
+            List<InterviewQuestion> questions = mockInterviewQuestions(request);
+            recordDashScopeCall("interview-questions", false, true, startedAt, prompt, String.valueOf(questions.size()), ex.getMessage());
+            return questions;
         }
     }
 
     public InterviewFeedback generateInterviewFeedback(InterviewFeedbackRequest request) {
+        long startedAt = System.nanoTime();
+        String prompt = buildInterviewFeedbackPrompt(request);
         InterviewFeedback feedback;
         if (!dashScopeClient.isConfigured()) {
             feedback = mockInterviewFeedback(request);
+            recordDashScopeCall("interview-feedback", true, true, startedAt, prompt, feedback.summary(), dashScopeClient.status().fallbackReason());
         } else {
             try {
-                String content = dashScopeClient.complete(SYSTEM_PROMPT, buildInterviewFeedbackPrompt(request), true);
+                String content = dashScopeClient.complete(SYSTEM_PROMPT, prompt, true);
                 feedback = parseInterviewFeedback(content);
+                recordDashScopeCall("interview-feedback", true, false, startedAt, prompt, content, null);
             } catch (RuntimeException ex) {
                 feedback = mockInterviewFeedback(request);
+                recordDashScopeCall("interview-feedback", false, true, startedAt, prompt, feedback.summary(), ex.getMessage());
             }
         }
         saveInterviewRecord(request, feedback);
@@ -116,15 +197,20 @@ public class AiCoachService {
     }
 
     public CandidateScreenResult screenCandidate(CandidateScreenRequest request) {
+        long startedAt = System.nanoTime();
+        String prompt = buildCandidateScreenPrompt(request);
         CandidateScreenResult result;
         if (!dashScopeClient.isConfigured()) {
             result = mockCandidateScreen(request);
+            recordDashScopeCall("candidate-screening", true, true, startedAt, prompt, result.recommendation(), dashScopeClient.status().fallbackReason());
         } else {
             try {
-                String content = dashScopeClient.complete(SYSTEM_PROMPT, buildCandidateScreenPrompt(request), true);
+                String content = dashScopeClient.complete(SYSTEM_PROMPT, prompt, true);
                 result = parseCandidateScreenResult(content, request);
+                recordDashScopeCall("candidate-screening", true, false, startedAt, prompt, content, null);
             } catch (RuntimeException ex) {
                 result = mockCandidateScreen(request);
+                recordDashScopeCall("candidate-screening", false, true, startedAt, prompt, result.recommendation(), ex.getMessage());
             }
         }
         saveCandidateScreenRecord(request, result);
@@ -133,6 +219,43 @@ public class AiCoachService {
 
     public AiModuleStatus status() {
         return dashScopeClient.status();
+    }
+
+    public AiObservabilitySummary observabilitySummary() {
+        return observabilityService.summary(dashScopeClient.status());
+    }
+
+    public List<AiCallRecord> listAiCallRecords(Integer limit, String provider, Boolean success) {
+        return observabilityService.list(limit, provider, success);
+    }
+
+    public AiSearchResponse search(AiSearchRequest request) {
+        long startedAt = System.nanoTime();
+        String query = valueOr(request == null ? null : request.query(), "");
+        String role = normalizeRole(request == null ? null : request.role());
+        int limit = request == null || request.limit() == null ? 8 : Math.max(1, Math.min(20, request.limit()));
+        List<String> tokens = searchTokens(query);
+        List<AiSearchResult> results = searchCorpus().stream()
+                .filter(document -> role == null || document.roles().contains(role) || document.roles().contains("ALL"))
+                .map(document -> toSearchResult(document, query, tokens))
+                .filter(result -> query.isBlank() || result.score() > 0)
+                .sorted(Comparator.comparing(AiSearchResult::score).reversed()
+                        .thenComparing(AiSearchResult::type)
+                        .thenComparing(AiSearchResult::title))
+                .limit(limit)
+                .toList();
+        AiSearchResponse response = new AiSearchResponse(query, results, Instant.now());
+        observabilityService.record(
+                "semantic-search",
+                LOCAL_SEARCH_PROVIDER,
+                LOCAL_SEARCH_MODEL,
+                true,
+                false,
+                elapsedMs(startedAt),
+                query.length(),
+                results.size(),
+                null);
+        return response;
     }
 
     public List<InterviewRecord> listInterviewRecords(String studentId) {
@@ -144,6 +267,143 @@ public class AiCoachService {
 
     public List<CandidateScreenRecord> listCandidateScreenRecords(String companyId, String deliveryId) {
         return candidateScreenRecordStore.list(companyId, deliveryId);
+    }
+
+    private void recordDashScopeCall(
+            String operation,
+            boolean success,
+            boolean mocked,
+            long startedAt,
+            String prompt,
+            String response,
+            String fallbackReason) {
+        AiModuleStatus status = dashScopeClient.status();
+        observabilityService.record(
+                operation,
+                status.provider(),
+                status.model(),
+                success,
+                mocked,
+                elapsedMs(startedAt),
+                lengthOf(prompt),
+                lengthOf(response),
+                fallbackReason);
+    }
+
+    private List<SearchDocument> searchCorpus() {
+        List<SearchDocument> documents = new ArrayList<>(BASE_SEARCH_DOCUMENTS);
+        candidateScreenRecordStore.list(null, null).forEach(record -> documents.add(new SearchDocument(
+                record.screeningId(),
+                "screening",
+                "Candidate screening " + valueOr(record.deliveryId(), record.screeningId()),
+                valueOr(record.companyId(), "company"),
+                String.join(" ", List.of(
+                        valueOr(record.recommendation(), ""),
+                        String.join(" ", safeList(record.strengths(), List.of())),
+                        String.join(" ", safeList(record.risks(), List.of())),
+                        "student " + valueOr(record.studentId(), ""),
+                        "job " + valueOr(record.jobId(), ""))),
+                List.of("COMPANY", "ADMIN"))));
+        interviewRecords.values().stream()
+                .flatMap(List::stream)
+                .forEach(record -> documents.add(new SearchDocument(
+                        record.recordId(),
+                        "interview",
+                        "Interview feedback " + valueOr(record.questionId(), record.recordId()),
+                        valueOr(record.studentId(), "student"),
+                        String.join(" ", List.of(
+                                valueOr(record.targetRole(), ""),
+                                valueOr(record.question(), ""),
+                                valueOr(record.summary(), ""),
+                                String.join(" ", safeList(record.suggestions(), List.of())))),
+                        List.of("STUDENT", "ADMIN"))));
+        return documents;
+    }
+
+    private AiSearchResult toSearchResult(SearchDocument document, String query, List<String> tokens) {
+        int score = scoreDocument(document, query, tokens);
+        return new AiSearchResult(
+                document.id(),
+                document.type(),
+                document.title(),
+                document.owner(),
+                document.summary(),
+                score,
+                highlights(document, query, tokens));
+    }
+
+    private int scoreDocument(SearchDocument document, String query, List<String> tokens) {
+        if (query.isBlank()) {
+            return switch (document.type()) {
+                case "job" -> 64;
+                case "resume" -> 58;
+                default -> 52;
+            };
+        }
+        String text = document.searchText();
+        int score = text.contains(query.toLowerCase(Locale.ROOT)) ? 45 : 0;
+        for (String token : tokens) {
+            if (text.contains(token)) {
+                score += token.length() > 4 ? 18 : 12;
+            }
+        }
+        for (String semantic : semanticTerms(tokens)) {
+            if (text.contains(semantic)) {
+                score += 8;
+            }
+        }
+        if (document.title().toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT))) {
+            score += 20;
+        }
+        return Math.min(100, score);
+    }
+
+    private List<String> highlights(SearchDocument document, String query, List<String> tokens) {
+        List<String> highlights = new ArrayList<>();
+        if (!query.isBlank() && document.title().toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT))) {
+            highlights.add("Title matches query: " + document.title());
+        }
+        for (String token : tokens) {
+            if (document.searchText().contains(token)) {
+                highlights.add("Matched term: " + token);
+            }
+            if (highlights.size() >= 3) {
+                return highlights;
+            }
+        }
+        if (highlights.isEmpty()) {
+            highlights.add(truncate(document.summary(), 96));
+        }
+        return highlights;
+    }
+
+    private List<String> searchTokens(String query) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(query.toLowerCase(Locale.ROOT).split("[\\s,;，。/|]+"))
+                .map(String::trim)
+                .filter(token -> token.length() >= 2)
+                .distinct()
+                .toList();
+    }
+
+    private List<String> semanticTerms(List<String> tokens) {
+        List<String> terms = new ArrayList<>();
+        for (String token : tokens) {
+            switch (token) {
+                case "backend", "api", "java", "\u540e\u7aef" -> terms.addAll(List.of("spring", "mysql", "redis", "microservice"));
+                case "resume", "cv", "\u7b80\u5386" -> terms.addAll(List.of("diagnosis", "student", "skills"));
+                case "interview", "\u9762\u8bd5" -> terms.addAll(List.of("question", "feedback", "score"));
+                case "cache", "redis", "\u7f13\u5b58" -> terms.addAll(List.of("redis", "cache"));
+                case "database", "mysql", "\u6570\u636e\u5e93" -> terms.addAll(List.of("mysql", "schema", "index"));
+                case "rbac", "permission", "\u6743\u9650" -> terms.addAll(List.of("role", "permission", "jwt"));
+                case "ai", "\u667a\u80fd" -> terms.addAll(List.of("prompt", "screening", "observability"));
+                default -> {
+                }
+            }
+        }
+        return terms.stream().distinct().toList();
     }
 
     private void saveCandidateScreenRecord(CandidateScreenRequest request, CandidateScreenResult result) {
@@ -569,5 +829,49 @@ public class AiCoachService {
 
     private static int clamp(int score) {
         return Math.max(0, Math.min(100, score));
+    }
+
+    private static int lengthOf(String value) {
+        return value == null ? 0 : value.length();
+    }
+
+    private static long elapsedMs(long startedAt) {
+        return Math.max(0, (System.nanoTime() - startedAt) / 1_000_000);
+    }
+
+    private static String normalizeRole(String role) {
+        if (role == null || role.isBlank()) {
+            return null;
+        }
+        return role.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String truncate(String value, int maxLength) {
+        String safe = valueOr(value, "");
+        if (safe.length() <= maxLength) {
+            return safe;
+        }
+        return safe.substring(0, Math.max(0, maxLength - 3)) + "...";
+    }
+
+    private record SearchDocument(
+            String id,
+            String type,
+            String title,
+            String owner,
+            String summary,
+            List<String> roles) {
+        private SearchDocument {
+            id = valueOr(id, "UNKNOWN");
+            type = valueOr(type, "unknown");
+            title = valueOr(title, "Untitled");
+            owner = valueOr(owner, "unknown");
+            summary = valueOr(summary, "");
+            roles = roles == null || roles.isEmpty() ? List.of("ALL") : roles;
+        }
+
+        private String searchText() {
+            return String.join(" ", id, type, title, owner, summary).toLowerCase(Locale.ROOT);
+        }
     }
 }

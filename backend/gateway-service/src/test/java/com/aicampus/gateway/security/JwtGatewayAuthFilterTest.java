@@ -161,6 +161,31 @@ class JwtGatewayAuthFilterTest {
         assertThat(companyInterview.getResponse().getStatusCode().value()).isEqualTo(403);
     }
 
+    @Test
+    void limitsAiObservabilityToAdminRole() {
+        String studentToken = jwtTokenService.issue("S001", "Student", Role.STUDENT);
+        MockServerWebExchange studentObservability = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/ai/observability/summary")
+                        .header("Authorization", "Bearer " + studentToken)
+                        .build());
+
+        filter.filter(studentObservability, passThrough()).block();
+
+        assertThat(studentObservability.getResponse().getStatusCode().value()).isEqualTo(403);
+
+        String adminToken = jwtTokenService.issue("A001", "Admin", Role.ADMIN);
+        MockServerWebExchange adminObservability = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/ai/observability/summary")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .build());
+        CapturingChain chain = new CapturingChain();
+
+        filter.filter(adminObservability, chain).block();
+
+        assertThat(adminObservability.getResponse().getStatusCode()).isNull();
+        assertThat(chain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("ADMIN");
+    }
+
     private GatewayFilterChain passThrough() {
         return exchange -> Mono.empty();
     }

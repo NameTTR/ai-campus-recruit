@@ -151,6 +151,62 @@ export interface AiModuleStatus {
   fallbackReason: string | null
 }
 
+export interface AiObservabilitySummary {
+  provider: string
+  model: string
+  configured: boolean
+  totalCalls: number
+  successCalls: number
+  failedCalls: number
+  mockedCalls: number
+  successRate: number
+  averageLatencyMs: number
+  recentCalls: AiCallRecord[]
+  generatedAt: string
+}
+
+export interface AiCallRecord {
+  callId: string
+  operation: string
+  provider: string
+  model: string
+  success: boolean
+  mocked: boolean
+  durationMs: number
+  promptChars: number
+  responseChars: number
+  fallbackReason?: string | null
+  createdAt: string
+}
+
+export interface AiCallListQuery {
+  limit?: number
+  provider?: string
+  success?: boolean
+}
+
+export interface AiSearchRequest {
+  query: string
+  role?: string
+  limit?: number
+}
+
+export interface AiSearchResult {
+  id: string
+  type: string
+  title: string
+  owner: string
+  summary: string
+  score: number
+  highlights: string[]
+}
+
+export interface AiSearchResponse {
+  query: string
+  results: AiSearchResult[]
+  generatedAt: string
+}
+
 export interface InterviewRecord {
   recordId: string
   studentId: string
@@ -539,9 +595,93 @@ const fallbackAiModuleStatus: AiModuleStatus = {
   model: 'qwen-plus',
   configured: false,
   baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  capabilities: ['resume-analysis', 'job-analysis', 'match-analysis', 'candidate-screening', 'interview-question-generation', 'interview-feedback'],
+  capabilities: ['resume-analysis', 'job-analysis', 'match-analysis', 'candidate-screening', 'interview-question-generation', 'interview-feedback', 'observability', 'intelligent-search'],
   fallbackReason: 'AI service is offline or DASHSCOPE_API_KEY is not configured'
 }
+
+const fallbackAiObservabilitySummary: AiObservabilitySummary = {
+  provider: 'dashscope',
+  model: 'qwen-plus',
+  configured: false,
+  totalCalls: 128,
+  successCalls: 119,
+  failedCalls: 9,
+  mockedCalls: 20,
+  successRate: 92.97,
+  averageLatencyMs: 860,
+  recentCalls: [],
+  generatedAt: new Date().toISOString()
+}
+
+const fallbackAiCallRecords: AiCallRecord[] = [
+  {
+    callId: 'AI-CALL-001',
+    operation: 'candidate-screening',
+    provider: 'dashscope',
+    model: 'qwen-plus',
+    success: true,
+    mocked: false,
+    durationMs: 742,
+    promptChars: 1180,
+    responseChars: 620,
+    createdAt: new Date(Date.now() - 12 * 60 * 1000).toISOString()
+  },
+  {
+    callId: 'AI-CALL-002',
+    operation: 'semantic-search',
+    provider: 'local-semantic-search',
+    model: 'keyword-ranker-v1',
+    success: true,
+    mocked: false,
+    durationMs: 18,
+    promptChars: 19,
+    responseChars: 2,
+    createdAt: new Date(Date.now() - 32 * 60 * 1000).toISOString()
+  },
+  {
+    callId: 'AI-CALL-003',
+    operation: 'analyze',
+    provider: 'dashscope',
+    model: 'qwen-plus',
+    success: true,
+    mocked: true,
+    durationMs: 43,
+    promptChars: 260,
+    responseChars: 160,
+    fallbackReason: 'DASHSCOPE_API_KEY is not configured',
+    createdAt: new Date(Date.now() - 68 * 60 * 1000).toISOString()
+  }
+]
+
+const fallbackAiSearchResults: AiSearchResult[] = [
+  {
+    id: 'S001',
+    type: 'student',
+    title: 'Java backend internship candidate',
+    owner: 'Demo Student',
+    summary: 'Resume shows Java, Spring Boot, MySQL, Redis, and delivery experience for backend internship matching.',
+    score: 91,
+    highlights: ['Java', 'Spring Boot', 'Redis']
+  },
+  {
+    id: 'J001',
+    type: 'job',
+    title: 'Java backend intern',
+    owner: 'Demo Company HR',
+    summary: 'Position requires Java Web development, database basics, cache usage, and API implementation.',
+    score: 87,
+    highlights: ['backend', 'MySQL', 'API']
+  },
+  {
+    id: 'D001',
+    type: 'delivery',
+    title: 'S001 delivery to J001',
+    owner: 'C001',
+    summary: 'Submitted delivery with parsed PDF resume and candidate screening recommendation available.',
+    score: 83,
+    highlights: ['submitted', 'screening', 'PDF']
+  }
+]
 
 const fallbackInterviewRecords: InterviewRecord[] = [
   {
@@ -1039,6 +1179,47 @@ export function submitInterviewFeedback(payload: InterviewFeedbackRequest) {
 
 export function getAiStatus() {
   return request<AiModuleStatus>('/api/ai/status', { method: 'GET' }, fallbackAiModuleStatus)
+}
+
+export function getAiObservabilitySummary() {
+  return request<AiObservabilitySummary>('/api/ai/observability/summary', { method: 'GET' }, fallbackAiObservabilitySummary)
+}
+
+export function listAiCallRecords(query: AiCallListQuery = {}) {
+  const params = new URLSearchParams()
+  const limit = query.limit ?? 20
+  params.set('limit', String(limit))
+  if (query.provider?.trim()) {
+    params.set('provider', query.provider.trim())
+  }
+  if (query.success !== undefined) {
+    params.set('success', String(query.success))
+  }
+  const fallback = fallbackAiCallRecords
+    .filter((record) => !query.provider?.trim() || record.provider === query.provider.trim())
+    .filter((record) => query.success === undefined || record.success === query.success)
+    .slice(0, limit)
+  return request<AiCallRecord[]>(`/api/ai/observability/calls?${params.toString()}`, { method: 'GET' }, fallback)
+}
+
+export function searchAiKnowledge(payload: AiSearchRequest) {
+  const query = payload.query.trim()
+  const limit = payload.limit ?? 5
+  const normalized = query.toLowerCase()
+  const results = fallbackAiSearchResults
+    .filter((item) => !normalized
+      || item.title.toLowerCase().includes(normalized)
+      || item.summary.toLowerCase().includes(normalized)
+      || item.highlights.some((highlight) => highlight.toLowerCase().includes(normalized)))
+    .slice(0, limit)
+  return request<AiSearchResponse>('/api/ai/search', {
+    method: 'POST',
+    body: JSON.stringify({ ...payload, query, limit })
+  }, {
+    query,
+    results,
+    generatedAt: new Date().toISOString()
+  })
 }
 
 export function listInterviewRecords(studentId = currentStudentId()) {

@@ -19,7 +19,9 @@ public class DashScopeClient {
             "match-analysis",
             "interview-question-generation",
             "interview-feedback",
-            "candidate-screening");
+            "candidate-screening",
+            "observability",
+            "intelligent-search");
 
     private final String apiKey;
     private final String model;

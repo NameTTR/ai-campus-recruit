@@ -52,6 +52,52 @@ class AiControllerTest {
     }
 
     @Test
+    void intelligentSearchReturnsRankedResultsAndIsObservable() throws Exception {
+        mockMvc.perform(post("/api/ai/search")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "Java Redis backend",
+                                  "role": "STUDENT",
+                                  "limit": 5
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.query").value("Java Redis backend"))
+                .andExpect(jsonPath("$.data.results.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.results[0].score").value(greaterThanOrEqualTo(40)))
+                .andExpect(jsonPath("$.data.results[0].highlights[0]").isNotEmpty());
+
+        mockMvc.perform(get("/api/ai/observability/calls")
+                        .param("provider", "local-semantic-search")
+                        .param("limit", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data[0].operation").value("semantic-search"))
+                .andExpect(jsonPath("$.data[0].success").value(true));
+    }
+
+    @Test
+    void observabilitySummaryTracksMockedAiFallbacks() throws Exception {
+        mockMvc.perform(post("/api/ai/analyze")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"taskType\":\"job\",\"content\":\"Spring Boot Redis\",\"context\":\"backend\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mocked").value(true));
+
+        mockMvc.perform(get("/api/ai/observability/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.provider").value("dashscope"))
+                .andExpect(jsonPath("$.data.configured").value(false))
+                .andExpect(jsonPath("$.data.totalCalls").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.mockedCalls").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.recentCalls[0].operation").isNotEmpty());
+    }
+
+    @Test
     void candidateScreeningParsesDashScopeJsonWhenConfigured() {
         AiCoachService service = new AiCoachService(new StubDashScopeClient("""
                 {

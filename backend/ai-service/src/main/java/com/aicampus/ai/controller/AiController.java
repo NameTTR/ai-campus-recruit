@@ -4,7 +4,11 @@ import com.aicampus.ai.service.AiCoachService;
 import com.aicampus.common.api.ApiResponse;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
+import com.aicampus.common.dto.AiCallRecord;
 import com.aicampus.common.dto.AiModuleStatus;
+import com.aicampus.common.dto.AiObservabilitySummary;
+import com.aicampus.common.dto.AiSearchRequest;
+import com.aicampus.common.dto.AiSearchResponse;
 import com.aicampus.common.dto.CandidateScreenRecord;
 import com.aicampus.common.dto.CandidateScreenRequest;
 import com.aicampus.common.dto.CandidateScreenResult;
@@ -49,6 +53,27 @@ public class AiController {
     @PostMapping("/analyze")
     public ApiResponse<AiAnalyzeResponse> analyze(@RequestBody AiAnalyzeRequest request) {
         return ApiResponse.ok(aiCoachService.analyze(request));
+    }
+
+    @Operation(summary = "Search campus recruitment knowledge with local AI ranking")
+    @PostMapping("/search")
+    public ApiResponse<AiSearchResponse> search(@RequestBody AiSearchRequest request) {
+        return ApiResponse.ok(aiCoachService.search(request));
+    }
+
+    @Operation(summary = "Get AI call observability summary")
+    @GetMapping("/observability/summary")
+    public ApiResponse<AiObservabilitySummary> observabilitySummary() {
+        return ApiResponse.ok(aiCoachService.observabilitySummary());
+    }
+
+    @Operation(summary = "List recent AI call records")
+    @GetMapping("/observability/calls")
+    public ApiResponse<List<AiCallRecord>> aiCallRecords(
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) String provider,
+            @RequestParam(required = false) Boolean success) {
+        return ApiResponse.ok(aiCoachService.listAiCallRecords(limit, provider, success));
     }
 
     @Operation(summary = "Generate mock interview questions")

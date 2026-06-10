@@ -167,9 +167,26 @@
 
 - Frontend fallback:
   - Without `VITE_API_BASE_URL` or `VITE_API_PROXY_TARGET` in development, account and RBAC client functions return deterministic demo data and do not call `fetch`.
-  - Demo role permission defaults are `STUDENT`: `student:profile:read`, `student:resume:write`, `student:delivery:write`, `student:interview:write`; `COMPANY`: `company:job:write`, `company:delivery:read`, `company:screening:write`; `ADMIN`: `admin:dashboard:read`, `admin:account:read`, `admin:account:write`, `admin:rbac:read`.
+  - Demo role permission defaults are `STUDENT`: `student:profile:read`, `student:resume:write`, `student:delivery:write`, `student:interview:write`; `COMPANY`: `company:job:write`, `company:delivery:read`, `company:screening:write`; `ADMIN`: `admin:dashboard:read`, `admin:account:read`, `admin:account:write`, `admin:rbac:read`, `admin:ai-observability:read`.
 
 ## Admin
+
+- `GET /api/ai/observability/summary`: AI observability summary for the admin console.
+  - Returns: `AiObservabilitySummary` with `provider`, `model`, `configured`, `totalCalls`, `successCalls`, `failedCalls`, `mockedCalls`, `successRate`, `averageLatencyMs`, `recentCalls`, and `generatedAt`.
+  - All responses use `ApiResponse<AiObservabilitySummary>`.
+  - The endpoint must not return prompt bodies, API keys, tokens, or other secret values.
+
+- `GET /api/ai/observability/calls?limit=20&provider=&success=`: recent AI call records for troubleshooting.
+  - Query parameters: `limit` defaults to 20; `provider` is optional; `success` is optional and accepts `true` or `false`.
+  - Returns: `AiCallRecord[]`.
+  - `AiCallRecord` fields: `callId`, `operation`, `provider`, `model`, `success`, `mocked`, `durationMs`, `promptChars`, `responseChars`, optional `fallbackReason`, and `createdAt`.
+  - The endpoint must redact prompts, resume text, job descriptions, credentials, and tokens.
+
+- `POST /api/ai/search`: intelligent search across recruitment data.
+  - Request body: `{ "query": "Java backend", "role": "ADMIN", "limit": 5 }`; `role` and `limit` are optional.
+  - Returns: `AiSearchResponse` with `query`, `results`, and `generatedAt`.
+  - Each result includes `id`, `type`, `title`, `owner`, `summary`, `score`, and `highlights`.
+  - Frontend demo mode returns deterministic fallback results when no gateway or AI proxy is configured.
 
 - `GET /api/admin/system/status`: backend management status summary for the admin console.
   - Returns: `generatedAt`, `applicationName`, `profile`, stable service entries for `gateway/auth/user/resume/job/match/ai/delivery`, persistence settings, infrastructure settings, and warnings.

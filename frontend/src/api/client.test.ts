@@ -5,6 +5,7 @@ import {
   createDelivery,
   getAuthSession,
   generateInterviewQuestions,
+  getAiObservabilitySummary,
   getAiStatus,
   getCurrentPermissions,
   getDeploymentGuide,
@@ -13,6 +14,7 @@ import {
   getDeliveryStatistics,
   getDeploymentTopology,
   getSystemStatus,
+  listAiCallRecords,
   listAccounts,
   listCandidateScreenRecords,
   listInterviewRecords,
@@ -21,6 +23,7 @@ import {
   matchResumeJob,
   saveAuthSession,
   screenCandidate,
+  searchAiKnowledge,
   submitInterviewFeedback,
   updateAccountStatus
 } from './client'
@@ -476,6 +479,108 @@ describe('api fallback behavior', () => {
     expect(result.configured).toBe(false)
     expect(result.capabilities.length).toBeGreaterThan(0)
     expect(result.fallbackReason).toContain('DASHSCOPE_API_KEY')
+  })
+
+  it('returns ai observability summary fallback when ai proxy is not configured', async () => {
+    const result = await getAiObservabilitySummary()
+
+    expect(result.totalCalls).toBeGreaterThan(0)
+    expect(result.successCalls + result.failedCalls).toBe(result.totalCalls)
+    expect(result.mockedCalls).toBeGreaterThan(0)
+    expect(result.provider).toBe('dashscope')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls ai observability summary endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          provider: 'dashscope',
+          model: 'qwen-plus',
+          configured: true,
+          totalCalls: 10,
+          successCalls: 9,
+          failedCalls: 1,
+          mockedCalls: 0,
+          successRate: 90,
+          averageLatencyMs: 700,
+          recentCalls: [],
+          generatedAt: '2026-06-10T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await getAiObservabilitySummary()
+
+    expect(result.totalCalls).toBe(10)
+    expect(fetch).toHaveBeenCalledWith('/api/ai/observability/summary', expect.any(Object))
+  })
+
+  it('filters ai call records fallback by provider and success', async () => {
+    const result = await listAiCallRecords({ provider: 'local-semantic-search', success: true, limit: 20 })
+
+    expect(result).toHaveLength(1)
+    expect(result[0].provider).toBe('local-semantic-search')
+    expect(result[0].operation).toBe('semantic-search')
+    expect(result[0].success).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls ai call records endpoint with query parameters when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: []
+      })
+    } as Response)
+
+    await listAiCallRecords({ limit: 10, provider: 'dashscope', success: true })
+
+    expect(fetch).toHaveBeenCalledWith('/api/ai/observability/calls?limit=10&provider=dashscope&success=true', expect.any(Object))
+  })
+
+  it('returns ai search fallback results when ai proxy is not configured', async () => {
+    const result = await searchAiKnowledge({ query: 'java', role: 'ADMIN', limit: 2 })
+
+    expect(result.query).toBe('java')
+    expect(result.results.length).toBeGreaterThan(0)
+    expect(result.results.length).toBeLessThanOrEqual(2)
+    expect(result.results[0].highlights.length).toBeGreaterThan(0)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls ai search endpoint with trimmed query and limit when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          query: 'backend',
+          results: [],
+          generatedAt: '2026-06-10T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await searchAiKnowledge({ query: ' backend ', role: 'ADMIN', limit: 8 })
+
+    expect(result.query).toBe('backend')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/search', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(requestInit.body))).toEqual({
+      query: 'backend',
+      role: 'ADMIN',
+      limit: 8
+    })
   })
 
   it('returns interview record fallback when gateway is offline', async () => {

@@ -13,6 +13,7 @@ public enum Permission {
     COMPANY_JOB_WRITE("company:job:write", true),
     COMPANY_DELIVERY_READ("company:delivery:read", true),
     COMPANY_SCREENING_WRITE("company:screening:write", true),
+    AI_OBSERVABILITY_READ("admin:ai-observability:read", true),
     JOB_READ("job:read", false),
     MATCH_RUN("match:run", false),
     AI_ANALYZE("ai:analyze", false),

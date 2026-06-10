@@ -154,6 +154,9 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
     }
 
     private Permission aiPermission(String path) {
+        if (path.startsWith("/api/ai/observability")) {
+            return Permission.AI_OBSERVABILITY_READ;
+        }
         if (path.startsWith("/api/ai/candidates")) {
             return Permission.COMPANY_SCREENING_WRITE;
         }

@@ -78,3 +78,12 @@
 - Permission codes should be stable string identifiers, for example `admin:account:read`, `admin:account:write`, `company:screening:write`, and `student:resume:write`.
 - All account and permission APIs continue to use `ApiResponse<T>` and must keep deterministic frontend fallback data so the demo remains usable when no gateway is configured.
 - Production credentials and signing secrets must remain environment-driven and must not be hardcoded in frontend or documentation examples.
+
+## v2.7 AI Observability and Intelligent Search Requirement
+
+- Admin users need an AI operations module that summarizes total calls, success/failure counts, mocked calls, success rate, average latency, and recent-call provider/task breakdowns.
+- Admin users need a recent AI call list filtered by provider, success flag, and limit for compact troubleshooting from the frontend dashboard.
+- Admin users need an intelligent search form that submits a query, optional role, and optional limit, then displays ranked results with type, owner, summary, score, and highlights.
+- The frontend client must target `GET /api/ai/observability/summary`, `GET /api/ai/observability/calls`, and `POST /api/ai/search`, and all responses continue to use `ApiResponse<T>`.
+- Demo mode must keep deterministic fallback data and avoid calling `fetch` when no gateway or AI proxy is configured.
+- Observability and search responses must not expose API keys, tokens, raw prompts, full resume text, or other sensitive payloads.

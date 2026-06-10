@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import {
   AlertTriangle,
   BarChart3,
+  Bot,
   BriefcaseBusiness,
   Building2,
   CheckCircle2,
@@ -15,6 +16,7 @@ import {
   LockKeyhole,
   RefreshCw,
   Rocket,
+  Search,
   Send,
   ServerCog,
   ShieldCheck,
@@ -23,14 +25,20 @@ import {
 import {
   changeAccountPassword,
   createAccount,
+  getAiObservabilitySummary,
   getDeploymentTopology,
   getDeploymentGuide,
   getDashboard,
   getCurrentPermissions,
   getSystemStatus,
+  listAiCallRecords,
   listAccounts,
+  searchAiKnowledge,
   updateAccountStatus,
   type AccountStatus,
+  type AiCallRecord,
+  type AiObservabilitySummary,
+  type AiSearchResponse,
   type AccountSummary,
   type CurrentPermissions,
   type DashboardStats,
@@ -47,10 +55,25 @@ const stats = ref<DashboardStats>()
 const systemStatus = ref<SystemStatus>()
 const deploymentTopology = ref<DeploymentTopology>()
 const deploymentGuide = ref<DeploymentGuide>()
+const aiObservabilitySummary = ref<AiObservabilitySummary>()
+const aiCallRecords = ref<AiCallRecord[]>([])
+const aiSearchResponse = ref<AiSearchResponse>()
 const accounts = ref<AccountSummary[]>([])
 const currentPermissions = ref<CurrentPermissions>()
 const systemStatusLoading = ref(false)
+const aiLoading = ref(false)
+const aiSearchLoading = ref(false)
 const accountsLoading = ref(false)
+const aiCallFilters = reactive({
+  provider: '',
+  success: '',
+  limit: 20
+})
+const aiSearchForm = reactive({
+  query: 'Java backend',
+  role: 'ADMIN',
+  limit: 5
+})
 const accountFilters = reactive({
   role: '',
   status: '',
@@ -104,15 +127,30 @@ const deploymentSteps = computed(() => deploymentGuide.value?.steps || [])
 const acceptanceChecks = computed(() => deploymentGuide.value?.acceptanceChecks || [])
 const deploymentWarnings = computed(() => deploymentGuide.value?.warnings || [])
 const permissionTags = computed(() => currentPermissions.value?.permissions || [])
+const aiProviderRows = computed(() => aiCallBreakdown('provider'))
+const aiTaskRows = computed(() => aiCallBreakdown('operation'))
+const aiSearchResults = computed(() => aiSearchResponse.value?.results || [])
+
+function aiCallBreakdown(field: 'provider' | 'operation') {
+  const counts = new Map<string, number>()
+  for (const record of aiCallRecords.value) {
+    const key = record[field] || 'unknown'
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+  return Array.from(counts.entries()).map(([name, count]) => ({ name, count }))
+}
 
 onMounted(async () => {
-  const [dashboard, status, topology, guide, accountList, permissions] = await Promise.all([
+  const [dashboard, status, topology, guide, accountList, permissions, aiSummary, aiCalls, aiSearch] = await Promise.all([
     getDashboard(),
     getSystemStatus(),
     getDeploymentTopology(),
     getDeploymentGuide(),
     listAccounts(),
-    getCurrentPermissions()
+    getCurrentPermissions(),
+    getAiObservabilitySummary(),
+    listAiCallRecords(),
+    searchAiKnowledge(aiSearchForm)
   ])
   stats.value = dashboard
   systemStatus.value = status
@@ -120,6 +158,9 @@ onMounted(async () => {
   deploymentGuide.value = guide
   accounts.value = accountList
   currentPermissions.value = permissions
+  aiObservabilitySummary.value = aiSummary
+  aiCallRecords.value = aiCalls
+  aiSearchResponse.value = aiSearch
 })
 
 function statusPercent(count: number) {
@@ -151,6 +192,43 @@ async function refreshAccounts() {
     currentPermissions.value = await getCurrentPermissions()
   } finally {
     accountsLoading.value = false
+  }
+}
+
+async function refreshAiObservability() {
+  aiLoading.value = true
+  try {
+    const success = aiCallFilters.success === '' ? undefined : aiCallFilters.success === 'true'
+    const [summary, calls] = await Promise.all([
+      getAiObservabilitySummary(),
+      listAiCallRecords({
+        provider: aiCallFilters.provider,
+        success,
+        limit: aiCallFilters.limit
+      })
+    ])
+    aiObservabilitySummary.value = summary
+    aiCallRecords.value = calls
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+async function runAiSearch() {
+  const query = aiSearchForm.query.trim()
+  if (!query) {
+    ElMessage.warning('Please enter a search query')
+    return
+  }
+  aiSearchLoading.value = true
+  try {
+    aiSearchResponse.value = await searchAiKnowledge({
+      query,
+      role: aiSearchForm.role,
+      limit: aiSearchForm.limit
+    })
+  } finally {
+    aiSearchLoading.value = false
   }
 }
 
@@ -430,6 +508,138 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
           </el-form>
         </section>
       </div>
+    </div>
+
+    <div v-if="activeModule === 'ai'" class="module-stack">
+      <div class="grid three">
+        <div class="metric ai-metric">
+          <Bot :size="22" />
+          <span>AI Calls</span>
+          <strong>{{ aiObservabilitySummary?.totalCalls || 0 }}</strong>
+        </div>
+        <div class="metric ai-metric">
+          <CheckCircle2 :size="22" />
+          <span>Success Rate</span>
+          <strong>{{ aiObservabilitySummary?.successRate || 0 }}%</strong>
+        </div>
+        <div class="metric ai-metric">
+          <Timer :size="22" />
+          <span>Avg Latency</span>
+          <strong>{{ aiObservabilitySummary?.averageLatencyMs || 0 }} ms</strong>
+        </div>
+      </div>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          AI Observability
+          <span class="panel-title-actions">
+            <span class="generated-at">{{ formatDateTime(aiObservabilitySummary?.generatedAt) }}</span>
+            <el-button circle size="small" :loading="aiLoading" @click="refreshAiObservability">
+              <RefreshCw :size="15" />
+            </el-button>
+            <Bot :size="19" />
+          </span>
+        </h2>
+
+        <div class="ai-observability-grid">
+          <div class="ai-breakdown">
+            <h3>Providers</h3>
+            <div v-for="row in aiProviderRows" :key="row.name" class="ai-breakdown-row">
+              <span>{{ row.name }}</span>
+              <strong>{{ row.count }}</strong>
+            </div>
+          </div>
+          <div class="ai-breakdown">
+            <h3>Tasks</h3>
+            <div v-for="row in aiTaskRows" :key="row.name" class="ai-breakdown-row">
+              <span>{{ row.name }}</span>
+              <strong>{{ row.count }}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          AI Call Records
+          <Bot :size="19" />
+        </h2>
+        <div class="ai-call-toolbar">
+          <el-input v-model="aiCallFilters.provider" clearable placeholder="provider" />
+          <el-select v-model="aiCallFilters.success" clearable placeholder="success">
+            <el-option label="success" value="true" />
+            <el-option label="failed" value="false" />
+          </el-select>
+          <el-select v-model="aiCallFilters.limit" placeholder="limit">
+            <el-option label="10" :value="10" />
+            <el-option label="20" :value="20" />
+            <el-option label="50" :value="50" />
+          </el-select>
+          <el-button :loading="aiLoading" @click="refreshAiObservability">Apply</el-button>
+        </div>
+
+        <el-table v-loading="aiLoading" class="ai-table" :data="aiCallRecords" style="width: 100%">
+          <el-table-column prop="callId" label="Call ID" min-width="128" />
+          <el-table-column prop="provider" label="Provider" width="116" />
+          <el-table-column prop="model" label="Model" min-width="126" />
+          <el-table-column prop="operation" label="Task" min-width="156" />
+          <el-table-column label="Status" width="104">
+            <template #default="{ row }">
+              <span class="ai-status-badge" :class="row.mocked ? 'mocked' : row.success ? 'ok' : 'failed'">
+                {{ row.mocked ? 'MOCK' : row.success ? 'OK' : 'FAILED' }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Latency" width="104">
+            <template #default="{ row }">{{ row.durationMs }} ms</template>
+          </el-table-column>
+          <el-table-column label="Created" width="128">
+            <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
+          </el-table-column>
+          <el-table-column prop="fallbackReason" label="Fallback" min-width="180" />
+        </el-table>
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          Intelligent Search
+          <Search :size="19" />
+        </h2>
+        <div class="ai-search-toolbar">
+          <el-input v-model="aiSearchForm.query" clearable placeholder="Search students, jobs, deliveries" @keyup.enter="runAiSearch" />
+          <el-select v-model="aiSearchForm.role" placeholder="role">
+            <el-option label="ADMIN" value="ADMIN" />
+            <el-option label="STUDENT" value="STUDENT" />
+            <el-option label="COMPANY" value="COMPANY" />
+          </el-select>
+          <el-select v-model="aiSearchForm.limit" placeholder="limit">
+            <el-option label="5" :value="5" />
+            <el-option label="10" :value="10" />
+            <el-option label="20" :value="20" />
+          </el-select>
+          <el-button type="primary" :loading="aiSearchLoading" @click="runAiSearch">Search</el-button>
+        </div>
+
+        <div v-if="aiSearchResults.length" class="ai-search-results">
+          <article v-for="result in aiSearchResults" :key="result.id" class="ai-search-result">
+            <header>
+              <div>
+                <strong>{{ result.title }}</strong>
+                <span>{{ result.id }} / {{ result.owner }}</span>
+              </div>
+              <div class="ai-search-score">
+                <span class="ai-type-badge">{{ result.type }}</span>
+                <strong>{{ result.score }}</strong>
+              </div>
+            </header>
+            <p>{{ result.summary }}</p>
+            <div class="ai-highlight-list">
+              <span v-for="highlight in result.highlights" :key="highlight">{{ highlight }}</span>
+            </div>
+          </article>
+        </div>
+        <el-empty v-else description="No search results yet" />
+      </section>
     </div>
 
     <div v-if="activeModule === 'system'" class="module-stack">
@@ -1071,6 +1281,190 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
   min-width: 0;
 }
 
+.ai-metric strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.ai-observability-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ai-breakdown {
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.ai-breakdown h3 {
+  color: #344054;
+  font-size: 14px;
+  margin: 0;
+}
+
+.ai-breakdown-row {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.ai-breakdown-row span {
+  color: #667085;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-call-toolbar,
+.ai-search-toolbar {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+
+.ai-call-toolbar {
+  grid-template-columns: minmax(160px, 1fr) 140px 112px auto;
+}
+
+.ai-search-toolbar {
+  grid-template-columns: minmax(220px, 1fr) 132px 112px auto;
+}
+
+.ai-table {
+  min-width: 0;
+}
+
+:deep(.ai-table .cell) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ai-status-badge {
+  border: 1px solid #d0d5dd;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  min-width: 42px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ai-status-badge.ok {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.ai-status-badge.mocked {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.ai-status-badge.failed {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.ai-search-results {
+  display: grid;
+  gap: 12px;
+}
+
+.ai-search-result {
+  border-bottom: 1px solid #e4e7ec;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding-bottom: 14px;
+}
+
+.ai-search-result:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.ai-search-result header {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.ai-search-result header > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ai-search-result strong,
+.ai-search-result span,
+.ai-search-result p {
+  overflow-wrap: anywhere;
+}
+
+.ai-search-result header span,
+.ai-search-result p {
+  color: #667085;
+}
+
+.ai-search-result p {
+  margin: 0;
+}
+
+.ai-search-score {
+  align-items: center;
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.ai-type-badge {
+  border: 1px solid #d0d5dd;
+  border-radius: 5px;
+  background: #f8fafc;
+  color: #344054;
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ai-highlight-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-highlight-list span {
+  background: #f2f4f7;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  padding: 3px 7px;
+}
+
 @media (max-width: 640px) {
   .panel-title-actions {
     align-items: flex-start;
@@ -1084,7 +1478,10 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
 
   .permission-summary,
   .account-toolbar,
-  .account-grid {
+  .account-grid,
+  .ai-observability-grid,
+  .ai-call-toolbar,
+  .ai-search-toolbar {
     grid-template-columns: 1fr;
   }
 
@@ -1100,9 +1497,14 @@ function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
   }
 
   .deploy-hero,
-  .deploy-step-header {
+  .deploy-step-header,
+  .ai-search-result header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .ai-search-score {
+    align-self: flex-start;
   }
 
   .deploy-check-grid,
