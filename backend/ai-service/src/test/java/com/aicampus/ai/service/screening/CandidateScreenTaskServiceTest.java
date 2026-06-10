@@ -57,6 +57,28 @@ class CandidateScreenTaskServiceTest {
         assertThat(service.retry(pending.taskId(), "C-OTHER")).isNull();
     }
 
+    @Test
+    void submitOnceReturnsExistingTaskForSameDedupKey() {
+        ManualExecutorService executor = new ManualExecutorService();
+        CandidateScreenTaskService service = new CandidateScreenTaskService(
+                new FailingAiCoachService(),
+                20,
+                executor);
+
+        CandidateScreenTask first = service.submitOnce(
+                request(),
+                CandidateScreenTaskSource.ROCKETMQ,
+                "delivery-created:D-RETRY-001");
+        CandidateScreenTask second = service.submitOnce(
+                request(),
+                CandidateScreenTaskSource.ROCKETMQ,
+                "delivery-created:D-RETRY-001");
+
+        assertThat(second.taskId()).isEqualTo(first.taskId());
+        assertThat(service.list("C-RETRY-001", "D-RETRY-001")).hasSize(1);
+        assertThat(executor.queuedCount()).isEqualTo(1);
+    }
+
     private static CandidateScreenRequest request() {
         return new CandidateScreenRequest(
                 "D-RETRY-001",
@@ -129,6 +151,10 @@ class CandidateScreenTaskServiceTest {
             Runnable task = tasks.poll();
             assertThat(task).isNotNull();
             task.run();
+        }
+
+        private int queuedCount() {
+            return tasks.size();
         }
     }
 }

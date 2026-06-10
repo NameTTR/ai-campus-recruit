@@ -258,3 +258,11 @@
 - Frontend fallback:
   - Without `VITE_API_BASE_URL` or `VITE_API_PROXY_TARGET` in development, audit client functions return deterministic demo data and do not call `fetch`.
   - `/admin/audit` uses the same Vue route family as other admin modules and is backed by `GET /api/admin/audit/overview` and `POST /api/admin/audit/export` once the backend is available.
+
+## v3.2 AI Screening Task Persistence
+
+- `POST /api/ai/candidates/screen/tasks`, `GET /api/ai/candidates/screen/tasks`, `GET /api/ai/candidates/screen/tasks/{taskId}`, and `POST /api/ai/candidates/screen/tasks/{taskId}/retry` keep the same response contracts.
+- When `AI_SCREENING_PERSISTENCE_ENABLED=true` and datasource settings are present, async task state is stored in MySQL table `ai_candidate_screen_task` with the original `CandidateScreenRequest` snapshot and optional `CandidateScreenResult` snapshot.
+- On service restart, persisted `PENDING` or `RUNNING` tasks are marked `FAILED` with a retryable message instead of remaining stuck forever.
+- RocketMQ-created tasks use a `dedup_key` derived from `DELIVERY_CREATED` and `deliveryId`; repeated delivery messages return the existing task instead of creating duplicates.
+- Retry still creates a new task and keeps the original failed task for auditability. The retry uses the persisted request snapshot, so it works after service restart.

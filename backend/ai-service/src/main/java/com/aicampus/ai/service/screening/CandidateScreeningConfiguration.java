@@ -5,6 +5,7 @@ import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -43,6 +44,27 @@ public class CandidateScreeningConfiguration {
                 redisTemplateProvider.getIfAvailable(),
                 objectMapper,
                 properties);
+    }
+
+    @Bean
+    public CandidateScreenTaskStore candidateScreenTaskStore(
+            CandidateScreeningProperties properties,
+            ObjectProvider<DataSource> dataSourceProvider,
+            ObjectProvider<CandidateScreenTaskMapper> mapperProvider,
+            ObjectMapper objectMapper,
+            @Value("${ai.screening.tasks.max-size:100}") int maxTasks) {
+        if (!properties.getPersistence().isEnabled()) {
+            return new InMemoryCandidateScreenTaskStore(maxTasks);
+        }
+
+        DataSource dataSource = dataSourceProvider.getIfAvailable();
+        CandidateScreenTaskMapper mapper = mapperProvider.getIfAvailable();
+        if (dataSource == null || mapper == null) {
+            log.warn("Candidate screening task persistence is enabled but no datasource is available, falling back to in-memory store");
+            return new InMemoryCandidateScreenTaskStore(maxTasks);
+        }
+
+        return new PersistentCandidateScreenTaskStore(mapper, objectMapper, maxTasks);
     }
 
     @Bean

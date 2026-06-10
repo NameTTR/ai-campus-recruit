@@ -251,7 +251,7 @@ http://<VM1_IP>/
 
 ### 一键健康检查
 
-v1.0 新增跨三台 VM 的健康检查脚本。脚本只读取 `deploy/three-vm.env` 中的地址和端口，不输出 `DASHSCOPE_API_KEY`、数据库密码等敏感值。
+v3.2 的跨三台 VM 健康检查脚本会读取 `deploy/three-vm.env` 中的地址和端口，并可通过参数覆盖 VMX 路径、VM IP 和 SSH 用户。脚本不输出 `DASHSCOPE_API_KEY`、数据库密码等敏感值；需要登录令牌的检查必须在运行时通过 `-DemoPassword` 或 `THREE_VM_DEMO_PASSWORD` 提供演示密码，否则会标记为 `SKIPPED`。
 
 Windows PowerShell 调用者：
 
@@ -272,6 +272,44 @@ bash scripts/check-three-vm-health.sh --env-file deploy/three-vm.env --timeout 5
 - VM3：`ai-service` `/actuator/health` 和 `/api/ai/status`，MySQL `3306`、Redis `6379`、MinIO `/minio/health/ready` 和 Console `9001`、RocketMQ `9876`、`10911`、`10909`。
 
 脚本返回非零 exit code 表示至少一个检查失败，适合部署后验收或后续接入 CI。
+
+### v3.2 实际验收流程
+
+v3.2 将 PowerShell 脚本作为 Windows 宿主机上的三台真实 VM 验收入口。脚本会检查：
+
+- 本机 `vmrun` 是否可用，三台 VM 的 `.vmx` 路径是否存在，以及 VM 是否处于运行状态。
+- 三份 Compose 文件是否存在，并通过 `docker compose config --quiet` 配置校验。
+- 三台 VM 的 IP 连通性、关键 HTTP 健康端点和 TCP 端口。
+- 每次运行都会生成 `reports/deploy/three-vm-smoke-<timestamp>.md`，报告内包含 `PASS`、`FAIL`、`SKIPPED` 明细。
+
+先做无副作用预检：
+
+```powershell
+.\scripts\check-three-vm-health.ps1 -DryRun
+```
+
+真实验收示例：
+
+```powershell
+.\scripts\check-three-vm-health.ps1 `
+  -EnvFile .\deploy\three-vm.env `
+  -Vm1Vmx "D:\Virtual_Machines\Ubuntu18_64_2\<vm1>.vmx" `
+  -Vm2Vmx "D:\Virtual_Machines\ai-recruit-vm2\<vm2>.vmx" `
+  -Vm3Vmx "D:\Virtual_Machines\ai-recruit-vm3\<vm3>.vmx" `
+  -Vm1Ip 192.168.56.11 `
+  -Vm2Ip 192.168.56.12 `
+  -Vm3Ip 192.168.56.13 `
+  -SshUser ubuntu
+```
+
+如需检查需要登录令牌的 Gateway 路由，在运行时传入演示账号密码，不要写入脚本或文档：
+
+```powershell
+$password = Read-Host "Demo password"
+.\scripts\check-three-vm-health.ps1 -EnvFile .\deploy\three-vm.env -DemoPassword $password
+```
+
+脚本默认不执行 SSH，不要求密码。报告中的 SSH 命令只作为手工排查提示，可配合当前 `ssh` 配置或用户自备 key 使用。
 
 ### 手工接口验证
 

@@ -7,31 +7,27 @@ import com.aicampus.common.dto.CandidateScreenTask;
 import com.aicampus.common.enums.CandidateScreenTaskSource;
 import com.aicampus.common.enums.CandidateScreenTaskStatus;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 @Service
 public class CandidateScreenTaskService implements DisposableBean {
     private final AiCoachService aiCoachService;
-    private final int maxTasks;
     private final ExecutorService executor;
-    private final Map<String, CandidateScreenTask> tasks = new ConcurrentHashMap<>();
-    private final Map<String, CandidateScreenRequest> taskRequests = new ConcurrentHashMap<>();
+    private final CandidateScreenTaskStore taskStore;
 
     @Autowired
     public CandidateScreenTaskService(
             AiCoachService aiCoachService,
-            @Value("${ai.screening.tasks.max-size:100}") int maxTasks) {
-        this(aiCoachService, maxTasks, Executors.newSingleThreadExecutor(runnable -> {
+            CandidateScreenTaskStore taskStore) {
+        this(aiCoachService, taskStore, Executors.newSingleThreadExecutor(runnable -> {
             Thread thread = new Thread(runnable, "ai-screening-task-worker");
             thread.setDaemon(true);
             return thread;
@@ -39,40 +35,46 @@ public class CandidateScreenTaskService implements DisposableBean {
     }
 
     CandidateScreenTaskService(AiCoachService aiCoachService, int maxTasks, ExecutorService executor) {
+        this(aiCoachService, new InMemoryCandidateScreenTaskStore(maxTasks), executor);
+    }
+
+    CandidateScreenTaskService(AiCoachService aiCoachService, CandidateScreenTaskStore taskStore, ExecutorService executor) {
         this.aiCoachService = aiCoachService;
-        this.maxTasks = Math.max(20, maxTasks);
+        this.taskStore = taskStore;
         this.executor = executor;
     }
 
     public CandidateScreenTask submit(CandidateScreenRequest request, CandidateScreenTaskSource source) {
-        return submit(request, source, "Queued for async AI screening");
+        return submit(request, source, "Queued for async AI screening", null);
+    }
+
+    public CandidateScreenTask submitOnce(CandidateScreenRequest request, CandidateScreenTaskSource source, String dedupKey) {
+        return submit(request, source, "Queued for async AI screening", dedupKey);
     }
 
     public CandidateScreenTask get(String taskId, String companyId) {
-        String taskKey = blankToNull(taskId);
-        if (taskKey == null) {
-            return null;
-        }
-        CandidateScreenTask task = tasks.get(taskKey);
-        if (task == null || !matchesCompany(task, companyId)) {
-            return null;
-        }
-        return task;
+        CandidateScreenTaskSnapshot snapshot = taskStore.get(taskId, companyId);
+        return snapshot == null ? null : snapshot.task();
     }
 
     public CandidateScreenTask retry(String taskId, String companyId) {
-        CandidateScreenTask task = get(taskId, companyId);
+        CandidateScreenTaskSnapshot snapshot = taskStore.get(taskId, companyId);
+        CandidateScreenTask task = snapshot == null ? null : snapshot.task();
         if (task == null || task.status() != CandidateScreenTaskStatus.FAILED) {
             return null;
         }
-        CandidateScreenRequest originalRequest = taskRequests.get(task.taskId());
+        CandidateScreenRequest originalRequest = snapshot.request();
         if (originalRequest == null) {
             return null;
         }
-        return submit(originalRequest, task.source(), "Retried and queued for async AI screening");
+        return submit(originalRequest, task.source(), "Retried and queued for async AI screening", null);
     }
 
-    private CandidateScreenTask submit(CandidateScreenRequest request, CandidateScreenTaskSource source, String message) {
+    private CandidateScreenTask submit(
+            CandidateScreenRequest request,
+            CandidateScreenTaskSource source,
+            String message,
+            String dedupKey) {
         CandidateScreenRequest normalizedRequest = request == null
                 ? new CandidateScreenRequest(null, null, null, null, null, null, null, 0, null, null, null, null, null, null)
                 : request;
@@ -90,21 +92,15 @@ public class CandidateScreenTaskService implements DisposableBean {
                 null,
                 now,
                 now);
-        tasks.put(task.taskId(), task);
-        taskRequests.put(task.taskId(), normalizedRequest);
-        trimOldTasks();
-        executor.submit(() -> runTask(task, normalizedRequest));
-        return task;
+        CandidateScreenTaskSubmission submission = taskStore.create(task, normalizedRequest, dedupKey);
+        if (submission.created()) {
+            executor.submit(() -> runTask(submission.task(), submission.request()));
+        }
+        return submission.task();
     }
 
     public List<CandidateScreenTask> list(String companyId, String deliveryId) {
-        String companyFilter = blankToNull(companyId);
-        String deliveryFilter = blankToNull(deliveryId);
-        return tasks.values().stream()
-                .filter(task -> companyFilter == null || companyFilter.equals(task.companyId()))
-                .filter(task -> deliveryFilter == null || deliveryFilter.equals(task.deliveryId()))
-                .sorted(Comparator.comparing(CandidateScreenTask::createdAt).reversed())
-                .toList();
+        return taskStore.list(companyId, deliveryId);
     }
 
     private void runTask(CandidateScreenTask task, CandidateScreenRequest request) {
@@ -117,13 +113,14 @@ public class CandidateScreenTaskService implements DisposableBean {
         }
     }
 
-    private void update(
+    private CandidateScreenTask update(
             CandidateScreenTask task,
             CandidateScreenTaskStatus status,
             String message,
             CandidateScreenResult result) {
-        CandidateScreenTask current = tasks.getOrDefault(task.taskId(), task);
-        tasks.put(task.taskId(), new CandidateScreenTask(
+        CandidateScreenTaskSnapshot snapshot = taskStore.get(task.taskId(), null);
+        CandidateScreenTask current = snapshot == null ? task : snapshot.task();
+        CandidateScreenTask updated = new CandidateScreenTask(
                 current.taskId(),
                 current.deliveryId(),
                 current.companyId(),
@@ -135,28 +132,9 @@ public class CandidateScreenTaskService implements DisposableBean {
                 message,
                 result == null ? current.result() : result,
                 current.createdAt(),
-                Instant.now()));
-    }
-
-    private void trimOldTasks() {
-        if (tasks.size() <= maxTasks) {
-            return;
-        }
-        tasks.values().stream()
-                .sorted(Comparator.comparing(CandidateScreenTask::createdAt))
-                .limit(tasks.size() - maxTasks)
-                .map(CandidateScreenTask::taskId)
-                .forEach(this::removeTask);
-    }
-
-    private void removeTask(String taskId) {
-        tasks.remove(taskId);
-        taskRequests.remove(taskId);
-    }
-
-    private static boolean matchesCompany(CandidateScreenTask task, String companyId) {
-        String companyFilter = blankToNull(companyId);
-        return companyFilter == null || companyFilter.equals(task.companyId());
+                Instant.now());
+        taskStore.update(updated);
+        return updated;
     }
 
     private static String safeMessage(RuntimeException ex) {
@@ -166,6 +144,11 @@ public class CandidateScreenTaskService implements DisposableBean {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void recoverInterruptedTasks() {
+        taskStore.markInterruptedTasksFailed();
     }
 
     @Override

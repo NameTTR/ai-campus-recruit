@@ -133,3 +133,13 @@
 - Demo mode must include at least one failed task so the retry action can be demonstrated without a backend.
 - The company UI must keep retry and refresh controls compact and mobile-safe.
 - No retry response may expose API keys, raw prompts, full resume text, or hidden employer-only notes.
+
+## v3.2 Distributed AI Screening Completion Requirement
+
+- Async candidate-screening task state must survive `ai-service` restart when `AI_SCREENING_PERSISTENCE_ENABLED=true`.
+- Persisted task records must include the original `CandidateScreenRequest` snapshot and optional `CandidateScreenResult` snapshot, without storing API keys, prompts, or full resume text.
+- On startup, persisted `PENDING` and `RUNNING` tasks must be converted to retryable `FAILED` tasks so company users can recover them.
+- Failed task retry must use the persisted request snapshot and create a new task while preserving the original failed task.
+- RocketMQ `DELIVERY_CREATED` consumption must be idempotent for a delivery: repeated messages for the same delivery must return the existing `ROCKETMQ` task instead of creating duplicates.
+- Three-VM deployment verification must produce a timestamped report covering vmrun availability, VMX paths, VM running status, Compose configuration, and key service HTTP/TCP checks.
+- Acceptance commands for this slice include backend tests, frontend tests/build, Docker Compose config checks, and the three-VM smoke script in dry-run or real mode depending on VM availability.

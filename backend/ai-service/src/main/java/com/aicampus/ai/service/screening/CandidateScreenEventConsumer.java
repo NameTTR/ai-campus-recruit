@@ -72,7 +72,10 @@ public class CandidateScreenEventConsumer implements InitializingBean, Disposabl
                 if (!"DELIVERY_CREATED".equals(event.eventType())) {
                     continue;
                 }
-                taskService.submit(toCandidateScreenRequest(event), CandidateScreenTaskSource.ROCKETMQ);
+                taskService.submitOnce(
+                        toCandidateScreenRequest(event),
+                        CandidateScreenTaskSource.ROCKETMQ,
+                        dedupKey(event));
             } catch (RuntimeException ex) {
                 log.warn("Failed to consume delivery event for AI screening", ex);
             } catch (Exception ex) {
@@ -97,6 +100,16 @@ public class CandidateScreenEventConsumer implements InitializingBean, Disposabl
                 List.of("Java", "Spring Boot", "MySQL", "Redis"),
                 "Candidate resume snapshot from delivery event",
                 "Auto screening triggered by delivery event");
+    }
+
+    private static String dedupKey(DeliveryEvent event) {
+        String deliveryId = event.deliveryId();
+        if (deliveryId != null && !deliveryId.isBlank()) {
+            return "delivery-created:" + deliveryId.trim();
+        }
+        return event.eventId() == null || event.eventId().isBlank()
+                ? null
+                : "event:" + event.eventId().trim();
     }
 
     @Override

@@ -19,9 +19,12 @@ class CandidateScreeningConfigurationTest {
     void usesInMemoryStoreWhenPersistenceIsDisabled() {
         contextRunner.run(context -> {
             assertThat(context).hasSingleBean(CandidateScreenRecordStore.class);
+            assertThat(context).hasSingleBean(CandidateScreenTaskStore.class);
             assertThat(context).doesNotHaveBean(DataSource.class);
             assertThat(context.getBean(CandidateScreenRecordStore.class))
                     .isInstanceOf(InMemoryCandidateScreenRecordStore.class);
+            assertThat(context.getBean(CandidateScreenTaskStore.class))
+                    .isInstanceOf(InMemoryCandidateScreenTaskStore.class);
         });
     }
 
@@ -37,9 +40,13 @@ class CandidateScreeningConfigurationTest {
                     assertThat(context).hasSingleBean(DataSource.class);
                     assertThat(context).hasSingleBean(SqlSessionFactory.class);
                     assertThat(context).hasSingleBean(CandidateScreenRecordMapper.class);
+                    assertThat(context).hasSingleBean(CandidateScreenTaskMapper.class);
                     assertThat(context).hasSingleBean(CandidateScreenRecordStore.class);
+                    assertThat(context).hasSingleBean(CandidateScreenTaskStore.class);
                     assertThat(context.getBean(CandidateScreenRecordStore.class))
                             .isInstanceOf(PersistentCandidateScreenRecordStore.class);
+                    assertThat(context.getBean(CandidateScreenTaskStore.class))
+                            .isInstanceOf(PersistentCandidateScreenTaskStore.class);
                 });
     }
 }

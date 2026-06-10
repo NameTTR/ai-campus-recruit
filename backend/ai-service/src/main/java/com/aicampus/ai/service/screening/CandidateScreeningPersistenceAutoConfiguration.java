@@ -47,4 +47,13 @@ public class CandidateScreeningPersistenceAutoConfiguration {
         factoryBean.setSqlSessionFactory(sqlSessionFactory);
         return factoryBean;
     }
+
+    @Bean
+    @ConditionalOnMissingBean(CandidateScreenTaskMapper.class)
+    public MapperFactoryBean<CandidateScreenTaskMapper> candidateScreenTaskMapper(SqlSessionFactory sqlSessionFactory) {
+        MapperFactoryBean<CandidateScreenTaskMapper> factoryBean =
+                new MapperFactoryBean<>(CandidateScreenTaskMapper.class);
+        factoryBean.setSqlSessionFactory(sqlSessionFactory);
+        return factoryBean;
+    }
 }
