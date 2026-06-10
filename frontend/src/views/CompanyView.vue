@@ -6,15 +6,15 @@ import { Bot, ClipboardList, Plus, RefreshCw } from 'lucide-vue-next'
 import {
   analyzeJob,
   createJob,
+  createCandidateScreenTask,
   currentCompanyId,
-  listCandidateScreenRecords,
+  listCandidateScreenTasks,
   listCompanyDeliveries,
   listJobs,
   matchResumeJob,
-  screenCandidate,
   updateDeliveryStatus,
-  type CandidateScreenRecord,
-  type CandidateScreenResult,
+  type CandidateScreenTask,
+  type CandidateScreenTaskStatus,
   type DeliveryRecord,
   type DeliveryStatus,
   type JobSummary,
@@ -32,7 +32,7 @@ const route = useRoute()
 const jobs = ref<JobSummary[]>([])
 const candidate = ref<MatchResult>()
 const deliveries = ref<DeliveryRecord[]>([])
-const screeningRecords = ref<CandidateScreenRecord[]>([])
+const screeningTasks = ref<CandidateScreenTask[]>([])
 const screeningLoading = ref<Record<string, boolean>>({})
 const historyRefreshing = ref(false)
 const form = reactive({
@@ -49,20 +49,20 @@ const reviewStatuses: Array<{ status: Exclude<DeliveryStatus, 'SUBMITTED'>, labe
   { status: 'REJECTED', label: '未通过' }
 ]
 const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'publish')
-const screeningCards = computed(() => [...screeningRecords.value]
-  .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()))
+const screeningCards = computed(() => [...screeningTasks.value]
+  .sort((left, right) => new Date(right.updatedAt || right.createdAt).getTime() - new Date(left.updatedAt || left.createdAt).getTime()))
 const hasAnyDeliveryParseMetadata = computed(() =>
   deliveries.value.some((delivery) => hasResumeParseMetadata(delivery)))
 
 onMounted(async () => {
-  const [jobList, deliveryList, screeningList] = await Promise.all([
+  const [jobList, deliveryList, taskList] = await Promise.all([
     listJobs(),
     listCompanyDeliveries(),
-    listCandidateScreenRecords()
+    listCandidateScreenTasks()
   ])
   jobs.value = jobList
   deliveries.value = deliveryList
-  screeningRecords.value = screeningList
+  screeningTasks.value = taskList
 })
 
 async function publish() {
@@ -100,7 +100,7 @@ async function runCandidateScreen(delivery: DeliveryRecord) {
   const parseMetadata = resumeParseMetadata(delivery)
   screeningLoading.value = { ...screeningLoading.value, [delivery.deliveryId]: true }
   try {
-    const result = await screenCandidate({
+    const task = await createCandidateScreenTask({
       deliveryId: delivery.deliveryId,
       studentId: delivery.studentId,
       resumeId: delivery.resumeId,
@@ -116,46 +116,52 @@ async function runCandidateScreen(delivery: DeliveryRecord) {
       resumeSummary: '软件工程本科，具备 Java Web 项目、数据库设计和缓存实践经历。',
       jobDescription: job?.description || '参与招聘平台、数据看板和中台接口开发。'
     })
-    const localRecord = upsertLocalScreeningRecord(delivery, result)
-    await refreshCandidateScreenRecords(localRecord, requestedAt)
-    ElMessage.success('AI 筛选建议已生成')
+    const localTask = upsertLocalScreeningTask(delivery, task)
+    await refreshCandidateScreenTasks(localTask, requestedAt)
+    ElMessage.success('异步初筛任务已提交')
   } finally {
     screeningLoading.value = { ...screeningLoading.value, [delivery.deliveryId]: false }
   }
 }
 
-async function refreshCandidateScreenRecords(localRecord?: CandidateScreenRecord, requestedAt = 0) {
-  const records = await listCandidateScreenRecords()
-  if (!localRecord) {
-    screeningRecords.value = records
+async function refreshCandidateScreenTasks(localTask?: CandidateScreenTask, requestedAt = 0) {
+  const records = await listCandidateScreenTasks()
+  if (!localTask) {
+    screeningTasks.value = records
     return
   }
   const hasFreshServerRecord = records.some((record) =>
-    record.deliveryId === localRecord.deliveryId && new Date(record.createdAt).getTime() >= requestedAt - 10_000)
-  screeningRecords.value = hasFreshServerRecord ? records : [localRecord, ...records]
+    record.deliveryId === localTask.deliveryId && new Date(record.createdAt).getTime() >= requestedAt - 10_000)
+  screeningTasks.value = hasFreshServerRecord ? records : [localTask, ...records]
 }
 
 async function manualRefreshCandidateScreenRecords() {
   historyRefreshing.value = true
   try {
-    await refreshCandidateScreenRecords()
-    ElMessage.success('筛选历史已刷新')
+    await refreshCandidateScreenTasks()
+    ElMessage.success('异步初筛任务已刷新')
   } finally {
     historyRefreshing.value = false
   }
 }
 
-function upsertLocalScreeningRecord(delivery: DeliveryRecord, result: CandidateScreenResult) {
-  const record: CandidateScreenRecord = {
-    screeningId: `CS-LOCAL-${Date.now()}`,
-    companyId: delivery.companyId,
+function upsertLocalScreeningTask(delivery: DeliveryRecord, task: CandidateScreenTask) {
+  const now = new Date().toISOString()
+  const record: CandidateScreenTask = {
+    ...task,
     ...resumeParseMetadata(delivery),
-    ...result,
-    createdAt: new Date().toISOString()
+    taskId: task.taskId || `TASK-LOCAL-${Date.now()}`,
+    companyId: task.companyId || delivery.companyId,
+    deliveryId: task.deliveryId || delivery.deliveryId,
+    studentId: task.studentId || delivery.studentId,
+    resumeId: task.resumeId || delivery.resumeId,
+    jobId: task.jobId || delivery.jobId,
+    createdAt: task.createdAt || now,
+    updatedAt: task.updatedAt || now
   }
-  screeningRecords.value = [
+  screeningTasks.value = [
     record,
-    ...screeningRecords.value.filter((item) => item.screeningId !== record.screeningId)
+    ...screeningTasks.value.filter((item) => item.taskId !== record.taskId)
   ]
   return record
 }
@@ -178,6 +184,26 @@ function statusTagType(status: DeliveryStatus) {
     INTERVIEW: 'warning',
     OFFER: 'success',
     REJECTED: 'danger'
+  }
+  return types[status]
+}
+
+function taskStatusText(status: CandidateScreenTaskStatus) {
+  const labels: Record<CandidateScreenTaskStatus, string> = {
+    PENDING: '待处理',
+    RUNNING: '处理中',
+    COMPLETED: '已完成',
+    FAILED: '失败'
+  }
+  return labels[status]
+}
+
+function taskStatusTagType(status: CandidateScreenTaskStatus) {
+  const types: Record<CandidateScreenTaskStatus, 'success' | 'warning' | 'info' | 'danger'> = {
+    PENDING: 'info',
+    RUNNING: 'warning',
+    COMPLETED: 'success',
+    FAILED: 'danger'
   }
   return types[status]
 }
@@ -384,7 +410,7 @@ function formatDateTime(value: string) {
                 @click="runCandidateScreen(row)"
               >
                 <Bot :size="15" />
-                AI 筛选
+                异步初筛
               </el-button>
               <el-button
                 v-for="item in reviewStatuses"
@@ -403,11 +429,11 @@ function formatDateTime(value: string) {
       <div class="delivery-review-cards">
         <article v-for="delivery in deliveries" :key="delivery.deliveryId" class="delivery-review-card">
           <div class="delivery-review-head">
-            <div>
+            <div class="screening-main">
               <strong>{{ delivery.deliveryId }}</strong>
               <span>{{ delivery.studentId }} · {{ delivery.jobId }}</span>
             </div>
-            <el-tag :type="statusTagType(delivery.status)">{{ statusText(delivery.status) }}</el-tag>
+            <el-tag class="delivery-status-tag" :type="statusTagType(delivery.status)">{{ statusText(delivery.status) }}</el-tag>
           </div>
           <div v-if="hasResumeParseMetadata(delivery)" class="resume-parse-tags">
             <el-tag
@@ -419,7 +445,7 @@ function formatDateTime(value: string) {
               {{ tag.text }}
             </el-tag>
           </div>
-          <div class="actions">
+          <div class="actions delivery-review-actions">
             <el-button
               size="small"
               type="primary"
@@ -427,7 +453,7 @@ function formatDateTime(value: string) {
               @click="runCandidateScreen(delivery)"
             >
               <Bot :size="15" />
-              AI 筛选
+              异步初筛
             </el-button>
             <el-button
               v-for="item in reviewStatuses"
@@ -446,7 +472,7 @@ function formatDateTime(value: string) {
 
     <section v-if="activeModule === 'screening'" class="panel module-panel">
       <h2 class="panel-title">
-        AI 候选人筛选历史
+        AI 异步初筛任务
         <span class="panel-title-actions">
           <el-button
             circle
@@ -459,20 +485,29 @@ function formatDateTime(value: string) {
           <Bot :size="19" />
         </span>
       </h2>
-      <el-empty v-if="screeningCards.length === 0" description="点击投递记录中的 AI 筛选生成历史记录" />
+      <el-empty v-if="screeningCards.length === 0" description="点击投递记录中的异步初筛创建任务" />
       <div v-else class="screening-grid">
-        <article v-for="result in screeningCards" :key="result.screeningId" class="item-card screening-card">
+        <article v-for="task in screeningCards" :key="task.taskId" class="item-card screening-card">
           <div class="screening-head">
-            <span class="screening-score">{{ result.score }}</span>
-            <div>
-              <strong>{{ result.recommendation }}</strong>
-              <span>
-                {{ result.deliveryId }} · {{ result.studentId }} · {{ result.jobId }} ·
-                {{ result.mocked ? '演示' : '真实 AI' }} · {{ formatDateTime(result.createdAt) }}
-              </span>
-              <div v-if="hasResumeParseMetadata(result)" class="resume-parse-tags">
+            <span class="screening-score">{{ task.result?.score ?? '--' }}</span>
+            <div class="screening-main">
+              <div class="screening-title-row">
+                <strong>{{ task.result?.recommendation || task.message || task.taskId }}</strong>
+                <el-tag size="small" :type="taskStatusTagType(task.status)">
+                  {{ taskStatusText(task.status) }}
+                </el-tag>
+              </div>
+              <div class="screening-meta">
+                <span>{{ task.taskId }}</span>
+                <span>{{ task.deliveryId }}</span>
+                <span>{{ task.studentId }}</span>
+                <span>{{ task.jobId }}</span>
+                <span>{{ task.source }}</span>
+                <span>{{ formatDateTime(task.updatedAt || task.createdAt) }}</span>
+              </div>
+              <div v-if="hasResumeParseMetadata(task.result || task)" class="resume-parse-tags">
                 <el-tag
-                  v-for="tag in resumeParseTags(result)"
+                  v-for="tag in resumeParseTags(task.result || task)"
                   :key="tag.key"
                   size="small"
                   :type="tag.type"
@@ -482,29 +517,32 @@ function formatDateTime(value: string) {
               </div>
             </div>
           </div>
-          <div class="screening-columns">
+          <p v-if="task.status !== 'COMPLETED' || !task.result" class="screening-task-message">
+            {{ task.message || '异步初筛任务已进入队列，刷新后查看最新状态。' }}
+          </p>
+          <div v-else class="screening-columns">
             <div>
               <strong>优势</strong>
               <ul class="plain-list">
-                <li v-for="item in result.strengths" :key="item">{{ item }}</li>
+                <li v-for="item in task.result.strengths" :key="item">{{ item }}</li>
               </ul>
             </div>
             <div>
               <strong>风险</strong>
               <ul class="plain-list">
-                <li v-for="item in result.risks" :key="item">{{ item }}</li>
+                <li v-for="item in task.result.risks" :key="item">{{ item }}</li>
               </ul>
             </div>
             <div>
               <strong>面试追问</strong>
               <ul class="plain-list">
-                <li v-for="item in result.interviewQuestions" :key="item">{{ item }}</li>
+                <li v-for="item in task.result.interviewQuestions" :key="item">{{ item }}</li>
               </ul>
             </div>
             <div>
               <strong>下一步</strong>
               <ul class="plain-list">
-                <li v-for="item in result.nextActions" :key="item">{{ item }}</li>
+                <li v-for="item in task.result.nextActions" :key="item">{{ item }}</li>
               </ul>
             </div>
           </div>
@@ -554,7 +592,11 @@ function formatDateTime(value: string) {
 .delivery-review-card {
   display: grid;
   gap: 12px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 12px;
+  overflow: hidden;
   border: 1px solid #dde5ed;
   border-radius: 8px;
   background: #ffffff;
@@ -562,9 +604,9 @@ function formatDateTime(value: string) {
 
 .delivery-review-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 1fr;
   gap: 10px;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .delivery-review-head strong,
@@ -578,15 +620,42 @@ function formatDateTime(value: string) {
   font-size: 13px;
 }
 
-.screening-card {
+.delivery-status-tag {
+  justify-self: flex-start;
+  max-width: 100%;
+}
+
+.delivery-review-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
+}
+
+.delivery-review-actions :deep(.el-button) {
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  margin-left: 0 !important;
+  padding-right: 8px;
+  padding-left: 8px;
+}
+
+.screening-card {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .screening-head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: 48px minmax(0, 1fr);
   gap: 12px;
-  align-items: center;
+  align-items: flex-start;
+  min-width: 0;
 }
 
 .screening-head strong,
@@ -594,16 +663,63 @@ function formatDateTime(value: string) {
   display: block;
 }
 
-.screening-head span {
+.screening-main {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.screening-title-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.screening-title-row strong {
+  flex: 1 1 160px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.35;
+}
+
+.screening-head > span {
   margin-top: 2px;
   color: #667085;
   font-size: 13px;
+}
+
+.screening-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 4px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.screening-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.screening-task-message {
+  margin: 0;
+  color: #667085;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .screening-score {
   display: grid;
   width: 48px;
   height: 42px;
+  max-width: 100%;
   place-items: center;
   border-radius: 8px;
   background: #e6f2ef;
@@ -647,6 +763,29 @@ function formatDateTime(value: string) {
 
   .screening-columns {
     grid-template-columns: 1fr;
+  }
+
+  .screening-head {
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .screening-score {
+    width: 40px;
+    height: 38px;
+    font-size: 15px;
+  }
+
+  .screening-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .screening-title-row strong {
+    flex-basis: auto;
+    width: 100%;
+    font-size: 15px;
   }
 }
 </style>

@@ -50,7 +50,7 @@ const navGroups = {
       { path: '/company/publish', label: '发布岗位', icon: Plus },
       { path: '/company/jobs', label: '岗位管理', icon: BriefcaseBusiness },
       { path: '/company/deliveries', label: '投递审核', icon: ClipboardList },
-      { path: '/company/screening', label: 'AI 筛选历史', icon: Bot }
+      { path: '/company/screening', label: 'AI 异步初筛', icon: Bot }
     ]
   },
   admin: {

@@ -106,3 +106,18 @@
 - Demo mode must keep deterministic fallback data and avoid calling `fetch` when no gateway or API proxy is configured.
 - Audit and export payloads must not expose API keys, tokens, raw prompts, full resume text, password hashes, or hidden employer-only notes.
 - Expected permission codes are `admin:audit:read` and `admin:audit:export`.
+
+## v3.0 AI Async Candidate Screening Requirement
+
+- Company users need an asynchronous candidate-screening flow so clicking the delivery review action creates a task instead of blocking on a synchronous AI result.
+- `ai-service` must own async screening task state and keep a bounded in-memory fallback so the service remains independently runnable without RocketMQ, MySQL, or Redis.
+- Completed async tasks must call the existing candidate screening logic and write a normal screening history record for compatibility with older pages and audit data.
+- When `AI_SCREENING_ROCKETMQ_ENABLED=true`, `ai-service` should consume `DELIVERY_CREATED` events from the configured `delivery-events` topic and create `ROCKETMQ` source screening tasks.
+- The frontend client must target `POST /api/ai/candidates/screen/tasks` with the existing `CandidateScreenRequest` body and `GET /api/ai/candidates/screen/tasks?companyId=&deliveryId=` for task history; all responses continue to use `ApiResponse<T>`.
+- `CandidateScreenTask` includes `taskId`, `deliveryId`, `companyId`, `studentId`, `resumeId`, `jobId`, `status`, `source`, `message`, optional `result`, `createdAt`, and `updatedAt`.
+- Task `status` supports `PENDING`, `RUNNING`, `COMPLETED`, and `FAILED`; `source` supports `DEMO`, `RUNTIME`, and `ROCKETMQ`.
+- The company delivery review action should be labeled as asynchronous screening, and the AI screening history view must show task status, source, message, timestamps, and completed `result` details when available.
+- The company UI must remain compact and mobile-safe: task identifiers, status tags, and result lists should wrap without forcing horizontal overflow.
+- Demo mode must keep deterministic fallback task data, including at least one completed task with `result` and one in-progress task, and avoid calling `fetch` when no gateway or AI proxy is configured.
+- No frontend or documentation examples may hardcode AI provider keys, tokens, raw prompts, or full resume text.
+- Acceptance commands for this slice: `mvn -s settings.xml.example -pl common,ai-service -am test` from `backend/`, `npm run test:unit` from `frontend/`, and `npm run build` after TypeScript/template changes.

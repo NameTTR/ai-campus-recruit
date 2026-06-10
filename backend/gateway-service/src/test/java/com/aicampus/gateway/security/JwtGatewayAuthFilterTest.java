@@ -150,6 +150,15 @@ class JwtGatewayAuthFilterTest {
 
         assertThat(studentScreening.getResponse().getStatusCode().value()).isEqualTo(403);
 
+        MockServerWebExchange studentScreeningTask = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/ai/candidates/screen/tasks")
+                        .header("Authorization", "Bearer " + studentToken)
+                        .build());
+
+        filter.filter(studentScreeningTask, passThrough()).block();
+
+        assertThat(studentScreeningTask.getResponse().getStatusCode().value()).isEqualTo(403);
+
         MockServerWebExchange studentOwnScreenings = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/api/ai/screenings/my")
                         .header("Authorization", "Bearer " + studentToken)
@@ -170,6 +179,17 @@ class JwtGatewayAuthFilterTest {
         filter.filter(companyInterview, passThrough()).block();
 
         assertThat(companyInterview.getResponse().getStatusCode().value()).isEqualTo(403);
+
+        MockServerWebExchange companyScreeningTask = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/ai/candidates/screen/tasks")
+                        .header("Authorization", "Bearer " + companyToken)
+                        .build());
+        CapturingChain companyScreeningTaskChain = new CapturingChain();
+
+        filter.filter(companyScreeningTask, companyScreeningTaskChain).block();
+
+        assertThat(companyScreeningTask.getResponse().getStatusCode()).isNull();
+        assertThat(companyScreeningTaskChain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("COMPANY");
     }
 
     @Test

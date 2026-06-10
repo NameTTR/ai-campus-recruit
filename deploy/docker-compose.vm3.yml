@@ -87,6 +87,10 @@ services:
       DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       AI_SCREENING_PERSISTENCE_ENABLED: ${AI_SCREENING_PERSISTENCE_ENABLED:-true}
       AI_SCREENING_CACHE_TTL: ${AI_SCREENING_CACHE_TTL:-10m}
+      AI_SCREENING_ROCKETMQ_ENABLED: ${AI_SCREENING_ROCKETMQ_ENABLED:-true}
+      AI_SCREENING_ROCKETMQ_CONSUMER_GROUP: ${AI_SCREENING_ROCKETMQ_CONSUMER_GROUP:-ai-screening-consumer}
+      ROCKETMQ_NAME_SERVER: rocketmq-namesrv:9876
+      DELIVERY_EVENTS_TOPIC: ${DELIVERY_EVENTS_TOPIC:-delivery-events}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
@@ -95,6 +99,8 @@ services:
     depends_on:
       - mysql
       - redis
+      - rocketmq-namesrv
+      - rocketmq-broker
     ports:
       - "8106:8106"
     networks:

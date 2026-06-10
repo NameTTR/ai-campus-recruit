@@ -229,6 +229,103 @@ class AiControllerTest {
     }
 
     @Test
+    void asyncCandidateScreeningTaskCompletesAndCreatesHistoryRecord() throws Exception {
+        mockMvc.perform(post("/api/ai/candidates/screen/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "companyId": "C-ASYNC-001",
+                                  "deliveryId": "D-ASYNC-001",
+                                  "studentId": "S-ASYNC-001",
+                                  "resumeId": "R-ASYNC-001",
+                                  "jobId": "J-ASYNC-001",
+                                  "resumeSourceFormat": "DOCX",
+                                  "resumeParseStatus": "TEXT_EXTRACTED",
+                                  "resumeParsedTextLength": 188,
+                                  "targetRole": "Java Backend Intern",
+                                  "skills": ["Java", "Spring Boot", "MySQL", "Redis"],
+                                  "projects": ["Campus recruitment platform"],
+                                  "jobRequirements": ["Java", "Spring Boot", "MySQL", "Redis"],
+                                  "resumeSummary": "Java backend project experience",
+                                  "jobDescription": "Build backend APIs"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.taskId").isNotEmpty())
+                .andExpect(jsonPath("$.data.companyId").value("C-ASYNC-001"))
+                .andExpect(jsonPath("$.data.deliveryId").value("D-ASYNC-001"))
+                .andExpect(jsonPath("$.data.status").value("PENDING"))
+                .andExpect(jsonPath("$.data.source").value("RUNTIME"))
+                .andExpect(jsonPath("$.data.createdAt").isNotEmpty());
+
+        waitUntilTaskCompleted("C-ASYNC-001", "D-ASYNC-001");
+
+        mockMvc.perform(get("/api/ai/candidates/screen/tasks")
+                        .param("companyId", "C-ASYNC-001")
+                        .param("deliveryId", "D-ASYNC-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].status").value("COMPLETED"))
+                .andExpect(jsonPath("$.data[0].source").value("RUNTIME"))
+                .andExpect(jsonPath("$.data[0].result.deliveryId").value("D-ASYNC-001"))
+                .andExpect(jsonPath("$.data[0].result.resumeSourceFormat").value("DOCX"))
+                .andExpect(jsonPath("$.data[0].result.resumeParseStatus").value("TEXT_EXTRACTED"))
+                .andExpect(jsonPath("$.data[0].result.resumeParsedTextLength").value(188))
+                .andExpect(jsonPath("$.data[0].updatedAt").isNotEmpty());
+
+        mockMvc.perform(get("/api/ai/candidates/screenings")
+                        .param("companyId", "C-ASYNC-001")
+                        .param("deliveryId", "D-ASYNC-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].deliveryId").value("D-ASYNC-001"))
+                .andExpect(jsonPath("$.data[0].companyId").value("C-ASYNC-001"));
+    }
+
+    @Test
+    void asyncCandidateScreeningTaskUsesCompanyHeaderBeforeRequestCompanyId() throws Exception {
+        mockMvc.perform(post("/api/ai/candidates/screen/tasks")
+                        .header("X-User-Id", "C-ASYNC-GATEWAY-001")
+                        .header("X-User-Role", "COMPANY")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "companyId": "C-ASYNC-BODY-001",
+                                  "deliveryId": "D-ASYNC-GATEWAY-001",
+                                  "studentId": "S-ASYNC-GATEWAY-001",
+                                  "resumeId": "R-ASYNC-GATEWAY-001",
+                                  "jobId": "J-ASYNC-GATEWAY-001",
+                                  "targetRole": "Java Backend Intern",
+                                  "skills": ["Java", "Spring Boot"],
+                                  "projects": ["Campus recruitment platform"],
+                                  "jobRequirements": ["Java", "Spring Boot"],
+                                  "resumeSummary": "Java backend project experience",
+                                  "jobDescription": "Build backend APIs"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.companyId").value("C-ASYNC-GATEWAY-001"))
+                .andExpect(jsonPath("$.data.deliveryId").value("D-ASYNC-GATEWAY-001"));
+
+        mockMvc.perform(get("/api/ai/candidates/screen/tasks")
+                        .header("X-User-Id", "C-ASYNC-GATEWAY-001")
+                        .header("X-User-Role", "COMPANY")
+                        .param("companyId", "C-ASYNC-BODY-001")
+                        .param("deliveryId", "D-ASYNC-GATEWAY-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].companyId").value("C-ASYNC-GATEWAY-001"));
+
+        mockMvc.perform(get("/api/ai/candidates/screen/tasks")
+                        .param("companyId", "C-ASYNC-BODY-001")
+                        .param("deliveryId", "D-ASYNC-GATEWAY-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
     void candidateScreeningRecordsInitiallyReturnsEmptyArrayForUnknownCompany() throws Exception {
         mockMvc.perform(get("/api/ai/candidates/screenings")
                         .param("companyId", "C-HISTORY-EMPTY"))
@@ -482,6 +579,23 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data.deliveryId").value(deliveryId))
                 .andExpect(jsonPath("$.data.studentId").value(studentId))
                 .andExpect(jsonPath("$.data.jobId").value(jobId));
+    }
+
+    private void waitUntilTaskCompleted(String companyId, String deliveryId) throws Exception {
+        long deadline = System.currentTimeMillis() + 3000;
+        while (System.currentTimeMillis() < deadline) {
+            String content = mockMvc.perform(get("/api/ai/candidates/screen/tasks")
+                            .param("companyId", companyId)
+                            .param("deliveryId", deliveryId))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+            if (content.contains("\"status\":\"COMPLETED\"")) {
+                return;
+            }
+            Thread.sleep(50);
+        }
     }
 
     private static final class StubDashScopeClient extends DashScopeClient {

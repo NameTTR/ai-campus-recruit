@@ -109,6 +109,24 @@ export interface CandidateScreenRecord extends CandidateScreenResult {
   createdAt: string
 }
 
+export type CandidateScreenTaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+export type CandidateScreenTaskSource = 'DEMO' | 'RUNTIME' | 'ROCKETMQ'
+
+export interface CandidateScreenTask extends ResumeParseMetadata {
+  taskId: string
+  deliveryId: string
+  companyId: string
+  studentId: string
+  resumeId: string
+  jobId: string
+  status: CandidateScreenTaskStatus
+  source: CandidateScreenTaskSource
+  message: string
+  result?: CandidateScreenResult
+  createdAt: string
+  updatedAt: string
+}
+
 export interface InterviewQuestionRequest {
   studentId: string
   resumeId: string
@@ -613,6 +631,85 @@ const fallbackCandidateScreenRecords: CandidateScreenRecord[] = [
     companyId: 'C001',
     ...fallbackCandidateScreen,
     createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  }
+]
+
+function buildFallbackCandidateScreenTask(
+  payload: CandidateScreenRequest,
+  status: CandidateScreenTaskStatus = 'COMPLETED'
+): CandidateScreenTask {
+  const now = new Date().toISOString()
+  const result: CandidateScreenResult = {
+    ...fallbackCandidateScreen,
+    deliveryId: payload.deliveryId,
+    studentId: payload.studentId,
+    jobId: payload.jobId,
+    resumeSourceFormat: payload.resumeSourceFormat || fallbackCandidateScreen.resumeSourceFormat,
+    resumeParseStatus: payload.resumeParseStatus || fallbackCandidateScreen.resumeParseStatus,
+    resumeParsedTextLength: payload.resumeParsedTextLength ?? fallbackCandidateScreen.resumeParsedTextLength
+  }
+  return {
+    taskId: `TASK-DEMO-${payload.deliveryId}`,
+    deliveryId: payload.deliveryId,
+    companyId: payload.companyId || currentCompanyId(),
+    studentId: payload.studentId,
+    resumeId: payload.resumeId,
+    jobId: payload.jobId,
+    status,
+    source: 'DEMO',
+    message: status === 'COMPLETED' ? 'Demo async screening task completed.' : 'Demo async screening task accepted.',
+    result: status === 'COMPLETED' ? result : undefined,
+    resumeSourceFormat: result.resumeSourceFormat,
+    resumeParseStatus: result.resumeParseStatus,
+    resumeParsedTextLength: result.resumeParsedTextLength,
+    createdAt: now,
+    updatedAt: now
+  }
+}
+
+const fallbackCandidateScreenTasks: CandidateScreenTask[] = [
+  {
+    ...buildFallbackCandidateScreenTask({
+      deliveryId: 'D001',
+      companyId: 'C001',
+      studentId: 'S001',
+      resumeId: 'R001',
+      jobId: 'J001',
+      targetRole: 'Java backend intern',
+      skills: ['Java', 'Spring Boot', 'MySQL', 'Redis'],
+      projects: ['Campus recruitment platform'],
+      jobRequirements: ['Java', 'Spring Boot', 'MySQL', 'Redis'],
+      resumeSummary: 'Demo candidate with Java Web project experience.',
+      jobDescription: 'Backend API development internship.',
+      resumeSourceFormat: 'PDF',
+      resumeParseStatus: 'TEXT_EXTRACTED',
+      resumeParsedTextLength: 62
+    }),
+    taskId: 'TASK-DEMO-001',
+    createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 42 * 60 * 1000).toISOString()
+  },
+  {
+    ...buildFallbackCandidateScreenTask({
+      deliveryId: 'D002',
+      companyId: 'C001',
+      studentId: 'S002',
+      resumeId: 'R002',
+      jobId: 'J001',
+      targetRole: 'Java backend intern',
+      skills: ['Java', 'MySQL'],
+      projects: ['Online exam platform'],
+      jobRequirements: ['Java', 'Spring Boot', 'MySQL', 'Redis'],
+      resumeSummary: 'Demo candidate task still running.',
+      jobDescription: 'Backend API development internship.',
+      resumeSourceFormat: 'DOCX',
+      resumeParseStatus: 'TEXT_EXTRACTED',
+      resumeParsedTextLength: 48
+    }, 'RUNNING'),
+    taskId: 'TASK-DEMO-002',
+    message: 'Demo async screening task is running.',
+    createdAt: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString()
   }
 ]
 
@@ -1294,6 +1391,28 @@ export function screenCandidate(payload: CandidateScreenRequest) {
     resumeParseStatus: payload.resumeParseStatus || fallbackCandidateScreen.resumeParseStatus,
     resumeParsedTextLength: payload.resumeParsedTextLength ?? fallbackCandidateScreen.resumeParsedTextLength
   })
+}
+
+export function createCandidateScreenTask(payload: CandidateScreenRequest) {
+  return request<CandidateScreenTask>('/api/ai/candidates/screen/tasks', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, buildFallbackCandidateScreenTask(payload))
+}
+
+export function listCandidateScreenTasks(companyId = currentCompanyId(), deliveryId?: string) {
+  const params = new URLSearchParams()
+  if (companyId) {
+    params.set('companyId', companyId)
+  }
+  if (deliveryId) {
+    params.set('deliveryId', deliveryId)
+  }
+  const query = params.toString()
+  const path = `/api/ai/candidates/screen/tasks${query ? `?${query}` : ''}`
+  return request<CandidateScreenTask[]>(path, { method: 'GET' },
+    fallbackCandidateScreenTasks.filter((task) =>
+      (!companyId || task.companyId === companyId) && (!deliveryId || task.deliveryId === deliveryId)))
 }
 
 export function listCandidateScreenRecords(companyId = currentCompanyId(), deliveryId?: string) {

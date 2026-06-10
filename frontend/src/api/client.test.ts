@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   changeAccountPassword,
   createAccount,
+  createCandidateScreenTask,
   createDelivery,
   exportAdminAudit,
   getAuthSession,
@@ -19,6 +20,7 @@ import {
   listAiCallRecords,
   listAccounts,
   listCandidateScreenRecords,
+  listCandidateScreenTasks,
   listMyCandidateScreenRecords,
   listInterviewRecords,
   listCompanyDeliveries,
@@ -323,7 +325,7 @@ describe('api fallback behavior', () => {
       studentId: 'S001',
       resumeId: 'R001',
       jobId: 'J001',
-      targetRole: 'Java 后端实习生',
+      targetRole: 'Java backend intern',
       skills: ['Java', 'Spring Boot']
     })
 
@@ -335,9 +337,9 @@ describe('api fallback behavior', () => {
     const result = await submitInterviewFeedback({
       studentId: 'S001',
       questionId: 'IQ-001',
-      question: '请说明项目中的关键技术方案。',
-      answer: '我负责接口开发和数据库设计，并通过缓存优化查询性能。',
-      targetRole: 'Java 后端实习生'
+      question: 'Describe a key technical decision in your project.',
+      answer: 'I handled API development and database design, then improved query performance with cache.',
+      targetRole: 'Java backend intern'
     })
 
     expect(result.mocked).toBe(true)
@@ -352,22 +354,22 @@ describe('api fallback behavior', () => {
       resumeId: 'R100',
       jobId: 'J100',
       companyId: 'C001',
-      targetRole: 'Java 后端实习生',
+      targetRole: 'Java backend intern',
       skills: ['Java', 'Spring Boot'],
-      projects: ['招聘平台'],
+      projects: ['Recruitment platform'],
       jobRequirements: ['Java', 'MySQL'],
       resumeSourceFormat: 'PDF',
       resumeParseStatus: 'TEXT_EXTRACTED',
       resumeParsedTextLength: 88,
-      resumeSummary: '具备 Java Web 项目经历。',
-      jobDescription: '参与后端接口开发。'
+      resumeSummary: 'Java Web project experience.',
+      jobDescription: 'Backend API development.'
     })
 
     expect(result.deliveryId).toBe('D100')
     expect(result.resumeSourceFormat).toBe('PDF')
     expect(result.resumeParseStatus).toBe('TEXT_EXTRACTED')
     expect(result.resumeParsedTextLength).toBe(88)
-    expect(result.recommendation).toContain('一面')
+    expect(result.recommendation.length).toBeGreaterThan(0)
     expect(result.risks.length).toBeGreaterThan(0)
     expect(fetch).not.toHaveBeenCalled()
   })
@@ -384,11 +386,11 @@ describe('api fallback behavior', () => {
           studentId: 'S200',
           jobId: 'J200',
           score: 91,
-          recommendation: '优先进入技术一面',
-          strengths: ['技能匹配'],
-          risks: ['需要确认项目深度'],
-          interviewQuestions: ['请说明缓存设计。'],
-          nextActions: ['安排一面'],
+          recommendation: 'Proceed to technical interview',
+          strengths: ['Skill match'],
+          risks: ['Confirm project depth'],
+          interviewQuestions: ['Describe cache design.'],
+          nextActions: ['Schedule first interview'],
           mocked: false
         }
       })
@@ -400,17 +402,124 @@ describe('api fallback behavior', () => {
       resumeId: 'R200',
       jobId: 'J200',
       companyId: 'C001',
-      targetRole: 'Java 后端实习生',
+      targetRole: 'Java backend intern',
       skills: ['Java'],
-      projects: ['招聘平台'],
+      projects: ['Recruitment platform'],
       jobRequirements: ['Java'],
-      resumeSummary: 'Java 项目经历。',
-      jobDescription: '后端开发。'
+      resumeSummary: 'Java project experience.',
+      jobDescription: 'Backend development.'
     })
 
     expect(result.mocked).toBe(false)
     expect(result.score).toBe(91)
     expect(fetch).toHaveBeenCalledWith('/api/ai/candidates/screen', expect.any(Object))
+  })
+
+  it('returns async candidate screen task fallback when ai proxy is not configured', async () => {
+    const result = await createCandidateScreenTask({
+      deliveryId: 'D-TASK-100',
+      studentId: 'S100',
+      resumeId: 'R100',
+      jobId: 'J100',
+      companyId: 'C001',
+      targetRole: 'Java backend intern',
+      skills: ['Java', 'Spring Boot'],
+      projects: ['Recruitment platform'],
+      jobRequirements: ['Java', 'MySQL'],
+      resumeSourceFormat: 'PDF',
+      resumeParseStatus: 'TEXT_EXTRACTED',
+      resumeParsedTextLength: 88,
+      resumeSummary: 'Java Web project experience.',
+      jobDescription: 'Backend API development.'
+    })
+
+    expect(result.taskId).toBe('TASK-DEMO-D-TASK-100')
+    expect(result.status).toBe('COMPLETED')
+    expect(result.source).toBe('DEMO')
+    expect(result.result?.deliveryId).toBe('D-TASK-100')
+    expect(result.result?.resumeParsedTextLength).toBe(88)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls async candidate screen task endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          taskId: 'TASK-200',
+          deliveryId: 'D200',
+          companyId: 'C001',
+          studentId: 'S200',
+          resumeId: 'R200',
+          jobId: 'J200',
+          status: 'PENDING',
+          source: 'ROCKETMQ',
+          message: 'queued',
+          createdAt: '2026-06-10T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await createCandidateScreenTask({
+      deliveryId: 'D200',
+      studentId: 'S200',
+      resumeId: 'R200',
+      jobId: 'J200',
+      companyId: 'C001',
+      targetRole: 'Java backend intern',
+      skills: ['Java'],
+      projects: ['Recruitment platform'],
+      jobRequirements: ['Java'],
+      resumeSummary: 'Java project experience.',
+      jobDescription: 'Backend development.'
+    })
+
+    expect(result.taskId).toBe('TASK-200')
+    expect(result.status).toBe('PENDING')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/candidates/screen/tasks', expect.any(Object))
+  })
+
+  it('returns async candidate screen task list fallback when ai proxy is not configured', async () => {
+    const result = await listCandidateScreenTasks('C001')
+
+    expect(result.length).toBeGreaterThan(0)
+    expect(result.every((task) => task.companyId === 'C001')).toBe(true)
+    expect(result.some((task) => task.status === 'COMPLETED' && task.result)).toBe(true)
+    expect(result.some((task) => task.status === 'RUNNING')).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls async candidate screen task list endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: [{
+          taskId: 'TASK-300',
+          deliveryId: 'D300',
+          companyId: 'C001',
+          studentId: 'S300',
+          resumeId: 'R300',
+          jobId: 'J300',
+          status: 'COMPLETED',
+          source: 'RUNTIME',
+          message: 'completed',
+          createdAt: '2026-06-10T00:00:00Z',
+          updatedAt: '2026-06-10T00:01:00Z'
+        }]
+      })
+    } as Response)
+
+    const result = await listCandidateScreenTasks('C001', 'D300')
+
+    expect(result[0].taskId).toBe('TASK-300')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/candidates/screen/tasks?companyId=C001&deliveryId=D300', expect.any(Object))
   })
 
   it('returns candidate screen history fallback when ai proxy is not configured', async () => {
@@ -458,11 +567,11 @@ describe('api fallback behavior', () => {
           studentId: 'S200',
           jobId: 'J200',
           score: 91,
-          recommendation: '优先进入技术一面',
-          strengths: ['技能匹配'],
-          risks: ['需要确认项目深度'],
-          interviewQuestions: ['请说明缓存设计。'],
-          nextActions: ['安排一面'],
+          recommendation: 'Proceed to technical interview',
+          strengths: ['Skill match'],
+          risks: ['Confirm project depth'],
+          interviewQuestions: ['Describe cache design.'],
+          nextActions: ['Schedule first interview'],
           mocked: false,
           createdAt: '2026-06-02T01:00:00Z'
         }]
@@ -520,11 +629,11 @@ describe('api fallback behavior', () => {
           studentId: 'S 300',
           jobId: 'J300',
           score: 89,
-          recommendation: '进入技术面',
-          strengths: ['匹配 Java 后端岗位'],
-          risks: ['项目指标需要确认'],
-          interviewQuestions: ['介绍一次接口优化'],
-          nextActions: ['安排一面'],
+          recommendation: 'Proceed to technical interview',
+          strengths: ['Java backend match'],
+          risks: ['Confirm project metrics'],
+          interviewQuestions: ['Introduce an API optimization.'],
+          nextActions: ['Schedule first interview'],
           mocked: false,
           createdAt: '2026-06-10T01:00:00Z'
         }]

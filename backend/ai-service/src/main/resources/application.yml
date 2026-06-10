@@ -22,6 +22,13 @@ ai:
     cache:
       ttl: ${AI_SCREENING_CACHE_TTL:10m}
       key-prefix: ${AI_SCREENING_CACHE_KEY_PREFIX:ai:screening:records}
+    tasks:
+      max-size: ${AI_SCREENING_TASK_MAX_SIZE:100}
+    rocketmq:
+      enabled: ${AI_SCREENING_ROCKETMQ_ENABLED:false}
+      name-server: ${ROCKETMQ_NAME_SERVER:127.0.0.1:9876}
+      consumer-group: ${AI_SCREENING_ROCKETMQ_CONSUMER_GROUP:ai-screening-consumer}
+      topic: ${DELIVERY_EVENTS_TOPIC:delivery-events}
 
 management:
   health:

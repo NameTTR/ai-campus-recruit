@@ -1,6 +1,7 @@
 package com.aicampus.ai.controller;
 
 import com.aicampus.ai.service.AiCoachService;
+import com.aicampus.ai.service.screening.CandidateScreenTaskService;
 import com.aicampus.common.api.ApiResponse;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
@@ -12,11 +13,13 @@ import com.aicampus.common.dto.AiSearchResponse;
 import com.aicampus.common.dto.CandidateScreenRecord;
 import com.aicampus.common.dto.CandidateScreenRequest;
 import com.aicampus.common.dto.CandidateScreenResult;
+import com.aicampus.common.dto.CandidateScreenTask;
 import com.aicampus.common.dto.InterviewFeedback;
 import com.aicampus.common.dto.InterviewFeedbackRequest;
 import com.aicampus.common.dto.InterviewQuestion;
 import com.aicampus.common.dto.InterviewQuestionRequest;
 import com.aicampus.common.dto.InterviewRecord;
+import com.aicampus.common.enums.CandidateScreenTaskSource;
 import io.swagger.v3.oas.annotations.Operation;
 import java.util.List;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -38,9 +41,11 @@ public class AiController {
     private static final String ROLE_STUDENT = "STUDENT";
 
     private final AiCoachService aiCoachService;
+    private final CandidateScreenTaskService candidateScreenTaskService;
 
-    public AiController(AiCoachService aiCoachService) {
+    public AiController(AiCoachService aiCoachService, CandidateScreenTaskService candidateScreenTaskService) {
         this.aiCoachService = aiCoachService;
+        this.candidateScreenTaskService = candidateScreenTaskService;
     }
 
     @Operation(summary = "Get AI module provider status")
@@ -101,6 +106,27 @@ public class AiController {
             @RequestHeader(value = X_USER_ID, required = false) String userId,
             @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
         return ApiResponse.ok(aiCoachService.screenCandidate(resolveCompanyRequest(request, userId, userRole)));
+    }
+
+    @Operation(summary = "Submit async candidate screening task")
+    @PostMapping("/candidates/screen/tasks")
+    public ApiResponse<CandidateScreenTask> submitCandidateScreeningTask(
+            @RequestBody CandidateScreenRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(candidateScreenTaskService.submit(
+                resolveCompanyRequest(request, userId, userRole),
+                CandidateScreenTaskSource.RUNTIME));
+    }
+
+    @Operation(summary = "List async candidate screening tasks")
+    @GetMapping("/candidates/screen/tasks")
+    public ApiResponse<List<CandidateScreenTask>> candidateScreeningTasks(
+            @RequestParam(required = false) String companyId,
+            @RequestParam(required = false) String deliveryId,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(candidateScreenTaskService.list(resolveCompanyId(companyId, userId, userRole), deliveryId));
     }
 
     @Operation(summary = "List candidate screening records")

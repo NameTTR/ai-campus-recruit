@@ -65,6 +65,16 @@
   - `resumeParseStatus=TEXT_EXTRACTED` 表示初筛参考了已抽取正文；`UNPARSED` 或 `UNKNOWN` 表示简历正文证据不足，AI 会提示 HR 做人工确认。
   - 未配置 `DASHSCOPE_API_KEY` 或模型调用失败时，返回确定性的演示初筛结果，且 `mocked=true`。
   - 生成结果会写入筛选历史；默认内存存储，启用持久化后写入 MySQL。
+- `POST /api/ai/candidates/screen/tasks`：创建 AI 候选人异步初筛任务。
+  - 请求体沿用 `CandidateScreenRequest`，字段与同步初筛一致。
+  - 返回：`CandidateScreenTask`，包含 `taskId`、`deliveryId`、`companyId`、`studentId`、`resumeId`、`jobId`、`status`、`source`、`message`、`result`、`createdAt`、`updatedAt`。
+  - `status` 支持 `PENDING`、`RUNNING`、`COMPLETED`、`FAILED`；`source` 支持 `DEMO`、`RUNTIME`、`ROCKETMQ`。
+  - `result` 仅在任务完成且有可展示结果时返回，结构为 `CandidateScreenResult`；前端必须能展示无 `result` 的排队、运行中和失败状态。
+  - 所有响应仍使用 `ApiResponse<CandidateScreenTask>`，不得返回 API Key、原始提示词、完整简历正文或其他敏感信息。
+- `GET /api/ai/candidates/screen/tasks?companyId=C001&deliveryId=D001`：查询 AI 候选人异步初筛任务。
+  - 查询参数：`companyId`、`deliveryId` 均可选；为空时不过滤。
+  - 返回：`CandidateScreenTask[]`，字段同创建接口。
+  - 企业端投递审核和 AI 筛选历史优先使用该任务列表展示异步状态；开发模式未配置 gateway 或 AI proxy 时前端返回确定性的 `DEMO` 任务数据，且不调用 `fetch`。
 - `GET /api/ai/candidates/screenings?companyId=C001&deliveryId=D001`：查询 AI 候选人初筛历史。
   - 查询参数：`companyId`、`deliveryId` 均可选；为空时不过滤。
   - 返回：`CandidateScreenRecord[]`，每项包含 `screeningId`、`companyId`、`deliveryId`、`studentId`、`jobId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`、`score`、`recommendation`、`strengths`、`risks`、`interviewQuestions`、`nextActions`、`mocked`、`createdAt`。
