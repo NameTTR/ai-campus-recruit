@@ -311,6 +311,41 @@ $password = Read-Host "Demo password"
 
 脚本默认不执行 SSH，不要求密码。报告中的 SSH 命令只作为手工排查提示，可配合当前 `ssh` 配置或用户自备 key 使用。
 
+### v3.3 一键部署入口
+
+v3.3 新增 Windows 宿主机一键部署脚本：
+
+```powershell
+.\scripts\deploy-three-vm.ps1 -SshUser ubuntu
+```
+
+脚本会自动读取 VMware Tools 报告的三台 VM IP，生成临时部署 env，归档当前 Git 提交，上传到三台 VM，并按 VM3、VM2、VM1 的顺序执行 Docker Compose。脚本默认会清理各 VM 上残留的 `recruit-*` 容器，避免克隆 VM 后旧的 Nacos/Gateway 占用端口。
+
+如果已经配置 SSH key：
+
+```powershell
+.\scripts\deploy-three-vm.ps1 -SshUser ubuntu -IdentityFile $HOME\.ssh\id_ed25519
+```
+
+如果使用密码登录，请在可见 PowerShell 窗口中运行脚本，让 OpenSSH 交互式提示输入密码。脚本启用 SSH ControlMaster 连接复用，同一台 VM 后续的 scp/ssh 步骤会复用首次登录连接。
+
+部署成功后脚本会继续运行：
+
+```powershell
+.\scripts\check-three-vm-health.ps1
+.\scripts\check-distributed-ai-flow.ps1 -BaseUrl http://<VM1_IP>:8080 -AiBaseUrl http://<VM3_IP>:8106
+```
+
+`check-distributed-ai-flow.ps1` 会验证：
+
+- DashScope 状态为 `configured=true`；
+- 至少一次真实候选人筛选返回 `mocked=false`；
+- 学生创建投递后，`delivery-service` 发布 RocketMQ 事件；
+- `ai-service` 消费事件并生成一个 `ROCKETMQ` 来源的异步初筛任务；
+- 同一投递对应的 RocketMQ 初筛任务数量保持为 1。
+
+当前 Windows 主机尚未具备三台 VM 的 SSH 登录通道；`ubuntu`、`hadoop`、`gjw` 的 key 登录均返回 `Permission denied (publickey,password)`。完成真实三机部署前，需要先提供 VM SSH 密码，或把 Windows 主机公钥加入 VM 用户的 `~/.ssh/authorized_keys`。
+
 ### 手工接口验证
 
 在任意能访问三台 VM 的机器上执行：
