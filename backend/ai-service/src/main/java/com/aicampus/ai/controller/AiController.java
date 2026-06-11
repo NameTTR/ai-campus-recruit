@@ -10,6 +10,8 @@ import com.aicampus.common.dto.AiModuleStatus;
 import com.aicampus.common.dto.AiObservabilitySummary;
 import com.aicampus.common.dto.AiSearchRequest;
 import com.aicampus.common.dto.AiSearchResponse;
+import com.aicampus.common.dto.CareerPlanRequest;
+import com.aicampus.common.dto.CareerPlanResponse;
 import com.aicampus.common.dto.CandidateScreenRecord;
 import com.aicampus.common.dto.CandidateScreenRequest;
 import com.aicampus.common.dto.CandidateScreenResult;
@@ -19,6 +21,8 @@ import com.aicampus.common.dto.InterviewFeedbackRequest;
 import com.aicampus.common.dto.InterviewQuestion;
 import com.aicampus.common.dto.InterviewQuestionRequest;
 import com.aicampus.common.dto.InterviewRecord;
+import com.aicampus.common.dto.ResumeRewriteRequest;
+import com.aicampus.common.dto.ResumeRewriteResponse;
 import com.aicampus.common.enums.CandidateScreenTaskSource;
 import io.swagger.v3.oas.annotations.Operation;
 import java.util.List;
@@ -59,6 +63,24 @@ public class AiController {
     @PostMapping("/analyze")
     public ApiResponse<AiAnalyzeResponse> analyze(@RequestBody AiAnalyzeRequest request) {
         return ApiResponse.ok(aiCoachService.analyze(request));
+    }
+
+    @Operation(summary = "Generate resume rewrite suggestions")
+    @PostMapping("/resume/rewrite")
+    public ApiResponse<ResumeRewriteResponse> resumeRewrite(
+            @RequestBody ResumeRewriteRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(aiCoachService.rewriteResume(resolveStudentRequest(request, userId, userRole)));
+    }
+
+    @Operation(summary = "Generate career planning roadmap")
+    @PostMapping("/career/plan")
+    public ApiResponse<CareerPlanResponse> careerPlan(
+            @RequestBody CareerPlanRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(aiCoachService.careerPlan(resolveStudentRequest(request, userId, userRole)));
     }
 
     @Operation(summary = "Search campus recruitment knowledge with local AI ranking")
@@ -234,6 +256,40 @@ public class AiController {
             return request;
         }
         return new InterviewFeedbackRequest(studentId, request.questionId(), request.question(), request.answer(), request.targetRole());
+    }
+
+    private ResumeRewriteRequest resolveStudentRequest(ResumeRewriteRequest request, String userId, String userRole) {
+        String studentId = resolveStudentId(request == null ? null : request.studentId(), userId, userRole);
+        if (request == null) {
+            return new ResumeRewriteRequest(studentId, null, null, null, null, null);
+        }
+        if (sameText(studentId, request.studentId())) {
+            return request;
+        }
+        return new ResumeRewriteRequest(
+                studentId,
+                request.resumeId(),
+                request.targetRole(),
+                request.resumeSummary(),
+                request.skills(),
+                request.projects());
+    }
+
+    private CareerPlanRequest resolveStudentRequest(CareerPlanRequest request, String userId, String userRole) {
+        String studentId = resolveStudentId(request == null ? null : request.studentId(), userId, userRole);
+        if (request == null) {
+            return new CareerPlanRequest(studentId, null, null, null, null, null);
+        }
+        if (sameText(studentId, request.studentId())) {
+            return request;
+        }
+        return new CareerPlanRequest(
+                studentId,
+                request.targetRole(),
+                request.skills(),
+                request.interests(),
+                request.resumeSummary(),
+                request.timeframeWeeks());
     }
 
     private String resolveCompanyId(String requestCompanyId, String userId, String userRole) {

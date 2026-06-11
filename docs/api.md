@@ -59,6 +59,17 @@
 - `POST /api/ai/analyze`：通用 AI 分析接口，供简历诊断、岗位分析和匹配分析复用。
   - 请求体：`taskType`、`content`、`context`。
   - 返回：`AiAnalyzeResponse`，包含 `taskType`、`provider`、`content`、`mocked`。
+- `POST /api/ai/resume/rewrite`：面向学生的 AI 简历改写接口，基于目标岗位、简历摘要、技能和项目经历生成可直接用于简历优化的结构化建议。
+  - 请求体：`studentId`、`resumeId`、`targetRole`、`resumeSummary`、`skills`、`projects`。
+  - 返回：`ResumeRewriteResponse`，包含 `studentId`、`resumeId`、`targetRole`、`improvedSummary`、`rewrittenProjects`、`keywordSuggestions`、`missingEvidence`、`actionChecklist`、`mocked`。
+  - Gateway 已注入 `X-User-Role=STUDENT` 和 `X-User-Id` 时，下游服务必须以注入的学生身份为准，覆盖请求体中的 `studentId`。
+  - 未配置 `DASHSCOPE_API_KEY` 或模型调用失败时返回确定性的演示改写建议，且 `mocked=true`；响应不得返回 API Key、原始提示词、完整简历正文或其他敏感信息。
+- `POST /api/ai/career/plan`：面向学生的 AI 职业规划接口，围绕目标岗位生成阶段里程碑、技能差距、每周行动、作品集任务和面试准备重点。
+  - 请求体：`studentId`、`targetRole`、`skills`、`interests`、`resumeSummary`、`timeframeWeeks`。
+  - 返回：`CareerPlanResponse`，包含 `studentId`、`targetRole`、`readinessScore`、`summary`、`milestones`、`skillGaps`、`weeklyActions`、`portfolioTasks`、`interviewFocus`、`mocked`。
+  - `milestones` 每项包含 `title`、`timeframe`、`goals`。
+  - Gateway 已注入 `X-User-Role=STUDENT` 和 `X-User-Id` 时，下游服务必须以注入的学生身份为准，覆盖请求体中的 `studentId`。
+  - 未配置 `DASHSCOPE_API_KEY` 或模型调用失败时返回确定性的演示规划，且 `mocked=true`；响应不得返回 API Key、原始提示词、完整简历正文或其他敏感信息。
 - `POST /api/ai/candidates/screen`：基于投递、简历摘要、项目经历和岗位要求生成候选人初筛结果。
   - 请求体：`deliveryId`、`companyId`、`studentId`、`resumeId`、`jobId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`、`targetRole`、`skills`、`projects`、`jobRequirements`、`resumeSummary`、`jobDescription`。
   - 返回：`CandidateScreenResult`，包含 `deliveryId`、`studentId`、`jobId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`、`score`、`recommendation`、`strengths`、`risks`、`interviewQuestions`、`nextActions`、`mocked`。
@@ -149,6 +160,8 @@
   - `GET /api/matches/student/{studentId}`
   - `POST /api/deliveries`
   - `GET /api/deliveries/my`
+  - `POST /api/ai/resume/rewrite`
+  - `POST /api/ai/career/plan`
   - `POST /api/ai/interview/questions`
   - `POST /api/ai/interview/feedback`
   - `GET /api/ai/interview/records`
@@ -234,7 +247,12 @@
   - The endpoint only generates deployment instructions, does not probe network health, and never returns credential values.
 
 - `GET /api/admin/dashboard`：学校端统计看板。
-  - 返回：`studentCount`、`companyCount`、`jobCount`、`deliveryCount`、`averageMatchScore`、`deliveryStatusCounts`、`pendingDeliveryCount`。
+  - 返回：`studentCount`、`companyCount`、`jobCount`、`deliveryCount`、`averageMatchScore`、`deliveryStatusCounts`、`pendingDeliveryCount`、`interviewRate`、`offerRate`、`activeStudentCount`、`highPotentialCandidateCount`、`weeklyDeliveryTrend`、`skillDemandTop`、`conversionFunnel`、`riskAlerts`。
+  - `interviewRate` 和 `offerRate` 为整数百分比，用于展示投递进入面试和录用转化情况。
+  - `weeklyDeliveryTrend` 每项包含 `label`、`deliveryCount`、`interviewCount`、`offerCount`，用于管理端趋势图。
+  - `skillDemandTop` 每项包含 `skill`、`jobCount`、`matchedStudentCount`、`demandScore`，用于展示岗位技能需求和学生供给匹配。
+  - `conversionFunnel` 每项包含 `stage`、`label`、`count`、`conversionRate`，用于展示投递到查看、面试、录用的漏斗。
+  - `riskAlerts` 为就业办可读的风险提示列表，用于管理数据大屏的预警区域。
 
 ## v2.9 Admin Audit Data Center
 

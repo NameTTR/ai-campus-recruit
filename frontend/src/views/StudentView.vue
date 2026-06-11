@@ -2,11 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { Brain, BriefcaseBusiness, ClipboardList, Clock3, FileUp, RefreshCw, Send } from 'lucide-vue-next'
+import { Brain, BriefcaseBusiness, ClipboardList, Clock3, FileUp, RefreshCw, Route, Send, Sparkles } from 'lucide-vue-next'
 import {
   analyzeResume,
   createDelivery,
   currentStudentId,
+  generateCareerPlan,
   generateInterviewQuestions,
   getAiStatus,
   getProfile,
@@ -16,10 +17,12 @@ import {
   listJobs,
   listMyCandidateScreenRecords,
   matchResumeJob,
+  rewriteResume,
   submitInterviewFeedback,
   uploadResume,
   type AiModuleStatus,
   type CandidateScreenRecord,
+  type CareerPlanResponse,
   type DeliveryRecord,
   type DeliveryStatus,
   type InterviewFeedback,
@@ -27,6 +30,7 @@ import {
   type InterviewRecord,
   type JobSummary,
   type MatchResult,
+  type ResumeRewriteResponse,
   type ResumeSummary,
   type UserProfile
 } from '../api/client'
@@ -50,13 +54,22 @@ const interviewRecords = ref<InterviewRecord[]>([])
 const interviewRecordsLoading = ref(false)
 const candidateScreenRecords = ref<CandidateScreenRecord[]>([])
 const lifecycleLoading = ref(false)
+const resumeRewrite = ref<ResumeRewriteResponse>()
+const careerPlan = ref<CareerPlanResponse>()
+const resumeRewriteLoading = ref(false)
+const careerPlanLoading = ref(false)
 
 const capabilityLabels: Record<string, string> = {
   'resume-analysis': '简历诊断',
+  'resume-rewrite': '简历改写',
+  'career-planning': '求职规划',
   'job-analysis': '岗位分析',
   'match-analysis': '人岗匹配',
+  'candidate-screening': '候选人初筛',
   'interview-question-generation': '面试出题',
-  'interview-feedback': '回答反馈'
+  'interview-feedback': '回答反馈',
+  observability: '调用观测',
+  'intelligent-search': '智能搜索'
 }
 
 const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'resume')
@@ -68,6 +81,23 @@ const interviewRole = computed(() => interviewJob.value?.title || profile.value?
 const selectedQuestion = computed(() => interviewQuestions.value.find((question) => question.questionId === selectedQuestionId.value))
 const aiStatusTagType = computed<'success' | 'warning'>(() => (aiStatus.value?.configured ? 'success' : 'warning'))
 const aiStatusText = computed(() => (aiStatus.value?.configured ? '真实 AI' : '离线演示'))
+const planTargetRole = computed(() => profile.value?.targetPosition || 'Java 后端实习生')
+const planSkills = computed(() => {
+  const skills = resume.value?.skills?.length ? resume.value.skills : profile.value?.skills
+  return skills?.length ? skills : ['Java', 'Spring Boot', 'MySQL']
+})
+const planProjects = computed(() => resume.value?.projects?.length ? resume.value.projects : ['校园招聘平台'])
+const planSummary = computed(() => resume.value?.diagnosis || `${profile.value?.major || '软件工程'}学生，目标岗位为${planTargetRole.value}`)
+const readinessType = computed<'success' | 'warning' | 'exception'>(() => {
+  const score = careerPlan.value?.readinessScore || 0
+  if (score >= 85) {
+    return 'success'
+  }
+  if (score >= 65) {
+    return 'warning'
+  }
+  return 'exception'
+})
 const aiProviderText = computed(() => {
   if (!aiStatus.value) {
     return '状态检测中'
@@ -151,6 +181,40 @@ async function submitResume() {
 async function runAnalyze() {
   resume.value = await analyzeResume(resume.value?.resumeId || 'R001')
   ElMessage.success('诊断已生成')
+}
+
+async function runResumeRewrite() {
+  resumeRewriteLoading.value = true
+  try {
+    resumeRewrite.value = await rewriteResume({
+      studentId: activeStudentId.value,
+      resumeId: resume.value?.resumeId || 'R001',
+      targetRole: planTargetRole.value,
+      resumeSummary: planSummary.value,
+      skills: planSkills.value,
+      projects: planProjects.value
+    })
+    ElMessage.success('简历改写建议已生成')
+  } finally {
+    resumeRewriteLoading.value = false
+  }
+}
+
+async function runCareerPlan() {
+  careerPlanLoading.value = true
+  try {
+    careerPlan.value = await generateCareerPlan({
+      studentId: activeStudentId.value,
+      targetRole: planTargetRole.value,
+      skills: planSkills.value,
+      interests: [profile.value?.major, planTargetRole.value, '后端开发'].filter(Boolean) as string[],
+      resumeSummary: planSummary.value,
+      timeframeWeeks: 8
+    })
+    ElMessage.success('求职规划已生成')
+  } finally {
+    careerPlanLoading.value = false
+  }
 }
 
 async function runMatch(jobId: string) {
@@ -349,6 +413,160 @@ function formatTime(value: string) {
           <el-tag v-for="skill in resume.skills" :key="skill" type="success">{{ skill }}</el-tag>
         </div>
         <p>{{ resume.diagnosis }}</p>
+      </div>
+    </section>
+
+    <section v-if="activeModule === 'plan'" class="panel module-panel plan-panel">
+      <div class="panel-title plan-title">
+        <span>
+          AI 求职规划
+          <Route :size="19" />
+        </span>
+        <div class="plan-title-meta">
+          <el-tag :type="aiStatusTagType">{{ aiStatusText }}</el-tag>
+          <el-button size="small" :loading="aiStatusLoading" @click="refreshAiStatus">
+            <RefreshCw :size="15" />
+            刷新状态
+          </el-button>
+        </div>
+      </div>
+
+      <div class="plan-summary-strip">
+        <div>
+          <span>目标岗位</span>
+          <strong>{{ planTargetRole }}</strong>
+        </div>
+        <div>
+          <span>简历</span>
+          <strong>{{ resume?.fileName || '演示简历' }}</strong>
+        </div>
+        <div>
+          <span>技能标签</span>
+          <div class="tag-row">
+            <el-tag v-for="skill in planSkills" :key="skill" size="small">{{ skill }}</el-tag>
+          </div>
+        </div>
+      </div>
+
+      <div class="plan-grid">
+        <div class="plan-block">
+          <div class="plan-block-head">
+            <div>
+              <h3>简历改写建议</h3>
+              <span>面向目标岗位重写摘要、项目和关键词</span>
+            </div>
+            <el-button type="primary" :loading="resumeRewriteLoading" @click="runResumeRewrite">
+              <Sparkles :size="17" />
+              生成改写
+            </el-button>
+          </div>
+
+          <el-skeleton v-if="resumeRewriteLoading && !resumeRewrite" :rows="5" animated />
+          <el-empty v-else-if="!resumeRewrite" class="compact-empty" description="暂无改写建议" />
+          <div v-else class="rewrite-result">
+            <div class="plan-note">
+              <strong>优化摘要</strong>
+              <p>{{ resumeRewrite.improvedSummary }}</p>
+            </div>
+            <div>
+              <strong class="subheading">项目改写</strong>
+              <ul class="plain-list dense">
+                <li v-for="project in resumeRewrite.rewrittenProjects" :key="project">{{ project }}</li>
+              </ul>
+            </div>
+            <div>
+              <strong class="subheading">关键词建议</strong>
+              <div class="tag-row">
+                <el-tag v-for="keyword in resumeRewrite.keywordSuggestions" :key="keyword" type="success">{{ keyword }}</el-tag>
+              </div>
+            </div>
+            <div class="plan-two-columns">
+              <div>
+                <strong class="subheading">缺失证据</strong>
+                <ul class="plain-list dense">
+                  <li v-for="item in resumeRewrite.missingEvidence" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+              <div>
+                <strong class="subheading">行动清单</strong>
+                <ul class="plain-list dense">
+                  <li v-for="item in resumeRewrite.actionChecklist" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="plan-block">
+          <div class="plan-block-head">
+            <div>
+              <h3>8 周职业规划</h3>
+              <span>按准备度、里程碑和每周动作拆解</span>
+            </div>
+            <el-button type="primary" :loading="careerPlanLoading" @click="runCareerPlan">
+              <Route :size="17" />
+              生成规划
+            </el-button>
+          </div>
+
+          <el-skeleton v-if="careerPlanLoading && !careerPlan" :rows="5" animated />
+          <el-empty v-else-if="!careerPlan" class="compact-empty" description="暂无求职规划" />
+          <div v-else class="career-result">
+            <div class="readiness-row">
+              <div class="readiness-score">{{ careerPlan.readinessScore }}</div>
+              <div>
+                <strong>准备度</strong>
+                <el-progress :percentage="careerPlan.readinessScore" :status="readinessType" :stroke-width="10" />
+              </div>
+            </div>
+            <p class="career-summary">{{ careerPlan.summary }}</p>
+
+            <el-timeline class="plan-timeline">
+              <el-timeline-item
+                v-for="milestone in careerPlan.milestones"
+                :key="milestone.title"
+                :timestamp="milestone.timeframe"
+                placement="top"
+              >
+                <div class="milestone-body">
+                  <strong>{{ milestone.title }}</strong>
+                  <ul class="plain-list dense">
+                    <li v-for="goal in milestone.goals" :key="goal">{{ goal }}</li>
+                  </ul>
+                </div>
+              </el-timeline-item>
+            </el-timeline>
+
+            <div class="plan-two-columns">
+              <div>
+                <strong class="subheading">技能短板</strong>
+                <div class="tag-row">
+                  <el-tag v-for="gap in careerPlan.skillGaps" :key="gap" type="warning">{{ gap }}</el-tag>
+                </div>
+              </div>
+              <div>
+                <strong class="subheading">面试重点</strong>
+                <ul class="plain-list dense">
+                  <li v-for="focus in careerPlan.interviewFocus" :key="focus">{{ focus }}</li>
+                </ul>
+              </div>
+            </div>
+            <div class="plan-two-columns">
+              <div>
+                <strong class="subheading">每周动作</strong>
+                <ul class="plain-list dense">
+                  <li v-for="action in careerPlan.weeklyActions" :key="action">{{ action }}</li>
+                </ul>
+              </div>
+              <div>
+                <strong class="subheading">作品集任务</strong>
+                <ul class="plain-list dense">
+                  <li v-for="task in careerPlan.portfolioTasks" :key="task">{{ task }}</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -964,6 +1182,185 @@ function formatTime(value: string) {
   width: 112px;
 }
 
+.plan-panel {
+  min-width: 0;
+}
+
+.plan-title {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.plan-title > span,
+.plan-title-meta {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.plan-summary-strip {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(160px, 0.8fr) minmax(160px, 0.9fr) minmax(0, 1.4fr);
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid #dde5ed;
+  border-radius: 8px;
+  background: #f8fafb;
+}
+
+.plan-summary-strip > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.plan-summary-strip span {
+  color: #667085;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.plan-summary-strip strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.plan-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.plan-block {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-width: 0;
+  padding-top: 4px;
+}
+
+.plan-block + .plan-block {
+  border-left: 1px solid #e4e7ec;
+  padding-left: 18px;
+}
+
+.plan-block-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.plan-block-head > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.plan-block-head h3 {
+  margin: 0;
+  color: #18212f;
+  font-size: 16px;
+}
+
+.plan-block-head span {
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.rewrite-result,
+.career-result {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.plan-note {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #cfe1dc;
+  border-radius: 8px;
+  background: #f1f8f6;
+}
+
+.plan-note p,
+.career-summary {
+  margin: 0;
+  color: #475467;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.subheading {
+  display: block;
+  margin-bottom: 8px;
+  color: #344054;
+}
+
+.plain-list.dense {
+  display: grid;
+  gap: 7px;
+}
+
+.plain-list.dense li {
+  overflow-wrap: anywhere;
+}
+
+.plan-two-columns {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.plan-two-columns > div {
+  min-width: 0;
+}
+
+.readiness-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.readiness-score {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border-radius: 8px;
+  background: #e6f2ef;
+  color: #0f766e;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.plan-timeline {
+  margin: 4px 0 0;
+  padding-left: 4px;
+}
+
+.milestone-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.milestone-body strong {
+  overflow-wrap: anywhere;
+}
+
 .history-title span {
   display: inline-flex;
   align-items: center;
@@ -1227,9 +1624,19 @@ function formatTime(value: string) {
 
   .interview-grid,
   .feedback-lists,
+  .plan-grid,
+  .plan-summary-strip,
+  .plan-two-columns,
   .lifecycle-grid,
   .screening-lists {
     grid-template-columns: 1fr;
+  }
+
+  .plan-block + .plan-block {
+    border-left: 0;
+    border-top: 1px solid #e4e7ec;
+    padding-left: 0;
+    padding-top: 18px;
   }
 
   .history-table {
@@ -1254,9 +1661,18 @@ function formatTime(value: string) {
 
   .ai-status-meta,
   .feedback-head,
+  .plan-block-head,
+  .plan-title,
+  .plan-title-meta,
+  .readiness-row,
   .screening-head {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .plan-block-head .el-button,
+  .plan-title-meta .el-button {
+    width: 100%;
   }
 }
 </style>

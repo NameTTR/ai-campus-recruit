@@ -12,6 +12,7 @@ import {
   GraduationCap,
   LogOut,
   Plus,
+  Route,
   Rocket,
   ServerCog,
   Send,
@@ -37,6 +38,7 @@ const navGroups = {
     title: '学生端模块',
     items: [
       { path: '/student/resume', label: '简历诊断', icon: FileText },
+      { path: '/student/plan', label: 'AI 求职规划', icon: Route },
       { path: '/student/jobs', label: '岗位匹配', icon: BriefcaseBusiness },
       { path: '/student/interview', label: 'AI 模拟面试', icon: Bot },
       { path: '/student/history', label: '面试记录', icon: Clock3 },

@@ -8,17 +8,19 @@
 - `resume-service`：简历上传、摘要、诊断入口。
 - `job-service`：岗位发布、岗位分析入口。
 - `match-service`：简历与岗位匹配评分。
-- `ai-service`：阿里云百炼封装、mock 降级、结构化结果。
+- `ai-service`：阿里云百炼封装、mock 降级、结构化结果，提供简历诊断、简历改写、职业规划、模拟面试、候选人初筛和 AI 可观测能力。
 - `delivery-service`：投递记录和状态流转。
 
 ## 数据流
 
 1. 学生上传简历到 `resume-service`，Docker 部署时文件写入 VM3 MinIO，并在摘要中返回对象 key 和存储状态。
 2. `resume-service` 调用 `ai-service` 生成简历诊断。
-3. 企业在 `job-service` 发布岗位并可触发 JD 分析。
-4. `match-service` 根据简历摘要和岗位要求生成匹配结果。
-5. 学生通过 `delivery-service` 投递岗位，服务生成投递事件并尝试发布到 RocketMQ。
-6. 学校端聚合岗位、投递和匹配统计。
+3. 学生在前端 AI 求职规划页调用 `ai-service` 的简历改写和职业规划接口，生成简历优化建议、阶段里程碑、技能差距、每周行动、作品集任务和面试准备重点。
+4. 企业在 `job-service` 发布岗位并可触发 JD 分析。
+5. `match-service` 根据简历摘要和岗位要求生成匹配结果。
+6. 学生通过 `delivery-service` 投递岗位，服务生成投递事件并尝试发布到 RocketMQ。
+7. `ai-service` 可消费投递事件创建异步候选人初筛任务，并将完成结果写入筛选历史。
+8. 学校端通过 `user-service` 管理看板聚合学生、企业、岗位、投递、匹配和漏斗指标，展示周投递趋势、技能需求排行、转化漏斗和风险预警。
 
 ## 基础设施
 

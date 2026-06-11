@@ -60,7 +60,13 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.data.averageMatchScore").value(82))
                 .andExpect(jsonPath("$.data.pendingDeliveryCount").value(72))
                 .andExpect(jsonPath("$.data.deliveryStatusCounts.SUBMITTED").value(72))
-                .andExpect(jsonPath("$.data.deliveryStatusCounts.INTERVIEW").value(84));
+                .andExpect(jsonPath("$.data.deliveryStatusCounts.INTERVIEW").value(84))
+                .andExpect(jsonPath("$.data.interviewRate").value(36))
+                .andExpect(jsonPath("$.data.offerRate").value(9))
+                .andExpect(jsonPath("$.data.weeklyDeliveryTrend.length()").value(6))
+                .andExpect(jsonPath("$.data.skillDemandTop[0].skill").value("Java"))
+                .andExpect(jsonPath("$.data.conversionFunnel[0].stage").value("SUBMITTED"))
+                .andExpect(jsonPath("$.data.riskAlerts.length()").value(3));
     }
 
     @Test

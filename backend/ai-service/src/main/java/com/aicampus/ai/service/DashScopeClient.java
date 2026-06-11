@@ -17,6 +17,8 @@ public class DashScopeClient {
             "resume-analysis",
             "job-analysis",
             "match-analysis",
+            "resume-rewrite",
+            "career-planning",
             "interview-question-generation",
             "interview-feedback",
             "candidate-screening",

@@ -10,6 +10,8 @@ import com.aicampus.common.dto.AiObservabilitySummary;
 import com.aicampus.common.dto.AiSearchRequest;
 import com.aicampus.common.dto.AiSearchResponse;
 import com.aicampus.common.dto.AiSearchResult;
+import com.aicampus.common.dto.CareerPlanRequest;
+import com.aicampus.common.dto.CareerPlanResponse;
 import com.aicampus.common.dto.CandidateScreenRecord;
 import com.aicampus.common.dto.CandidateScreenRequest;
 import com.aicampus.common.dto.CandidateScreenResult;
@@ -18,6 +20,8 @@ import com.aicampus.common.dto.InterviewFeedbackRequest;
 import com.aicampus.common.dto.InterviewQuestion;
 import com.aicampus.common.dto.InterviewQuestionRequest;
 import com.aicampus.common.dto.InterviewRecord;
+import com.aicampus.common.dto.ResumeRewriteRequest;
+import com.aicampus.common.dto.ResumeRewriteResponse;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -63,6 +67,17 @@ public class AiCoachService {
             "建议进入一面",
             "面试重点追问 Java 基础、Spring Boot 分层设计、MySQL 索引和 Redis 缓存",
             "要求候选人补充项目量化指标和个人负责模块");
+    private static final List<String> DEFAULT_RESUME_KEYWORDS = List.of(
+            "Spring Boot",
+            "MyBatis Plus",
+            "MySQL 索引优化",
+            "Redis 缓存",
+            "Docker 三机部署",
+            "RocketMQ 异步任务");
+    private static final List<String> DEFAULT_CAREER_GAPS = List.of(
+            "补充可量化项目指标",
+            "完善微服务部署与排障经验",
+            "强化 MySQL 索引、Redis 缓存和消息队列场景题");
 
     private static final String LOCAL_SEARCH_PROVIDER = "local-semantic-search";
     private static final String LOCAL_SEARCH_MODEL = "keyword-ranker-v1";
@@ -146,6 +161,48 @@ public class AiCoachService {
         } catch (RuntimeException ex) {
             AiAnalyzeResponse response = mockAnalyze(request);
             recordDashScopeCall("analyze", false, true, startedAt, prompt, response.content(), ex.getMessage());
+            return response;
+        }
+    }
+
+    public ResumeRewriteResponse rewriteResume(ResumeRewriteRequest request) {
+        long startedAt = System.nanoTime();
+        String prompt = buildResumeRewritePrompt(request);
+        ResumeRewriteResponse response;
+        if (!dashScopeClient.isConfigured()) {
+            response = mockResumeRewrite(request);
+            recordDashScopeCall("resume-rewrite", true, true, startedAt, prompt, response.improvedSummary(), dashScopeClient.status().fallbackReason());
+            return response;
+        }
+        try {
+            String content = dashScopeClient.complete(SYSTEM_PROMPT, prompt, true);
+            response = parseResumeRewriteResponse(content, request);
+            recordDashScopeCall("resume-rewrite", true, false, startedAt, prompt, content, null);
+            return response;
+        } catch (RuntimeException ex) {
+            response = mockResumeRewrite(request);
+            recordDashScopeCall("resume-rewrite", false, true, startedAt, prompt, response.improvedSummary(), ex.getMessage());
+            return response;
+        }
+    }
+
+    public CareerPlanResponse careerPlan(CareerPlanRequest request) {
+        long startedAt = System.nanoTime();
+        String prompt = buildCareerPlanPrompt(request);
+        CareerPlanResponse response;
+        if (!dashScopeClient.isConfigured()) {
+            response = mockCareerPlan(request);
+            recordDashScopeCall("career-plan", true, true, startedAt, prompt, response.summary(), dashScopeClient.status().fallbackReason());
+            return response;
+        }
+        try {
+            String content = dashScopeClient.complete(SYSTEM_PROMPT, prompt, true);
+            response = parseCareerPlanResponse(content, request);
+            recordDashScopeCall("career-plan", true, false, startedAt, prompt, content, null);
+            return response;
+        } catch (RuntimeException ex) {
+            response = mockCareerPlan(request);
+            recordDashScopeCall("career-plan", false, true, startedAt, prompt, response.summary(), ex.getMessage());
             return response;
         }
     }
@@ -472,6 +529,69 @@ public class AiCoachService {
                 valueOr(request == null ? null : request.content(), "无"));
     }
 
+    private String buildResumeRewritePrompt(ResumeRewriteRequest request) {
+        return """
+                请基于校园招聘场景给出简历优化建议。
+                只返回 JSON 对象，不要返回 Markdown 或额外解释。
+
+                JSON 字段：
+                - studentId: 字符串
+                - resumeId: 字符串
+                - targetRole: 字符串
+                - improvedSummary: 80 到 140 字的中文简历摘要改写
+                - rewrittenProjects: 字符串数组，2 到 4 条，突出项目改写句
+                - keywordSuggestions: 字符串数组，4 到 8 条，适合 ATS 和 HR 检索
+                - missingEvidence: 字符串数组，2 到 4 条，指出缺少的数据证据
+                - actionChecklist: 字符串数组，3 到 5 条，可直接修改简历
+                - mocked: false
+
+                学生编号：%s
+                简历编号：%s
+                目标岗位：%s
+                技能：%s
+                项目经历：%s
+                当前摘要：%s
+                """.formatted(
+                studentId(request),
+                resumeId(request),
+                targetRole(request),
+                String.join("、", safeList(request == null ? null : request.skills(), DEFAULT_SKILLS)),
+                String.join("；", safeList(request == null ? null : request.projects(), DEFAULT_PROJECTS)),
+                valueOr(request == null ? null : request.resumeSummary(), "具备 Java 后端项目经验，了解 Spring Boot、MySQL 和 Redis。"));
+    }
+
+    private String buildCareerPlanPrompt(CareerPlanRequest request) {
+        return """
+                请为校园招聘学生生成求职规划路线图。
+                只返回 JSON 对象，不要返回 Markdown 或额外解释。
+
+                JSON 字段：
+                - studentId: 字符串
+                - targetRole: 字符串
+                - readinessScore: 0 到 100 的整数
+                - summary: 一句话说明当前准备度
+                - milestones: 数组，每项包含 title、timeframe、goals 字符串数组
+                - skillGaps: 字符串数组，2 到 5 条
+                - weeklyActions: 字符串数组，4 到 8 条
+                - portfolioTasks: 字符串数组，2 到 4 条
+                - interviewFocus: 字符串数组，3 到 6 条
+                - mocked: false
+
+                学生编号：%s
+                目标岗位：%s
+                当前技能：%s
+                兴趣方向：%s
+                规划周期：%d 周
+                简历摘要：%s
+                """.formatted(
+                studentId(request),
+                targetRole(request),
+                String.join("、", safeList(request == null ? null : request.skills(), DEFAULT_SKILLS)),
+                String.join("、", safeList(request == null ? null : request.interests(), List.of("后端开发", "微服务", "AI 应用"))),
+                timeframeWeeks(request),
+                valueOr(request == null ? null : request.resumeSummary(), "具备 Java 后端基础和校园项目经验。"));
+    }
+
     private String buildInterviewQuestionPrompt(InterviewQuestionRequest request) {
         return """
                 请为校园招聘候选人生成 3 道模拟面试题。
@@ -622,6 +742,45 @@ public class AiCoachService {
                 false);
     }
 
+    private ResumeRewriteResponse parseResumeRewriteResponse(String content, ResumeRewriteRequest request) {
+        JsonNode root = readJson(content);
+        if (!root.isObject()) {
+            throw new IllegalArgumentException("Resume rewrite response is not a JSON object");
+        }
+        JsonNode result = root.has("result") && root.get("result").isObject() ? root.get("result") : root;
+        ResumeRewriteResponse fallback = mockResumeRewrite(request);
+        return new ResumeRewriteResponse(
+                textOr(result.get("studentId"), fallback.studentId()),
+                textOr(result.get("resumeId"), fallback.resumeId()),
+                textOr(result.get("targetRole"), fallback.targetRole()),
+                textOr(result.get("improvedSummary"), fallback.improvedSummary()),
+                readStringList(result.get("rewrittenProjects"), fallback.rewrittenProjects()),
+                readStringList(result.get("keywordSuggestions"), fallback.keywordSuggestions()),
+                readStringList(result.get("missingEvidence"), fallback.missingEvidence()),
+                readStringList(result.get("actionChecklist"), fallback.actionChecklist()),
+                false);
+    }
+
+    private CareerPlanResponse parseCareerPlanResponse(String content, CareerPlanRequest request) {
+        JsonNode root = readJson(content);
+        if (!root.isObject()) {
+            throw new IllegalArgumentException("Career plan response is not a JSON object");
+        }
+        JsonNode result = root.has("result") && root.get("result").isObject() ? root.get("result") : root;
+        CareerPlanResponse fallback = mockCareerPlan(request);
+        return new CareerPlanResponse(
+                textOr(result.get("studentId"), fallback.studentId()),
+                textOr(result.get("targetRole"), fallback.targetRole()),
+                readScore(result.get("readinessScore"), fallback.readinessScore()),
+                textOr(result.get("summary"), fallback.summary()),
+                readMilestones(result.get("milestones"), fallback.milestones()),
+                readStringList(result.get("skillGaps"), fallback.skillGaps()),
+                readStringList(result.get("weeklyActions"), fallback.weeklyActions()),
+                readStringList(result.get("portfolioTasks"), fallback.portfolioTasks()),
+                readStringList(result.get("interviewFocus"), fallback.interviewFocus()),
+                false);
+    }
+
     private JsonNode readJson(String content) {
         try {
             return objectMapper.readTree(extractJson(content));
@@ -695,6 +854,67 @@ public class AiCoachService {
         return new AiAnalyzeResponse(type, "mock-dashscope", content, true);
     }
 
+    private ResumeRewriteResponse mockResumeRewrite(ResumeRewriteRequest request) {
+        String role = targetRole(request);
+        List<String> skills = safeList(request == null ? null : request.skills(), DEFAULT_SKILLS);
+        String primarySkill = skills.get(0);
+        return new ResumeRewriteResponse(
+                studentId(request),
+                resumeId(request),
+                role,
+                "面向 " + role + "，候选人具备 " + String.join("、", skills)
+                        + " 等后端基础，参与校园招聘平台类项目，能够完成接口开发、数据建模、缓存设计和 Docker 部署，建议继续补充业务规模与性能指标。",
+                List.of(
+                        "负责 " + primarySkill + " 后端接口开发，完成简历上传、岗位匹配和投递状态流转等核心流程。",
+                        "基于 MySQL 设计招聘业务表结构，并结合 Redis 缓存提升列表查询体验。",
+                        "使用 Docker Compose 完成多服务联调，能够说明 Gateway、Nacos 和业务服务的部署关系。"),
+                DEFAULT_RESUME_KEYWORDS,
+                List.of(
+                        "缺少接口耗时、数据量、并发量等结果指标",
+                        "项目中个人负责模块和团队协作边界还不够清晰",
+                        "没有写明线上部署、排障和复盘过程"),
+                List.of(
+                        "每个项目补充 1 个业务目标和 2 个量化结果",
+                        "把“参与开发”改成“负责模块 + 技术动作 + 结果”",
+                        "补充 MySQL 索引、Redis 缓存、RocketMQ 异步任务的真实使用场景",
+                        "准备 2 段可直接用于面试自我介绍的项目描述"),
+                true);
+    }
+
+    private CareerPlanResponse mockCareerPlan(CareerPlanRequest request) {
+        String role = targetRole(request);
+        int weeks = timeframeWeeks(request);
+        return new CareerPlanResponse(
+                studentId(request),
+                role,
+                82,
+                "当前能力与 " + role + " 岗位匹配度较高，短期重点应放在项目量化、微服务排障和面试表达闭环。",
+                List.of(
+                        new CareerPlanResponse.Milestone("第 1 阶段：简历与项目证据补强", "1-2 周",
+                                List.of("补齐项目指标", "明确个人负责模块", "准备项目架构图")),
+                        new CareerPlanResponse.Milestone("第 2 阶段：核心技术专题复盘", "3-" + Math.max(3, weeks / 2) + " 周",
+                                List.of("复盘 Spring Boot 请求链路", "整理 MySQL 索引题", "补充 Redis 缓存一致性方案")),
+                        new CareerPlanResponse.Milestone("第 3 阶段：投递与模拟面试", Math.max(4, weeks / 2 + 1) + "-" + weeks + " 周",
+                                List.of("每周投递并复盘反馈", "完成 3 次模拟面试", "整理一页项目讲解稿"))),
+                DEFAULT_CAREER_GAPS,
+                List.of(
+                        "每周更新 2 条简历项目指标",
+                        "每周完成 1 个 Java/Spring/MySQL 专题复盘",
+                        "每周选择 3 个目标岗位做 JD 关键词对齐",
+                        "每周进行 1 次模拟面试并保存反馈"),
+                List.of(
+                        "整理校园招聘平台架构图，标出 Gateway、Nacos、VM2 服务和 VM3 中间件",
+                        "补充一次慢接口定位案例，说明日志、SQL、缓存和压测证据",
+                        "准备一段 RocketMQ 投递事件到 AI 初筛任务的异步链路讲解"),
+                List.of(
+                        "Java 集合、线程池和异常处理",
+                        "Spring Boot 分层设计与接口鉴权",
+                        "MySQL 索引、事务和慢 SQL 分析",
+                        "Redis 缓存击穿、穿透和一致性",
+                        "项目部署、联调、排障和复盘"),
+                true);
+    }
+
     private List<InterviewQuestion> mockInterviewQuestions(InterviewQuestionRequest request) {
         String role = targetRole(request);
         List<String> skills = safeList(request == null ? null : request.skills(), DEFAULT_SKILLS);
@@ -760,6 +980,25 @@ public class AiCoachService {
         return values.isEmpty() ? fallback : values;
     }
 
+    private List<CareerPlanResponse.Milestone> readMilestones(
+            JsonNode node,
+            List<CareerPlanResponse.Milestone> fallback) {
+        if (node == null || !node.isArray()) {
+            return fallback;
+        }
+        List<CareerPlanResponse.Milestone> values = new ArrayList<>();
+        for (JsonNode item : node) {
+            if (item == null || !item.isObject()) {
+                continue;
+            }
+            values.add(new CareerPlanResponse.Milestone(
+                    textOr(item.get("title"), "阶段目标"),
+                    textOr(item.get("timeframe"), "待规划"),
+                    readStringList(item.get("goals"), List.of("补充学习目标", "完成阶段复盘"))));
+        }
+        return values.isEmpty() ? fallback : values;
+    }
+
     private int readScore(JsonNode node, int fallback) {
         if (node == null || node.isNull()) {
             return fallback;
@@ -790,6 +1029,31 @@ public class AiCoachService {
 
     private static String targetRole(InterviewQuestionRequest request) {
         return valueOr(request == null ? null : request.targetRole(), "Java 后端实习生");
+    }
+
+    private static String targetRole(ResumeRewriteRequest request) {
+        return valueOr(request == null ? null : request.targetRole(), "Java 后端实习生");
+    }
+
+    private static String targetRole(CareerPlanRequest request) {
+        return valueOr(request == null ? null : request.targetRole(), "Java 后端实习生");
+    }
+
+    private static String studentId(ResumeRewriteRequest request) {
+        return valueOr(request == null ? null : request.studentId(), "S001");
+    }
+
+    private static String studentId(CareerPlanRequest request) {
+        return valueOr(request == null ? null : request.studentId(), "S001");
+    }
+
+    private static String resumeId(ResumeRewriteRequest request) {
+        return valueOr(request == null ? null : request.resumeId(), "R001");
+    }
+
+    private static int timeframeWeeks(CareerPlanRequest request) {
+        int weeks = request == null || request.timeframeWeeks() == null ? 8 : request.timeframeWeeks();
+        return Math.max(4, Math.min(24, weeks));
     }
 
     private static String targetRole(CandidateScreenRequest request) {

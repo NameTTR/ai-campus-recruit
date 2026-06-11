@@ -141,6 +141,12 @@ const statusRows = computed(() => {
     type: statusTypes[status]
   }))
 })
+const trendRows = computed(() => stats.value?.weeklyDeliveryTrend || [])
+const skillDemandRows = computed(() => stats.value?.skillDemandTop || [])
+const funnelRows = computed(() => stats.value?.conversionFunnel || [])
+const dashboardRiskAlerts = computed(() => stats.value?.riskAlerts || [])
+const maxTrendDelivery = computed(() => Math.max(1, ...trendRows.value.map((row) => row.deliveryCount)))
+const maxSkillDemandScore = computed(() => Math.max(1, ...skillDemandRows.value.map((row) => row.demandScore)))
 const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'overview')
 const serviceRows = computed(() => systemStatus.value?.services || [])
 const persistenceRows = computed(() => systemStatus.value?.persistence || [])
@@ -388,37 +394,145 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
       </div>
     </header>
 
-    <div v-if="activeModule === 'overview'" class="grid three">
-      <div class="metric">
-        <GraduationCap :size="22" />
-        <span>学生数</span>
-        <strong>{{ stats?.studentCount }}</strong>
+    <div v-if="activeModule === 'overview'" class="module-stack dashboard-overview">
+      <div class="grid three">
+        <div class="metric">
+          <GraduationCap :size="22" />
+          <span>学生数</span>
+          <strong>{{ stats?.studentCount }}</strong>
+        </div>
+        <div class="metric">
+          <Building2 :size="22" />
+          <span>企业数</span>
+          <strong>{{ stats?.companyCount }}</strong>
+        </div>
+        <div class="metric">
+          <BriefcaseBusiness :size="22" />
+          <span>岗位数</span>
+          <strong>{{ stats?.jobCount }}</strong>
+        </div>
+        <div class="metric">
+          <Send :size="22" />
+          <span>投递数</span>
+          <strong>{{ stats?.deliveryCount }}</strong>
+        </div>
+        <div class="metric">
+          <Timer :size="22" />
+          <span>待处理投递</span>
+          <strong>{{ stats?.pendingDeliveryCount }}</strong>
+        </div>
+        <div class="metric">
+          <BarChart3 :size="22" />
+          <span>平均匹配度</span>
+          <strong>{{ stats?.averageMatchScore }}</strong>
+        </div>
+        <div class="metric">
+          <BarChart3 :size="22" />
+          <span>面试转化率</span>
+          <strong>{{ stats?.interviewRate || 0 }}%</strong>
+        </div>
+        <div class="metric">
+          <CheckCircle2 :size="22" />
+          <span>Offer 转化率</span>
+          <strong>{{ stats?.offerRate || 0 }}%</strong>
+        </div>
+        <div class="metric">
+          <GraduationCap :size="22" />
+          <span>活跃学生</span>
+          <strong>{{ stats?.activeStudentCount || 0 }}</strong>
+        </div>
+        <div class="metric">
+          <ShieldCheck :size="22" />
+          <span>高潜候选人</span>
+          <strong>{{ stats?.highPotentialCandidateCount || 0 }}</strong>
+        </div>
       </div>
-      <div class="metric">
-        <Building2 :size="22" />
-        <span>企业数</span>
-        <strong>{{ stats?.companyCount }}</strong>
+
+      <section class="panel module-panel analytics-panel">
+        <h2 class="panel-title">
+          周投递趋势
+          <BarChart3 :size="19" />
+        </h2>
+        <div v-if="trendRows.length" class="trend-chart">
+          <article v-for="row in trendRows" :key="row.label" class="trend-row">
+            <span class="trend-label">{{ row.label }}</span>
+            <div class="trend-bars">
+              <div class="trend-track">
+                <span class="trend-bar delivery" :style="{ width: `${Math.max(8, Math.round(row.deliveryCount / maxTrendDelivery * 100))}%` }" />
+              </div>
+              <div class="trend-track compact">
+                <span class="trend-bar interview" :style="{ width: `${Math.max(8, Math.round(row.interviewCount / maxTrendDelivery * 100))}%` }" />
+              </div>
+              <div class="trend-track compact">
+                <span class="trend-bar offer" :style="{ width: `${Math.max(8, Math.round(row.offerCount / maxTrendDelivery * 100))}%` }" />
+              </div>
+            </div>
+            <div class="trend-values">
+              <strong>{{ row.deliveryCount }}</strong>
+              <span>面试 {{ row.interviewCount }}</span>
+              <span>Offer {{ row.offerCount }}</span>
+            </div>
+          </article>
+        </div>
+        <el-empty v-else class="compact-empty" description="暂无趋势数据" />
+      </section>
+
+      <div class="analytics-grid">
+        <section class="panel module-panel analytics-panel">
+          <h2 class="panel-title">
+            转化漏斗
+            <Send :size="19" />
+          </h2>
+          <div v-if="funnelRows.length" class="funnel-list">
+            <article v-for="row in funnelRows" :key="row.stage" class="funnel-row">
+              <div>
+                <strong>{{ row.label }}</strong>
+                <span>{{ row.count }} 人次</span>
+              </div>
+              <el-progress :percentage="row.conversionRate" :stroke-width="10" />
+            </article>
+          </div>
+          <el-empty v-else class="compact-empty" description="暂无漏斗数据" />
+        </section>
+
+        <section class="panel module-panel analytics-panel">
+          <h2 class="panel-title">
+            技能需求 Top
+            <BriefcaseBusiness :size="19" />
+          </h2>
+          <div v-if="skillDemandRows.length" class="skill-demand-list">
+            <article v-for="row in skillDemandRows" :key="row.skill" class="skill-demand-row">
+              <div class="skill-demand-main">
+                <strong>{{ row.skill }}</strong>
+                <span>{{ row.jobCount }} 个岗位 / {{ row.matchedStudentCount }} 名匹配学生</span>
+              </div>
+              <div class="skill-demand-score">
+                <span :style="{ width: `${Math.round(row.demandScore / maxSkillDemandScore * 100)}%` }" />
+              </div>
+              <strong class="skill-demand-number">{{ row.demandScore }}</strong>
+            </article>
+          </div>
+          <el-empty v-else class="compact-empty" description="暂无技能需求数据" />
+        </section>
       </div>
-      <div class="metric">
-        <BriefcaseBusiness :size="22" />
-        <span>岗位数</span>
-        <strong>{{ stats?.jobCount }}</strong>
-      </div>
-      <div class="metric">
-        <Send :size="22" />
-        <span>投递数</span>
-        <strong>{{ stats?.deliveryCount }}</strong>
-      </div>
-      <div class="metric">
-        <Timer :size="22" />
-        <span>待处理投递</span>
-        <strong>{{ stats?.pendingDeliveryCount }}</strong>
-      </div>
-      <div class="metric">
-        <BarChart3 :size="22" />
-        <span>平均匹配度</span>
-        <strong>{{ stats?.averageMatchScore }}</strong>
-      </div>
+
+      <section class="panel module-panel analytics-panel">
+        <h2 class="panel-title">
+          风险告警
+          <AlertTriangle :size="19" />
+        </h2>
+        <div v-if="dashboardRiskAlerts.length" class="warning-list">
+          <el-alert
+            v-for="alert in dashboardRiskAlerts"
+            :key="alert"
+            :title="alert"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+        </div>
+        <el-empty v-else class="compact-empty" description="暂无风险告警" />
+      </section>
     </div>
 
     <section v-if="activeModule === 'status'" class="panel module-panel">
@@ -1156,6 +1270,166 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
   color: #667085;
   font-size: 13px;
   font-weight: 500;
+}
+
+.compact-empty {
+  --el-empty-padding: 18px 0 22px;
+}
+
+.compact-empty :deep(.el-empty__image) {
+  width: 112px;
+}
+
+.dashboard-overview .metric strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.analytics-panel {
+  min-width: 0;
+}
+
+.trend-chart {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.trend-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) minmax(112px, 0.35fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.trend-label {
+  color: #344054;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.trend-bars {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.trend-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf2f7;
+}
+
+.trend-track.compact {
+  height: 7px;
+}
+
+.trend-bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.trend-bar.delivery {
+  background: #2563eb;
+}
+
+.trend-bar.interview {
+  background: #0f766e;
+}
+
+.trend-bar.offer {
+  background: #d97706;
+}
+
+.trend-values {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  text-align: right;
+}
+
+.trend-values strong {
+  color: #18212f;
+}
+
+.trend-values span {
+  color: #667085;
+  font-size: 12px;
+}
+
+.analytics-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  min-width: 0;
+}
+
+.funnel-list,
+.skill-demand-list {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.funnel-row {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.funnel-row > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.funnel-row strong,
+.skill-demand-main strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.funnel-row span,
+.skill-demand-main span {
+  color: #667085;
+  font-size: 13px;
+}
+
+.skill-demand-row {
+  display: grid;
+  grid-template-columns: minmax(124px, 0.8fr) minmax(0, 1fr) 42px;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.skill-demand-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.skill-demand-score {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf2f7;
+}
+
+.skill-demand-score span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #0f766e;
+}
+
+.skill-demand-number {
+  color: #18212f;
+  text-align: right;
 }
 
 .audit-hero {
@@ -1928,12 +2202,29 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
   .permission-summary,
   .account-toolbar,
   .account-grid,
+  .analytics-grid,
   .audit-toolbar,
   .audit-export-grid,
   .ai-observability-grid,
   .ai-call-toolbar,
   .ai-search-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .trend-row,
+  .skill-demand-row {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .trend-values,
+  .skill-demand-number {
+    text-align: left;
+  }
+
+  .funnel-row > div {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .topology-service {

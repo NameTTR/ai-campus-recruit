@@ -14,13 +14,14 @@
 
 - 登录认证：支持学生、企业、学校管理员三类演示账号。
 - 简历管理：上传简历文件，查看解析摘要，触发 AI 诊断。
+- AI 求职规划：学生可基于目标岗位、简历摘要、技能、项目和兴趣生成简历改写建议与职业规划路线图。
 - 岗位管理：企业发布岗位，维护岗位要求，触发 JD 分析。
 - 智能匹配：基于简历技能和岗位要求生成匹配度、优势、短板和建议。
 - AI 候选人初筛：企业查看投递候选人时，可基于简历摘要、项目经历和岗位要求生成初筛分数、推荐结论、优势、风险、面试追问和下一步动作，并查看本企业筛选历史。
 - 投递流程：学生投递岗位，企业查看本企业投递列表，并推进为已查看、面试中、已录用或未通过。
 - 模拟面试：学生完成岗位匹配或投递后，按目标岗位生成面试题，提交回答并查看评分、优势、不足、改进建议和历史记录。
-- 学校看板：展示学生数、岗位数、投递数、平均匹配度、投递状态分布和待处理投递数。
-- AI 能力：接入阿里云百炼生成诊断、候选人初筛、面试题与回答反馈；提供 AI 模块状态接口展示 provider、model、配置状态和能力列表；未配置 Key 或调用失败时自动使用 mock 响应，保证演示可用。
+- 学校看板：展示学生数、岗位数、投递数、平均匹配度、投递状态分布、待处理投递数、面试率、录用率、活跃学生数、高潜候选人数、周投递趋势、技能需求排行、转化漏斗和风险预警。
+- AI 能力：接入阿里云百炼生成诊断、简历改写、职业规划、候选人初筛、面试题与回答反馈；提供 AI 模块状态接口展示 provider、model、配置状态和能力列表；未配置 Key 或调用失败时自动使用 mock 响应，保证演示可用。
 
 ## 非功能需求
 
@@ -143,3 +144,15 @@
 - RocketMQ `DELIVERY_CREATED` consumption must be idempotent for a delivery: repeated messages for the same delivery must return the existing `ROCKETMQ` task instead of creating duplicates.
 - Three-VM deployment verification must produce a timestamped report covering vmrun availability, VMX paths, VM running status, Compose configuration, and key service HTTP/TCP checks.
 - Acceptance commands for this slice include backend tests, frontend tests/build, Docker Compose config checks, and the three-VM smoke script in dry-run or real mode depending on VM availability.
+
+## v3.4 Student AI Career Planning and Admin Dashboard Requirement
+
+- Student users need an AI job-search planning page that combines resume rewrite and career planning for the current authenticated student.
+- `ai-service` must expose `POST /api/ai/resume/rewrite` and `POST /api/ai/career/plan`, both wrapped in `ApiResponse<T>`.
+- Resume rewrite request fields are `studentId`, `resumeId`, `targetRole`, `resumeSummary`, `skills`, and `projects`; the response must include `improvedSummary`, `rewrittenProjects`, `keywordSuggestions`, `missingEvidence`, `actionChecklist`, and `mocked`.
+- Career plan request fields are `studentId`, `targetRole`, `skills`, `interests`, `resumeSummary`, and `timeframeWeeks`; the response must include `readinessScore`, `summary`, `milestones`, `skillGaps`, `weeklyActions`, `portfolioTasks`, `interviewFocus`, and `mocked`.
+- Gateway-injected `STUDENT` identity must override request body `studentId` for both AI planning endpoints; direct service calls without identity headers keep demo fallback behavior.
+- Admin users need the dashboard data screen enhanced with `interviewRate`, `offerRate`, `activeStudentCount`, `highPotentialCandidateCount`, `weeklyDeliveryTrend`, `skillDemandTop`, `conversionFunnel`, and `riskAlerts`.
+- The admin dashboard UI should present the new data as compact management information: conversion KPIs, weekly trend, skill-demand ranking, funnel, and risk alert list.
+- Demo mode must keep deterministic fallback data and avoid calling `fetch` when no gateway or AI proxy is configured.
+- AI planning responses must not expose API keys, tokens, raw prompts, full resume text, or hidden system instructions.

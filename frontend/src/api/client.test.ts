@@ -6,12 +6,14 @@ import {
   createDelivery,
   exportAdminAudit,
   getAuthSession,
+  generateCareerPlan,
   generateInterviewQuestions,
   getAdminAuditOverview,
   getAiObservabilitySummary,
   getAiStatus,
   getCandidateScreenTask,
   getCurrentPermissions,
+  getDashboard,
   getDeploymentGuide,
   getProfile,
   getResume,
@@ -32,6 +34,7 @@ import {
   searchAiKnowledge,
   submitInterviewFeedback,
   retryCandidateScreenTask,
+  rewriteResume,
   updateAccountStatus
 } from './client'
 
@@ -347,6 +350,113 @@ describe('api fallback behavior', () => {
     expect(result.mocked).toBe(true)
     expect(result.score).toBeGreaterThan(0)
     expect(result.suggestions.length).toBeGreaterThan(0)
+  })
+
+  it('returns resume rewrite fallback when ai proxy is not configured', async () => {
+    const result = await rewriteResume({
+      studentId: 'S009',
+      resumeId: 'R009',
+      targetRole: 'Java backend intern',
+      resumeSummary: 'Java project experience.',
+      skills: ['Java', 'Spring Boot'],
+      projects: ['Campus recruitment platform']
+    })
+
+    expect(result.studentId).toBe('S009')
+    expect(result.resumeId).toBe('R009')
+    expect(result.targetRole).toBe('Java backend intern')
+    expect(result.mocked).toBe(true)
+    expect(result.keywordSuggestions.length).toBeGreaterThan(0)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls resume rewrite endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          studentId: 'S010',
+          resumeId: 'R010',
+          targetRole: 'Java backend intern',
+          improvedSummary: 'Improved summary',
+          rewrittenProjects: ['Rewritten project'],
+          keywordSuggestions: ['Spring Boot'],
+          missingEvidence: ['metrics'],
+          actionChecklist: ['add metrics'],
+          mocked: false
+        }
+      })
+    } as Response)
+
+    const result = await rewriteResume({
+      studentId: 'S010',
+      resumeId: 'R010',
+      targetRole: 'Java backend intern',
+      resumeSummary: 'summary',
+      skills: ['Java'],
+      projects: ['project']
+    })
+
+    expect(result.mocked).toBe(false)
+    expect(result.improvedSummary).toBe('Improved summary')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/resume/rewrite', expect.any(Object))
+  })
+
+  it('returns career plan fallback when ai proxy is not configured', async () => {
+    const result = await generateCareerPlan({
+      studentId: 'S011',
+      targetRole: 'Java backend intern',
+      skills: ['Java', 'MySQL'],
+      interests: ['backend'],
+      resumeSummary: 'Java project experience.',
+      timeframeWeeks: 8
+    })
+
+    expect(result.studentId).toBe('S011')
+    expect(result.targetRole).toBe('Java backend intern')
+    expect(result.mocked).toBe(true)
+    expect(result.readinessScore).toBeGreaterThan(0)
+    expect(result.milestones.length).toBeGreaterThan(0)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls career plan endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          studentId: 'S012',
+          targetRole: 'Java backend intern',
+          readinessScore: 88,
+          summary: 'Ready for interview',
+          milestones: [{ title: 'Week 1', timeframe: 'Week 1', goals: ['polish resume'] }],
+          skillGaps: ['RocketMQ'],
+          weeklyActions: ['mock interview'],
+          portfolioTasks: ['README'],
+          interviewFocus: ['project depth'],
+          mocked: false
+        }
+      })
+    } as Response)
+
+    const result = await generateCareerPlan({
+      studentId: 'S012',
+      targetRole: 'Java backend intern',
+      skills: ['Java'],
+      interests: ['backend'],
+      resumeSummary: 'summary',
+      timeframeWeeks: 8
+    })
+
+    expect(result.mocked).toBe(false)
+    expect(result.readinessScore).toBe(88)
+    expect(fetch).toHaveBeenCalledWith('/api/ai/career/plan', expect.any(Object))
   })
 
   it('returns candidate screen fallback when ai proxy is not configured', async () => {
@@ -862,6 +972,20 @@ describe('api fallback behavior', () => {
     expect(result.totalCount).toBe(5)
     expect(result.pendingCount).toBe(1)
     expect(result.statusCounts.INTERVIEW).toBe(1)
+  })
+
+  it('returns enriched dashboard fallback when gateway is offline', async () => {
+    const result = await getDashboard()
+
+    expect(result.interviewRate).toBe(36)
+    expect(result.offerRate).toBe(9)
+    expect(result.activeStudentCount).toBeGreaterThan(0)
+    expect(result.highPotentialCandidateCount).toBeGreaterThan(0)
+    expect(result.weeklyDeliveryTrend).toHaveLength(6)
+    expect(result.skillDemandTop[0].skill).toBe('Java')
+    expect(result.conversionFunnel[0].stage).toBe('SUBMITTED')
+    expect(result.riskAlerts.length).toBeGreaterThan(0)
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('returns system status fallback when gateway is offline', async () => {

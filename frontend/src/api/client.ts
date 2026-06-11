@@ -225,6 +225,55 @@ export interface AiSearchResponse {
   generatedAt: string
 }
 
+export interface ResumeRewriteRequest {
+  studentId: string
+  resumeId: string
+  targetRole: string
+  resumeSummary: string
+  skills: string[]
+  projects: string[]
+}
+
+export interface ResumeRewriteResponse {
+  studentId: string
+  resumeId: string
+  targetRole: string
+  improvedSummary: string
+  rewrittenProjects: string[]
+  keywordSuggestions: string[]
+  missingEvidence: string[]
+  actionChecklist: string[]
+  mocked: boolean
+}
+
+export interface CareerPlanRequest {
+  studentId: string
+  targetRole: string
+  skills: string[]
+  interests: string[]
+  resumeSummary: string
+  timeframeWeeks: number
+}
+
+export interface CareerPlanMilestone {
+  title: string
+  timeframe: string
+  goals: string[]
+}
+
+export interface CareerPlanResponse {
+  studentId: string
+  targetRole: string
+  readinessScore: number
+  summary: string
+  milestones: CareerPlanMilestone[]
+  skillGaps: string[]
+  weeklyActions: string[]
+  portfolioTasks: string[]
+  interviewFocus: string[]
+  mocked: boolean
+}
+
 export type AdminAuditEntityType = 'STUDENT' | 'JOB' | 'DELIVERY' | 'AI_SCREENING' | 'AI_INTERVIEW'
 export type AdminAuditRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH'
 
@@ -375,6 +424,35 @@ export interface DashboardStats {
   averageMatchScore: number
   deliveryStatusCounts: Record<DeliveryStatus, number>
   pendingDeliveryCount: number
+  interviewRate: number
+  offerRate: number
+  activeStudentCount: number
+  highPotentialCandidateCount: number
+  weeklyDeliveryTrend: DashboardTrendPoint[]
+  skillDemandTop: SkillDemand[]
+  conversionFunnel: ConversionFunnelStage[]
+  riskAlerts: string[]
+}
+
+export interface DashboardTrendPoint {
+  label: string
+  deliveryCount: number
+  interviewCount: number
+  offerCount: number
+}
+
+export interface SkillDemand {
+  skill: string
+  jobCount: number
+  matchedStudentCount: number
+  demandScore: number
+}
+
+export interface ConversionFunnelStage {
+  stage: string
+  label: string
+  count: number
+  conversionRate: number
 }
 
 export interface SystemServiceStatus {
@@ -774,12 +852,56 @@ const fallbackInterviewFeedback: InterviewFeedback = {
   mocked: true
 }
 
+const fallbackResumeRewriteResponse: ResumeRewriteResponse = {
+  studentId: 'S001',
+  resumeId: 'R001',
+  targetRole: 'Java 后端实习生',
+  improvedSummary: '软件工程本科，具备 Java、Spring Boot、MySQL、Redis 与 Docker 项目经验，能够完成后端接口开发、数据库设计和基础部署。建议在正式简历中补充接口性能、数据规模和个人负责模块。',
+  rewrittenProjects: [
+    '校园二手交易系统：负责商品、订单与用户模块接口设计，使用 Spring Boot + MyBatis Plus 完成核心 CRUD 与状态流转，补充 Redis 缓存后可突出响应时间优化结果。',
+    '在线考试平台：参与题库、试卷和成绩统计模块开发，建议补充并发答题、批量阅卷或慢 SQL 优化等可验证指标。'
+  ],
+  keywordSuggestions: ['Spring Boot', 'MyBatis Plus', 'Redis 缓存', 'MySQL 索引', 'Docker 部署', 'RESTful API'],
+  missingEvidence: ['接口性能指标', '数据库表规模', '个人负责模块边界', '部署环境或访问截图', '压测或日志排障证据'],
+  actionChecklist: ['把项目描述改成“场景-动作-结果”结构', '每个项目补充 1 个量化指标', '加入 GitHub 或部署说明', '准备 Redis/MySQL/微服务追问材料'],
+  mocked: true
+}
+
+const fallbackCareerPlanResponse: CareerPlanResponse = {
+  studentId: 'S001',
+  targetRole: 'Java 后端实习生',
+  readinessScore: 78,
+  summary: '当前基础技能与 Java 后端实习方向匹配，短板集中在可验证项目成果、微服务组件实践和面试表达结构。建议用 8 周完成简历证据补强、项目部署和专项面试训练。',
+  milestones: [
+    {
+      title: '第 1-2 周：简历证据补强',
+      timeframe: 'Week 1-2',
+      goals: ['梳理 2 个核心项目的个人贡献', '补充接口、SQL、缓存优化指标', '完善 GitHub README 和部署截图']
+    },
+    {
+      title: '第 3-5 周：微服务项目强化',
+      timeframe: 'Week 3-5',
+      goals: ['补充 Spring Cloud Alibaba 注册发现流程', '整理 Redis、RocketMQ、Docker 场景题', '完成一次本地 Docker Compose 联调']
+    },
+    {
+      title: '第 6-8 周：投递与面试闭环',
+      timeframe: 'Week 6-8',
+      goals: ['每周投递 10-15 个匹配岗位', '完成 3 次模拟面试复盘', '根据反馈迭代简历关键词']
+    }
+  ],
+  skillGaps: ['Spring Cloud Alibaba 实战', 'RocketMQ 异步场景', '线上排障指标', '项目量化表达'],
+  weeklyActions: ['每周改写 1 次项目描述', '每周完成 2 组 Java/MySQL/Redis 面试题', '每周复盘投递转化数据', '每周补充 1 条项目证据材料'],
+  portfolioTasks: ['为核心项目补充架构图和部署步骤', '上传接口文档或 Swagger 截图', '准备数据库设计和缓存设计说明'],
+  interviewFocus: ['项目难点与取舍', 'MySQL 索引和事务', 'Redis 缓存穿透/击穿/雪崩', 'Spring Boot 接口排障', 'Docker 部署流程'],
+  mocked: true
+}
+
 const fallbackAiModuleStatus: AiModuleStatus = {
   provider: 'dashscope',
   model: 'qwen-plus',
   configured: false,
   baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  capabilities: ['resume-analysis', 'job-analysis', 'match-analysis', 'candidate-screening', 'interview-question-generation', 'interview-feedback', 'observability', 'intelligent-search'],
+  capabilities: ['resume-analysis', 'resume-rewrite', 'career-planning', 'job-analysis', 'match-analysis', 'candidate-screening', 'interview-question-generation', 'interview-feedback', 'observability', 'intelligent-search'],
   fallbackReason: 'AI service is offline or DASHSCOPE_API_KEY is not configured'
 }
 
@@ -1534,6 +1656,29 @@ export function submitInterviewFeedback(payload: InterviewFeedbackRequest) {
   }, fallbackInterviewFeedback)
 }
 
+export function rewriteResume(payload: ResumeRewriteRequest) {
+  return request<ResumeRewriteResponse>('/api/ai/resume/rewrite', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, {
+    ...fallbackResumeRewriteResponse,
+    studentId: payload.studentId || fallbackResumeRewriteResponse.studentId,
+    resumeId: payload.resumeId || fallbackResumeRewriteResponse.resumeId,
+    targetRole: payload.targetRole || fallbackResumeRewriteResponse.targetRole
+  })
+}
+
+export function generateCareerPlan(payload: CareerPlanRequest) {
+  return request<CareerPlanResponse>('/api/ai/career/plan', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, {
+    ...fallbackCareerPlanResponse,
+    studentId: payload.studentId || fallbackCareerPlanResponse.studentId,
+    targetRole: payload.targetRole || fallbackCareerPlanResponse.targetRole
+  })
+}
+
 export function getAiStatus() {
   return request<AiModuleStatus>('/api/ai/status', { method: 'GET' }, fallbackAiModuleStatus)
 }
@@ -1712,7 +1857,33 @@ export function getDashboard() {
       OFFER: 28,
       REJECTED: 32
     },
-    pendingDeliveryCount: 72
+    pendingDeliveryCount: 72,
+    interviewRate: 36,
+    offerRate: 9,
+    activeStudentCount: 96,
+    highPotentialCandidateCount: 18,
+    weeklyDeliveryTrend: [
+      { label: '06-01', deliveryCount: 42, interviewCount: 18, offerCount: 4 },
+      { label: '06-02', deliveryCount: 48, interviewCount: 21, offerCount: 5 },
+      { label: '06-03', deliveryCount: 56, interviewCount: 24, offerCount: 6 },
+      { label: '06-04', deliveryCount: 61, interviewCount: 27, offerCount: 7 },
+      { label: '06-05', deliveryCount: 53, interviewCount: 23, offerCount: 6 },
+      { label: '06-06', deliveryCount: 52, interviewCount: 19, offerCount: 5 }
+    ],
+    skillDemandTop: [
+      { skill: 'Java', jobCount: 38, matchedStudentCount: 74, demandScore: 92 },
+      { skill: 'Spring Boot', jobCount: 34, matchedStudentCount: 61, demandScore: 88 },
+      { skill: 'MySQL', jobCount: 31, matchedStudentCount: 58, demandScore: 84 },
+      { skill: 'Redis', jobCount: 24, matchedStudentCount: 39, demandScore: 76 },
+      { skill: 'Docker', jobCount: 18, matchedStudentCount: 33, demandScore: 68 }
+    ],
+    conversionFunnel: [
+      { stage: 'SUBMITTED', label: '投递', count: 312, conversionRate: 100 },
+      { stage: 'VIEWED', label: '已查看', count: 96, conversionRate: 31 },
+      { stage: 'INTERVIEW', label: '进入面试', count: 84, conversionRate: 27 },
+      { stage: 'OFFER', label: '录用', count: 28, conversionRate: 9 }
+    ],
+    riskAlerts: ['72 条投递仍处于待处理状态，需要提醒企业及时查看', 'Redis、Docker 等岗位技能需求增长，课程辅导应补充实战内容', '高潜候选人数偏少，建议优先辅导简历证据不足的学生']
   })
 }
 
