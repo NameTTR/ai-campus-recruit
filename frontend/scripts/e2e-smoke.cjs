@@ -5,7 +5,8 @@ const path = require('path')
 const rootDir = path.resolve(__dirname, '..')
 const explicitBaseUrl = Boolean(process.env.E2E_BASE_URL)
 const localPort = process.env.E2E_PORT || '5174'
-const baseUrl = process.env.E2E_BASE_URL || `http://127.0.0.1:${localPort}`
+const rawBaseUrl = process.env.E2E_BASE_URL || `http://127.0.0.1:${localPort}`
+const baseUrl = rawBaseUrl.replace(/\/+$/, '')
 const artifactsDir = process.env.E2E_ARTIFACTS_DIR || path.join(rootDir, '.e2e-artifacts')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
