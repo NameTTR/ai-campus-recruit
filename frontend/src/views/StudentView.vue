@@ -12,6 +12,7 @@ import {
   getAiStatus,
   getProfile,
   getResume,
+  listAiPlanningHistory,
   listDeliveries,
   listInterviewRecords,
   listJobs,
@@ -21,6 +22,7 @@ import {
   submitInterviewFeedback,
   uploadResume,
   type AiModuleStatus,
+  type AiPlanningRecord,
   type CandidateScreenRecord,
   type CareerPlanResponse,
   type DeliveryRecord,
@@ -56,13 +58,16 @@ const candidateScreenRecords = ref<CandidateScreenRecord[]>([])
 const lifecycleLoading = ref(false)
 const resumeRewrite = ref<ResumeRewriteResponse>()
 const careerPlan = ref<CareerPlanResponse>()
+const planningHistory = ref<AiPlanningRecord[]>([])
 const resumeRewriteLoading = ref(false)
 const careerPlanLoading = ref(false)
+const planningHistoryLoading = ref(false)
 
 const capabilityLabels: Record<string, string> = {
   'resume-analysis': '简历诊断',
   'resume-rewrite': '简历改写',
   'career-planning': '求职规划',
+  'planning-history': '规划历史',
   'job-analysis': '岗位分析',
   'match-analysis': '人岗匹配',
   'candidate-screening': '候选人初筛',
@@ -161,7 +166,7 @@ onMounted(async () => {
   resume.value = await getResume()
   jobs.value = await listJobs()
   deliveries.value = await listDeliveries()
-  await Promise.all([refreshAiStatus(), refreshInterviewRecords(), refreshCandidateScreenRecords()])
+  await Promise.all([refreshAiStatus(), refreshInterviewRecords(), refreshCandidateScreenRecords(), refreshPlanningHistory()])
 })
 
 function onFileChange(event: Event) {
@@ -194,6 +199,8 @@ async function runResumeRewrite() {
       skills: planSkills.value,
       projects: planProjects.value
     })
+    prependPlanningRecord(recordFromResumeRewrite(resumeRewrite.value))
+    await refreshPlanningHistory(false)
     ElMessage.success('简历改写建议已生成')
   } finally {
     resumeRewriteLoading.value = false
@@ -211,6 +218,8 @@ async function runCareerPlan() {
       resumeSummary: planSummary.value,
       timeframeWeeks: 8
     })
+    prependPlanningRecord(recordFromCareerPlan(careerPlan.value))
+    await refreshPlanningHistory(false)
     ElMessage.success('求职规划已生成')
   } finally {
     careerPlanLoading.value = false
@@ -316,6 +325,68 @@ async function refreshCandidateScreenRecords() {
   } finally {
     lifecycleLoading.value = false
   }
+}
+
+async function refreshPlanningHistory(showLoading = true) {
+  if (showLoading) {
+    planningHistoryLoading.value = true
+  }
+  try {
+    const records = await listAiPlanningHistory(activeStudentId.value, 20)
+    planningHistory.value = mergePlanningRecords(records, planningHistory.value)
+  } finally {
+    planningHistoryLoading.value = false
+  }
+}
+
+function prependPlanningRecord(record: AiPlanningRecord) {
+  planningHistory.value = mergePlanningRecords([record], planningHistory.value)
+}
+
+function mergePlanningRecords(primary: AiPlanningRecord[], secondary: AiPlanningRecord[]) {
+  const records = new Map<string, AiPlanningRecord>()
+  for (const record of [...primary, ...secondary]) {
+    records.set(record.recordId, record)
+  }
+  return Array.from(records.values())
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+    .slice(0, 20)
+}
+
+function recordFromResumeRewrite(response: ResumeRewriteResponse): AiPlanningRecord {
+  return {
+    recordId: `AIP-LOCAL-${Date.now()}`,
+    studentId: response.studentId,
+    operation: 'resume-rewrite',
+    resumeId: response.resumeId,
+    targetRole: response.targetRole,
+    resumeRewrite: response,
+    careerPlan: null,
+    mocked: response.mocked,
+    createdAt: new Date().toISOString()
+  }
+}
+
+function recordFromCareerPlan(response: CareerPlanResponse): AiPlanningRecord {
+  return {
+    recordId: `AIP-LOCAL-${Date.now()}`,
+    studentId: response.studentId,
+    operation: 'career-plan',
+    resumeId: null,
+    targetRole: response.targetRole,
+    resumeRewrite: null,
+    careerPlan: response,
+    mocked: response.mocked,
+    createdAt: new Date().toISOString()
+  }
+}
+
+function planningRecordTitle(record: AiPlanningRecord) {
+  return record.operation === 'resume-rewrite' ? '简历改写' : '职业规划'
+}
+
+function planningRecordSummary(record: AiPlanningRecord) {
+  return record.resumeRewrite?.improvedSummary || record.careerPlan?.summary || record.targetRole
 }
 
 function statusText(status: DeliveryStatus) {
@@ -566,6 +637,42 @@ function formatTime(value: string) {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div class="planning-history-section">
+        <div class="planning-history-head">
+          <div>
+            <h3>生成历史</h3>
+            <span>后端开启持久化后刷新页面仍会保留</span>
+          </div>
+          <el-button size="small" :loading="planningHistoryLoading" @click="refreshPlanningHistory()">
+            <RefreshCw :size="15" />
+            刷新历史
+          </el-button>
+        </div>
+        <el-empty v-if="planningHistory.length === 0 && !planningHistoryLoading" class="compact-empty" description="暂无生成历史" />
+        <div v-else v-loading="planningHistoryLoading" class="planning-history-list">
+          <article v-for="record in planningHistory" :key="record.recordId" class="planning-history-card">
+            <header>
+              <div>
+                <strong>{{ planningRecordTitle(record) }}</strong>
+                <span>{{ record.targetRole }} · {{ formatTime(record.createdAt) }}</span>
+              </div>
+              <el-tag :type="record.mocked ? 'warning' : 'success'">{{ record.mocked ? '演示' : '真实' }}</el-tag>
+            </header>
+            <p>{{ planningRecordSummary(record) }}</p>
+            <div v-if="record.resumeRewrite?.keywordSuggestions?.length" class="tag-row">
+              <el-tag v-for="keyword in record.resumeRewrite.keywordSuggestions.slice(0, 5)" :key="`${record.recordId}-${keyword}`" type="success">
+                {{ keyword }}
+              </el-tag>
+            </div>
+            <div v-if="record.careerPlan?.skillGaps?.length" class="tag-row">
+              <el-tag v-for="gap in record.careerPlan.skillGaps.slice(0, 5)" :key="`${record.recordId}-${gap}`" type="warning">
+                {{ gap }}
+              </el-tag>
+            </div>
+          </article>
         </div>
       </div>
     </section>
@@ -1361,6 +1468,87 @@ function formatTime(value: string) {
   overflow-wrap: anywhere;
 }
 
+.planning-history-section {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid #e4e7ec;
+}
+
+.planning-history-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.planning-history-head > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.planning-history-head h3 {
+  margin: 0;
+  color: #18212f;
+  font-size: 16px;
+}
+
+.planning-history-head span {
+  color: #667085;
+  font-size: 13px;
+}
+
+.planning-history-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.planning-history-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dde5ed;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.planning-history-card header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+}
+
+.planning-history-card header > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.planning-history-card strong,
+.planning-history-card span,
+.planning-history-card p {
+  overflow-wrap: anywhere;
+}
+
+.planning-history-card span {
+  color: #667085;
+  font-size: 13px;
+}
+
+.planning-history-card p {
+  margin: 0;
+  color: #475467;
+  line-height: 1.55;
+}
+
 .history-title span {
   display: inline-flex;
   align-items: center;
@@ -1664,6 +1852,7 @@ function formatTime(value: string) {
   .plan-block-head,
   .plan-title,
   .plan-title-meta,
+  .planning-history-head,
   .readiness-row,
   .screening-head {
     align-items: flex-start;
@@ -1671,6 +1860,7 @@ function formatTime(value: string) {
   }
 
   .plan-block-head .el-button,
+  .planning-history-head .el-button,
   .plan-title-meta .el-button {
     width: 100%;
   }

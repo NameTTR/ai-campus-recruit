@@ -33,6 +33,10 @@ services:
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
+      DASHBOARD_REALTIME_ENABLED: ${DASHBOARD_REALTIME_ENABLED:-true}
+      SPRING_DATASOURCE_URL: jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
     ports:
       - "8102:8102"
     networks:

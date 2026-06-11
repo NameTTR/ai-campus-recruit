@@ -14,6 +14,7 @@ dashscope:
   api-key: ${DASHSCOPE_API_KEY:}
   model: ${DASHSCOPE_MODEL:qwen-plus}
   base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+  temperature: ${DASHSCOPE_TEMPERATURE:0.2}
 
 ai:
   screening:
@@ -29,6 +30,9 @@ ai:
       name-server: ${ROCKETMQ_NAME_SERVER:127.0.0.1:9876}
       consumer-group: ${AI_SCREENING_ROCKETMQ_CONSUMER_GROUP:ai-screening-consumer}
       topic: ${DELIVERY_EVENTS_TOPIC:delivery-events}
+  planning:
+    persistence:
+      enabled: ${AI_PLANNING_PERSISTENCE_ENABLED:false}
 
 management:
   health:

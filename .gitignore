@@ -9,6 +9,8 @@ target/
 node_modules/
 dist/
 .vite/
+.e2e-artifacts/
+frontend/.e2e-artifacts/
 
 # IDE
 .idea/

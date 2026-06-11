@@ -39,3 +39,16 @@ CREATE TABLE IF NOT EXISTS ai_candidate_screen_task (
     KEY idx_ai_candidate_screen_task_status_updated (status, updated_at),
     KEY idx_ai_candidate_screen_task_source_delivery (source, delivery_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_planning_record (
+    record_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    student_id VARCHAR(64) NOT NULL,
+    operation VARCHAR(32) NOT NULL,
+    resume_id VARCHAR(64) NULL,
+    target_role VARCHAR(128) NOT NULL,
+    response_snapshot MEDIUMTEXT NOT NULL,
+    mocked TINYINT(1) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    KEY idx_ai_planning_record_student_created (student_id, created_at),
+    KEY idx_ai_planning_record_operation_created (operation, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

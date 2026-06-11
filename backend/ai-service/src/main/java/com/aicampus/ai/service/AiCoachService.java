@@ -2,11 +2,14 @@ package com.aicampus.ai.service;
 
 import com.aicampus.ai.service.screening.CandidateScreenRecordStore;
 import com.aicampus.ai.service.screening.InMemoryCandidateScreenRecordStore;
+import com.aicampus.ai.service.planning.AiPlanningRecordStore;
+import com.aicampus.ai.service.planning.InMemoryAiPlanningRecordStore;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.AiCallRecord;
 import com.aicampus.common.dto.AiModuleStatus;
 import com.aicampus.common.dto.AiObservabilitySummary;
+import com.aicampus.common.dto.AiPlanningRecord;
 import com.aicampus.common.dto.AiSearchRequest;
 import com.aicampus.common.dto.AiSearchResponse;
 import com.aicampus.common.dto.AiSearchResult;
@@ -120,27 +123,32 @@ public class AiCoachService {
 
     private final DashScopeClient dashScopeClient;
     private final CandidateScreenRecordStore candidateScreenRecordStore;
+    private final AiPlanningRecordStore aiPlanningRecordStore;
     private final AiObservabilityService observabilityService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, List<InterviewRecord>> interviewRecords = new ConcurrentHashMap<>();
 
     public AiCoachService(DashScopeClient dashScopeClient) {
-        this(dashScopeClient, new InMemoryCandidateScreenRecordStore(), new AiObservabilityService());
+        this(dashScopeClient, new InMemoryCandidateScreenRecordStore(), new InMemoryAiPlanningRecordStore(), new AiObservabilityService());
     }
 
     public AiCoachService(DashScopeClient dashScopeClient, CandidateScreenRecordStore candidateScreenRecordStore) {
-        this(dashScopeClient, candidateScreenRecordStore, new AiObservabilityService());
+        this(dashScopeClient, candidateScreenRecordStore, new InMemoryAiPlanningRecordStore(), new AiObservabilityService());
     }
 
     @Autowired
     public AiCoachService(
             DashScopeClient dashScopeClient,
             CandidateScreenRecordStore candidateScreenRecordStore,
+            AiPlanningRecordStore aiPlanningRecordStore,
             AiObservabilityService observabilityService) {
         this.dashScopeClient = dashScopeClient;
         this.candidateScreenRecordStore = candidateScreenRecordStore == null
                 ? new InMemoryCandidateScreenRecordStore()
                 : candidateScreenRecordStore;
+        this.aiPlanningRecordStore = aiPlanningRecordStore == null
+                ? new InMemoryAiPlanningRecordStore()
+                : aiPlanningRecordStore;
         this.observabilityService = observabilityService == null
                 ? new AiObservabilityService()
                 : observabilityService;
@@ -172,16 +180,19 @@ public class AiCoachService {
         if (!dashScopeClient.isConfigured()) {
             response = mockResumeRewrite(request);
             recordDashScopeCall("resume-rewrite", true, true, startedAt, prompt, response.improvedSummary(), dashScopeClient.status().fallbackReason());
+            saveResumeRewriteRecord(response);
             return response;
         }
         try {
             String content = dashScopeClient.complete(SYSTEM_PROMPT, prompt, true);
             response = parseResumeRewriteResponse(content, request);
             recordDashScopeCall("resume-rewrite", true, false, startedAt, prompt, content, null);
+            saveResumeRewriteRecord(response);
             return response;
         } catch (RuntimeException ex) {
             response = mockResumeRewrite(request);
             recordDashScopeCall("resume-rewrite", false, true, startedAt, prompt, response.improvedSummary(), ex.getMessage());
+            saveResumeRewriteRecord(response);
             return response;
         }
     }
@@ -193,16 +204,19 @@ public class AiCoachService {
         if (!dashScopeClient.isConfigured()) {
             response = mockCareerPlan(request);
             recordDashScopeCall("career-plan", true, true, startedAt, prompt, response.summary(), dashScopeClient.status().fallbackReason());
+            saveCareerPlanRecord(response);
             return response;
         }
         try {
             String content = dashScopeClient.complete(SYSTEM_PROMPT, prompt, true);
             response = parseCareerPlanResponse(content, request);
             recordDashScopeCall("career-plan", true, false, startedAt, prompt, content, null);
+            saveCareerPlanRecord(response);
             return response;
         } catch (RuntimeException ex) {
             response = mockCareerPlan(request);
             recordDashScopeCall("career-plan", false, true, startedAt, prompt, response.summary(), ex.getMessage());
+            saveCareerPlanRecord(response);
             return response;
         }
     }
@@ -337,6 +351,15 @@ public class AiCoachService {
                 .toList();
     }
 
+    public List<AiPlanningRecord> listPlanningRecords(String studentId, Integer limit) {
+        String studentFilter = valueOr(studentId, "");
+        if (studentFilter.isBlank()) {
+            return List.of();
+        }
+        int normalizedLimit = limit == null ? 20 : Math.max(1, Math.min(limit, 100));
+        return aiPlanningRecordStore.listByStudent(studentFilter, normalizedLimit);
+    }
+
     private void recordDashScopeCall(
             String operation,
             boolean success,
@@ -385,6 +408,13 @@ public class AiCoachService {
                                 valueOr(record.summary(), ""),
                                 String.join(" ", safeList(record.suggestions(), List.of())))),
                         List.of("STUDENT", "ADMIN"))));
+        aiPlanningRecordStore.listByStudent("S001", 20).forEach(record -> documents.add(new SearchDocument(
+                record.recordId(),
+                "planning",
+                "AI planning " + valueOr(record.targetRole(), record.operation()),
+                valueOr(record.studentId(), "student"),
+                planningSearchSummary(record),
+                List.of("STUDENT", "ADMIN"))));
         return documents;
     }
 
@@ -510,6 +540,38 @@ public class AiCoachService {
                 feedback.mocked(),
                 Instant.now());
         interviewRecords.computeIfAbsent(studentId, ignored -> new CopyOnWriteArrayList<>()).add(record);
+    }
+
+    private void saveResumeRewriteRecord(ResumeRewriteResponse response) {
+        if (response == null) {
+            return;
+        }
+        aiPlanningRecordStore.save(new AiPlanningRecord(
+                "AIP-" + UUID.randomUUID(),
+                valueOr(response.studentId(), "S001"),
+                "resume-rewrite",
+                valueOr(response.resumeId(), "R001"),
+                valueOr(response.targetRole(), "Java 后端实习生"),
+                response,
+                null,
+                response.mocked(),
+                Instant.now()));
+    }
+
+    private void saveCareerPlanRecord(CareerPlanResponse response) {
+        if (response == null) {
+            return;
+        }
+        aiPlanningRecordStore.save(new AiPlanningRecord(
+                "AIP-" + UUID.randomUUID(),
+                valueOr(response.studentId(), "S001"),
+                "career-plan",
+                null,
+                valueOr(response.targetRole(), "Java 后端实习生"),
+                null,
+                response,
+                response.mocked(),
+                Instant.now()));
     }
 
     private String buildAnalyzePrompt(AiAnalyzeRequest request) {
@@ -1127,6 +1189,28 @@ public class AiCoachService {
             return safe;
         }
         return safe.substring(0, Math.max(0, maxLength - 3)) + "...";
+    }
+
+    private static String planningSearchSummary(AiPlanningRecord record) {
+        if (record == null) {
+            return "";
+        }
+        if (record.resumeRewrite() != null) {
+            ResumeRewriteResponse response = record.resumeRewrite();
+            return String.join(" ", List.of(
+                    valueOr(response.targetRole(), ""),
+                    valueOr(response.improvedSummary(), ""),
+                    String.join(" ", safeList(response.keywordSuggestions(), List.of()))));
+        }
+        if (record.careerPlan() != null) {
+            CareerPlanResponse response = record.careerPlan();
+            return String.join(" ", List.of(
+                    valueOr(response.targetRole(), ""),
+                    valueOr(response.summary(), ""),
+                    String.join(" ", safeList(response.skillGaps(), List.of())),
+                    String.join(" ", safeList(response.interviewFocus(), List.of()))));
+        }
+        return valueOr(record.targetRole(), record.operation());
     }
 
     private record SearchDocument(

@@ -284,3 +284,17 @@
 - On service restart, persisted `PENDING` or `RUNNING` tasks are marked `FAILED` with a retryable message instead of remaining stuck forever.
 - RocketMQ-created tasks use a `dedup_key` derived from `DELIVERY_CREATED` and `deliveryId`; repeated delivery messages return the existing task instead of creating duplicates.
 - Retry still creates a new task and keeps the original failed task for auditability. The retry uses the persisted request snapshot, so it works after service restart.
+
+## v3.5 AI Planning History and Dashboard Data
+
+- `GET /api/ai/career/history?studentId=S001&limit=20`: list the student's AI planning history.
+  - Returns: `ApiResponse<List<AiPlanningRecord>>`.
+  - Query parameters: `studentId` is required for direct service calls; `limit` is optional, defaults to `20`, and is normalized to the `1`-`100` range.
+  - `AiPlanningRecord` fields: `recordId`, `studentId`, `operation`, `resumeId`, `targetRole`, `resumeRewrite`, `careerPlan`, `mocked`, and `createdAt`.
+  - `operation` identifies the source workflow, currently resume rewrite or career plan. Exactly one of `resumeRewrite` and `careerPlan` is populated for each record.
+  - When Gateway has injected `X-User-Role=STUDENT` and `X-User-Id`, `ai-service` uses the injected user id as the effective `studentId` and ignores any conflicting `studentId` query parameter.
+  - All responses still use `ApiResponse<T>` and must not include API keys, prompts, full resume text, tokens, or other secrets.
+
+- `GET /api/admin/dashboard`: management dashboard statistics.
+  - When `DASHBOARD_REALTIME_ENABLED=true` and the `user-service` MySQL datasource is reachable, the dashboard aggregates real persisted tables including `resume_summary_record`, `job_record`, `match_result_record`, `delivery_record`, `ai_candidate_screen_record`, and `ai_planning_record`.
+  - If realtime mode is disabled, datasource configuration is missing, the MySQL driver is unavailable, or MySQL cannot be queried, the endpoint returns the stable deterministic fallback dataset so the admin screen remains usable for demos and smoke tests.

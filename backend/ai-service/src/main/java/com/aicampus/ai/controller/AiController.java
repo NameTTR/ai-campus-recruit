@@ -8,6 +8,7 @@ import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.AiCallRecord;
 import com.aicampus.common.dto.AiModuleStatus;
 import com.aicampus.common.dto.AiObservabilitySummary;
+import com.aicampus.common.dto.AiPlanningRecord;
 import com.aicampus.common.dto.AiSearchRequest;
 import com.aicampus.common.dto.AiSearchResponse;
 import com.aicampus.common.dto.CareerPlanRequest;
@@ -81,6 +82,16 @@ public class AiController {
             @RequestHeader(value = X_USER_ID, required = false) String userId,
             @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
         return ApiResponse.ok(aiCoachService.careerPlan(resolveStudentRequest(request, userId, userRole)));
+    }
+
+    @Operation(summary = "List student AI planning history")
+    @GetMapping("/career/history")
+    public ApiResponse<List<AiPlanningRecord>> careerHistory(
+            @RequestParam(required = false) String studentId,
+            @RequestParam(required = false) Integer limit,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(aiCoachService.listPlanningRecords(resolveStudentId(studentId, userId, userRole), limit));
     }
 
     @Operation(summary = "Search campus recruitment knowledge with local AI ranking")

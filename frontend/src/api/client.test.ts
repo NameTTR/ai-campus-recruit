@@ -20,6 +20,7 @@ import {
   getDeliveryStatistics,
   getDeploymentTopology,
   getSystemStatus,
+  listAiPlanningHistory,
   listAiCallRecords,
   listAccounts,
   listCandidateScreenRecords,
@@ -457,6 +458,42 @@ describe('api fallback behavior', () => {
     expect(result.mocked).toBe(false)
     expect(result.readinessScore).toBe(88)
     expect(fetch).toHaveBeenCalledWith('/api/ai/career/plan', expect.any(Object))
+  })
+
+  it('returns ai planning history fallback when ai proxy is not configured', async () => {
+    const result = await listAiPlanningHistory('S001', 10)
+
+    expect(result.length).toBeGreaterThan(0)
+    expect(result[0].studentId).toBe('S001')
+    expect(result.some((record) => record.operation === 'career-plan')).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls ai planning history endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: [{
+          recordId: 'AIP-001',
+          studentId: 'S001',
+          operation: 'career-plan',
+          resumeId: null,
+          targetRole: 'Java backend intern',
+          resumeRewrite: null,
+          careerPlan: null,
+          mocked: false,
+          createdAt: '2026-06-11T00:00:00Z'
+        }]
+      })
+    } as Response)
+
+    const result = await listAiPlanningHistory('S001', 5)
+
+    expect(result[0].recordId).toBe('AIP-001')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/career/history?studentId=S001&limit=5', expect.any(Object))
   })
 
   it('returns candidate screen fallback when ai proxy is not configured', async () => {

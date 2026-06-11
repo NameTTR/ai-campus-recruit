@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run",
+    "test:e2e": "node scripts/e2e-smoke.cjs"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^5.2.1",

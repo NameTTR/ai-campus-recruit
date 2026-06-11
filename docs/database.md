@@ -106,6 +106,25 @@ CREATE TABLE IF NOT EXISTS delivery_record (
 
 `delivery_record` 保存投递流程状态和投递时的简历解析快照。`delivery-service` 默认使用内存仓储；启用 `DELIVERY_PERSISTENCE_ENABLED=true` 并配置 `SPRING_DATASOURCE_URL` 后通过 MyBatis-Plus 写入该表，企业投递列表可通过 Redis cache-aside 缓存。
 
+## v3.5 AI Planning Record Table
+
+```sql
+CREATE TABLE IF NOT EXISTS ai_planning_record (
+    record_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    student_id VARCHAR(64) NOT NULL,
+    operation VARCHAR(32) NOT NULL,
+    resume_id VARCHAR(64) NULL,
+    target_role VARCHAR(128) NOT NULL,
+    response_snapshot MEDIUMTEXT NOT NULL,
+    mocked TINYINT(1) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    KEY idx_ai_planning_record_student_created (student_id, created_at),
+    KEY idx_ai_planning_record_operation_created (operation, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+`ai_planning_record` stores AI planning history for student-facing resume rewrite and career plan flows. `response_snapshot` stores the structured response payload as JSON, while `operation` distinguishes the workflow that produced the record. The table is used by `GET /api/ai/career/history`; when `AI_PLANNING_PERSISTENCE_ENABLED=true` and datasource settings are present, `ai-service` writes records to MySQL, otherwise it keeps deterministic in-memory behavior for local demos.
+
 ## v0.8 AI Screening Table
 
 ```sql

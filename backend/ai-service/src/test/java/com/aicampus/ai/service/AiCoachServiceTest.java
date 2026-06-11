@@ -2,6 +2,7 @@ package com.aicampus.ai.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.aicampus.common.dto.AiPlanningRecord;
 import com.aicampus.common.dto.CareerPlanRequest;
 import com.aicampus.common.dto.CareerPlanResponse;
 import com.aicampus.common.dto.CandidateScreenRequest;
@@ -72,5 +73,32 @@ class AiCoachServiceTest {
         assertThat(response.readinessScore()).isBetween(0, 100);
         assertThat(response.milestones()).hasSize(3);
         assertThat(response.interviewFocus()).contains("MySQL 索引、事务和慢 SQL 分析");
+    }
+
+    @Test
+    void resumeRewriteAndCareerPlanAreRecordedInHistory() {
+        AiCoachService service = new AiCoachService(new DashScopeClient("", "qwen-plus", "http://localhost"));
+
+        service.rewriteResume(new ResumeRewriteRequest(
+                "S-HISTORY-001",
+                "R-HISTORY-001",
+                "Java Backend Intern",
+                "Java backend project experience",
+                List.of("Java"),
+                List.of("Campus recruitment platform")));
+        service.careerPlan(new CareerPlanRequest(
+                "S-HISTORY-001",
+                "Java Backend Intern",
+                List.of("Java"),
+                List.of("backend"),
+                "Java backend project experience",
+                8));
+
+        List<AiPlanningRecord> history = service.listPlanningRecords("S-HISTORY-001", 10);
+
+        assertThat(history).hasSize(2);
+        assertThat(history).extracting(AiPlanningRecord::operation)
+                .contains("resume-rewrite", "career-plan");
+        assertThat(history.get(0).createdAt()).isNotNull();
     }
 }

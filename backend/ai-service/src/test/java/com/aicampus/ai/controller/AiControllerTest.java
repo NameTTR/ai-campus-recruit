@@ -184,6 +184,36 @@ class AiControllerTest {
     }
 
     @Test
+    void planningHistoryReturnsGeneratedStudentRecords() throws Exception {
+        mockMvc.perform(post("/api/ai/career/plan")
+                        .header("X-User-Id", "S-HISTORY-HTTP-001")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "studentId": "S-BODY-IGNORED",
+                                  "targetRole": "Java Backend Intern",
+                                  "skills": ["Java", "Spring Boot"],
+                                  "interests": ["backend"],
+                                  "resumeSummary": "Java backend project experience",
+                                  "timeframeWeeks": 8
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.studentId").value("S-HISTORY-HTTP-001"));
+
+        mockMvc.perform(get("/api/ai/career/history")
+                        .header("X-User-Id", "S-HISTORY-HTTP-001")
+                        .header("X-User-Role", "STUDENT")
+                        .param("studentId", "S-BODY-IGNORED")
+                        .param("limit", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data[0].studentId").value("S-HISTORY-HTTP-001"))
+                .andExpect(jsonPath("$.data[0].operation").value("career-plan"));
+    }
+
+    @Test
     void candidateScreeningUsesCompanyHeaderBeforeRequestCompanyId() throws Exception {
         mockMvc.perform(post("/api/ai/candidates/screen")
                         .header("X-User-Id", "C-GATEWAY-TRUST-001")

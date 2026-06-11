@@ -274,6 +274,18 @@ export interface CareerPlanResponse {
   mocked: boolean
 }
 
+export interface AiPlanningRecord {
+  recordId: string
+  studentId: string
+  operation: 'resume-rewrite' | 'career-plan' | string
+  resumeId?: string | null
+  targetRole: string
+  resumeRewrite?: ResumeRewriteResponse | null
+  careerPlan?: CareerPlanResponse | null
+  mocked: boolean
+  createdAt: string
+}
+
 export type AdminAuditEntityType = 'STUDENT' | 'JOB' | 'DELIVERY' | 'AI_SCREENING' | 'AI_INTERVIEW'
 export type AdminAuditRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH'
 
@@ -896,12 +908,37 @@ const fallbackCareerPlanResponse: CareerPlanResponse = {
   mocked: true
 }
 
+const fallbackAiPlanningRecords: AiPlanningRecord[] = [
+  {
+    recordId: 'AIP-DEMO-PLAN-001',
+    studentId: 'S001',
+    operation: 'career-plan',
+    resumeId: null,
+    targetRole: fallbackCareerPlanResponse.targetRole,
+    resumeRewrite: null,
+    careerPlan: fallbackCareerPlanResponse,
+    mocked: true,
+    createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  },
+  {
+    recordId: 'AIP-DEMO-REWRITE-001',
+    studentId: 'S001',
+    operation: 'resume-rewrite',
+    resumeId: fallbackResumeRewriteResponse.resumeId,
+    targetRole: fallbackResumeRewriteResponse.targetRole,
+    resumeRewrite: fallbackResumeRewriteResponse,
+    careerPlan: null,
+    mocked: true,
+    createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString()
+  }
+]
+
 const fallbackAiModuleStatus: AiModuleStatus = {
   provider: 'dashscope',
   model: 'qwen-plus',
   configured: false,
   baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  capabilities: ['resume-analysis', 'resume-rewrite', 'career-planning', 'job-analysis', 'match-analysis', 'candidate-screening', 'interview-question-generation', 'interview-feedback', 'observability', 'intelligent-search'],
+  capabilities: ['resume-analysis', 'resume-rewrite', 'career-planning', 'planning-history', 'job-analysis', 'match-analysis', 'candidate-screening', 'interview-question-generation', 'interview-feedback', 'observability', 'intelligent-search'],
   fallbackReason: 'AI service is offline or DASHSCOPE_API_KEY is not configured'
 }
 
@@ -1677,6 +1714,18 @@ export function generateCareerPlan(payload: CareerPlanRequest) {
     studentId: payload.studentId || fallbackCareerPlanResponse.studentId,
     targetRole: payload.targetRole || fallbackCareerPlanResponse.targetRole
   })
+}
+
+export function listAiPlanningHistory(studentId = currentStudentId(), limit = 20) {
+  const normalizedLimit = Math.max(1, Math.min(limit, 100))
+  const params = new URLSearchParams({
+    studentId,
+    limit: String(normalizedLimit)
+  })
+  const fallback = fallbackAiPlanningRecords
+    .filter((record) => record.studentId === studentId)
+    .slice(0, normalizedLimit)
+  return request<AiPlanningRecord[]>(`/api/ai/career/history?${params.toString()}`, { method: 'GET' }, fallback)
 }
 
 export function getAiStatus() {

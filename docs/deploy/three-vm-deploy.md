@@ -87,8 +87,10 @@ GATEWAY_AUTH_ENABLED=true
 DASHSCOPE_API_KEY=
 DASHSCOPE_MODEL=qwen-plus
 DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+DASHSCOPE_TEMPERATURE=0.2
 
 AI_SCREENING_PERSISTENCE_ENABLED=true
+AI_PLANNING_PERSISTENCE_ENABLED=true
 AI_SCREENING_CACHE_TTL=10m
 AI_SCREENING_ROCKETMQ_ENABLED=true
 AI_SCREENING_ROCKETMQ_CONSUMER_GROUP=ai-screening-consumer
@@ -102,6 +104,7 @@ DELIVERY_PERSISTENCE_ENABLED=true
 DELIVERY_CACHE_TTL=10m
 DELIVERY_EVENTS_ROCKETMQ_ENABLED=true
 DELIVERY_EVENTS_TOPIC=delivery-events
+DASHBOARD_REALTIME_ENABLED=true
 
 FRONTEND_PORT=80
 GATEWAY_PORT=8080
@@ -126,7 +129,9 @@ GATEWAY_PORT=8080
 | `DASHSCOPE_API_KEY` | 阿里云百炼 API Key；为空时 AI 服务进入 mock 演示模式 |
 | `DASHSCOPE_MODEL` | 默认 `qwen-plus` |
 | `DASHSCOPE_BASE_URL` | 默认 `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| `DASHSCOPE_TEMPERATURE` | DashScope 生成温度，三机联调建议使用低温度值保持结构化输出稳定；服务会将异常值限制在 `0` 到 `1` |
 | `AI_SCREENING_PERSISTENCE_ENABLED` | AI 候选人初筛历史是否写入 MySQL，v0.9 建议为 `true` |
+| `AI_PLANNING_PERSISTENCE_ENABLED` | AI 简历改写和求职规划历史是否写入 VM3 MySQL 的 `ai_planning_record`，v3.5 建议为 `true` |
 | `AI_SCREENING_CACHE_TTL` | AI 初筛历史 Redis 缓存 TTL |
 | `AI_SCREENING_ROCKETMQ_ENABLED` | AI 服务是否消费 RocketMQ 投递事件并创建异步初筛任务，三机部署默认 `true` |
 | `AI_SCREENING_ROCKETMQ_CONSUMER_GROUP` | AI 初筛 RocketMQ consumer group，默认 `ai-screening-consumer` |
@@ -140,14 +145,16 @@ GATEWAY_PORT=8080
 | `DELIVERY_CACHE_TTL` | 企业投递列表 Redis 缓存 TTL |
 | `DELIVERY_EVENTS_ROCKETMQ_ENABLED` | 投递事件是否发布到 RocketMQ，三机部署默认 `true` |
 | `DELIVERY_EVENTS_TOPIC` | 投递事件 topic，默认 `delivery-events` |
+| `DASHBOARD_REALTIME_ENABLED` | `user-service` 管理大屏是否读取 VM3 MySQL 聚合真实表；为 `false` 或 datasource 不可用时返回稳定 fallback |
 | `FRONTEND_PORT` | VM1 前端暴露端口 |
 | `GATEWAY_PORT` | VM1 Gateway 暴露端口 |
 
 服务内实际使用的关键环境变量：
 
 - VM1 `gateway-service`：`AUTH_SERVICE_URI=http://${VM2_HOST}:8101`、`USER_SERVICE_URI=http://${VM2_HOST}:8102`、`RESUME_SERVICE_URI=http://${VM2_HOST}:8103`、`JOB_SERVICE_URI=http://${VM2_HOST}:8104`、`MATCH_SERVICE_URI=http://${VM2_HOST}:8105`、`DELIVERY_SERVICE_URI=http://${VM2_HOST}:8107`、`AI_SERVICE_URI=http://${VM3_HOST}:8106`、`JWT_SECRET=${JWT_SECRET}`、`JWT_ISSUER=${JWT_ISSUER}`、`GATEWAY_AUTH_ENABLED=${GATEWAY_AUTH_ENABLED}`。
+- VM2 `user-service`：`DASHBOARD_REALTIME_ENABLED=${DASHBOARD_REALTIME_ENABLED}`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATASOURCE_USERNAME`、`SPRING_DATASOURCE_PASSWORD`。这些 datasource 变量只用于管理大屏聚合真实业务表；请通过 `deploy/three-vm.env` 或安全配置注入真实密码，不要提交真实值。
 - VM2 业务服务：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`；`auth-service` 额外使用 `JWT_SECRET=${JWT_SECRET}`、`JWT_ISSUER=${JWT_ISSUER}`；`resume-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`RESUME_OBJECT_STORAGE_ENABLED=true`、`MINIO_ENDPOINT=http://${VM3_HOST}:9000`、`MINIO_BUCKET=${MINIO_BUCKET}`、`RESUME_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`job-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`JOB_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`match-service` 额外使用 `MATCH_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`delivery-service` 额外使用 `DELIVERY_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`、`DELIVERY_EVENTS_ROCKETMQ_ENABLED=true`、`ROCKETMQ_NAME_SERVER=${VM3_HOST}:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
-- VM3 `ai-service`：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`、`SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=redis`、`AI_SCREENING_ROCKETMQ_ENABLED=${AI_SCREENING_ROCKETMQ_ENABLED}`、`ROCKETMQ_NAME_SERVER=rocketmq-namesrv:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
+- VM3 `ai-service`：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`、`DASHSCOPE_TEMPERATURE=${DASHSCOPE_TEMPERATURE}`、`AI_PLANNING_PERSISTENCE_ENABLED=${AI_PLANNING_PERSISTENCE_ENABLED}`、`SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=redis`、`AI_SCREENING_ROCKETMQ_ENABLED=${AI_SCREENING_ROCKETMQ_ENABLED}`、`ROCKETMQ_NAME_SERVER=rocketmq-namesrv:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
 
 ## 启动顺序
 
@@ -370,6 +377,23 @@ curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" "http://<VM1_IP>/api/ai/sta
 curl -sS -H "Authorization: Bearer ${ADMIN_TOKEN}" "http://<VM1_IP>:8080/api/admin/dashboard"
 ```
 
+验证 v3.5 规划历史和真实大屏：
+
+```bash
+curl -sS -X POST "http://<VM1_IP>:8080/api/ai/career/plan" \
+  -H "Authorization: Bearer ${STUDENT_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"studentId":"S001","targetRole":"Java 后端实习生","skills":["Java","Spring Boot","MySQL"],"interests":["分布式系统"],"resumeSummary":"有校园项目经验","timeframeWeeks":8}'
+
+curl -sS -H "Authorization: Bearer ${STUDENT_TOKEN}" \
+  "http://<VM1_IP>:8080/api/ai/career/history?studentId=S001&limit=10"
+
+curl -sS -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  "http://<VM1_IP>:8080/api/admin/dashboard"
+```
+
+当 `DASHBOARD_REALTIME_ENABLED=true` 且 VM2 `user-service` 可以访问 VM3 MySQL 时，管理大屏会聚合真实持久化表；否则应返回稳定 fallback 数据而不是中断验收。
+
 OpenAPI 直连路径：
 
 ```text
@@ -495,6 +519,16 @@ bash scripts/check-api-smoke.sh --base-url http://<VM1_IP>:8080
 # 本地只启动 auth/user/gateway 时可用：
 bash scripts/check-api-smoke.sh --base-url http://localhost:18080 --core-only
 ```
+
+前端 E2E smoke 验收：
+
+```powershell
+cd frontend
+$env:E2E_BASE_URL = "http://<VM1_IP>/"
+npm run test:e2e
+```
+
+`frontend/scripts/e2e-smoke.cjs` 默认使用本机可用的 Chromium/Edge；如宿主机浏览器路径不在默认搜索范围，可通过 `E2E_BROWSER` 指定。脚本截图会写入本地 artifacts 目录，便于记录学生规划历史展示和管理端关键页面是否可用。
 
 ## 基础监控与日志
 

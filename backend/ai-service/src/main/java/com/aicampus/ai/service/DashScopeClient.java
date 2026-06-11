@@ -4,6 +4,7 @@ import com.aicampus.common.dto.AiModuleStatus;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -19,6 +20,7 @@ public class DashScopeClient {
             "match-analysis",
             "resume-rewrite",
             "career-planning",
+            "planning-history",
             "interview-question-generation",
             "interview-feedback",
             "candidate-screening",
@@ -28,19 +30,27 @@ public class DashScopeClient {
     private final String apiKey;
     private final String model;
     private final String baseUrl;
+    private final double temperature;
     private final RestClient restClient;
 
+    @Autowired
     public DashScopeClient(
             @Value("${dashscope.api-key:}") String apiKey,
             @Value("${dashscope.model:qwen-plus}") String model,
-            @Value("${dashscope.base-url:https://dashscope.aliyuncs.com/compatible-mode/v1}") String baseUrl) {
+            @Value("${dashscope.base-url:https://dashscope.aliyuncs.com/compatible-mode/v1}") String baseUrl,
+            @Value("${dashscope.temperature:0.2}") double temperature) {
         this.apiKey = apiKey;
         this.model = valueOr(model, "qwen-plus");
         this.baseUrl = valueOr(baseUrl, "https://dashscope.aliyuncs.com/compatible-mode/v1");
+        this.temperature = clampTemperature(temperature);
         this.restClient = RestClient.builder()
                 .baseUrl(this.baseUrl)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
+    }
+
+    public DashScopeClient(String apiKey, String model, String baseUrl) {
+        this(apiKey, model, baseUrl, 0.2);
     }
 
     public String complete(String systemPrompt, String userPrompt, boolean jsonResponse) {
@@ -54,6 +64,7 @@ public class DashScopeClient {
                 Map.of("role", "system", "content", systemPrompt),
                 Map.of("role", "user", "content", userPrompt)
         ));
+        payload.put("temperature", temperature);
         if (jsonResponse) {
             payload.put("response_format", Map.of("type", "json_object"));
         }
@@ -104,5 +115,12 @@ public class DashScopeClient {
 
     private static String valueOr(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static double clampTemperature(double value) {
+        if (Double.isNaN(value) || Double.isInfinite(value)) {
+            return 0.2;
+        }
+        return Math.max(0, Math.min(1, value));
     }
 }
