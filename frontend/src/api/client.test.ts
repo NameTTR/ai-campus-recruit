@@ -936,10 +936,13 @@ describe('api fallback behavior', () => {
   it('returns deployment guide fallback when gateway is offline', async () => {
     const result = await getDeploymentGuide()
 
-    expect(result.steps).toHaveLength(4)
-    expect(result.steps[0].nodeId).toBe('vm3')
-    expect(result.steps[1].nodeId).toBe('vm1')
+    expect(result.steps).toHaveLength(5)
+    expect(result.steps[0].nodeId).toBe('vm1')
+    expect(result.steps[0].commands[0]).toContain('up -d nacos')
+    expect(result.steps[1].nodeId).toBe('vm3')
     expect(result.steps[2].nodeId).toBe('vm2')
+    expect(result.steps[3].nodeId).toBe('vm1')
+    expect(result.steps[4].nodeId).toBe('acceptance')
     expect(result.acceptanceChecks.length).toBeGreaterThan(0)
     expect(fetch).not.toHaveBeenCalled()
   })

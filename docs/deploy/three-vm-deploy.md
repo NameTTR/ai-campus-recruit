@@ -319,7 +319,7 @@ v3.3 新增 Windows 宿主机一键部署脚本：
 .\scripts\deploy-three-vm.ps1 -SshUser ubuntu
 ```
 
-脚本会自动读取 VMware Tools 报告的三台 VM IP，生成临时部署 env，归档当前 Git 提交，上传到三台 VM，并按 VM3、VM2、VM1 的顺序执行 Docker Compose。脚本默认会清理各 VM 上残留的 `recruit-*` 容器，避免克隆 VM 后旧的 Nacos/Gateway 占用端口。
+脚本会自动读取 VMware Tools 报告的三台 VM IP，生成临时部署 env，归档当前 Git 提交，上传到三台 VM，先在 VM1 启动 Nacos，等待注册中心可用后再按 VM3、VM2、VM1 的顺序启动其余服务。脚本默认会清理各 VM 上残留的 `recruit-*` 容器，避免克隆 VM 后旧的 Nacos/Gateway 占用端口。
 
 如果已经配置 SSH key：
 

@@ -227,7 +227,7 @@
 
 - `GET /api/admin/system/deployment-guide`: generated startup guide for the three-VM deployment.
   - Returns: `generatedAt`, `environment`, `summary`, `steps`, `acceptanceChecks`, and `warnings`.
-  - Default step order is VM3 data and AI services first, VM1 discovery/gateway/frontend second, VM2 business services third, and all-node health/API smoke checks last.
+  - Default step order is VM1 Nacos bootstrap first, VM3 data and AI services second, VM2 business services third, VM1 gateway/frontend last, and all-node health/API smoke checks after startup.
   - `steps` items include `order`, `nodeId`, `nodeName`, `title`, `purpose`, `commands`, `verifyUrls`, `expectedResult`, and `troubleshooting`.
   - `acceptanceChecks` items include `name`, `command`, and `expectedResult`.
   - Hosts and ports are generated from `VM1_HOST`, `VM2_HOST`, `VM3_HOST`, `FRONTEND_PORT`, `GATEWAY_PORT`, `NACOS_PORT`, `AUTH_PORT`, `USER_PORT`, `RESUME_PORT`, `JOB_PORT`, `MATCH_PORT`, `AI_PORT`, `DELIVERY_PORT`, `MYSQL_PORT`, `REDIS_PORT`, `MINIO_PORT`, and `ROCKETMQ_PORT`, with defaults aligned to `deploy/three-vm.env.example` and the VM compose files.

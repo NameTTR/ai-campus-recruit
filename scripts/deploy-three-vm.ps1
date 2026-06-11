@@ -5,8 +5,8 @@ Deploys the committed project revision to three Ubuntu VMs over SSH.
 .DESCRIPTION
 Discovers VMware guest IPs when possible, creates a temporary deployment env
 without printing secrets, archives the committed Git revision, uploads it to
-each VM, starts Compose in VM3 -> VM2 -> VM1 order, then runs the three-VM
-health smoke and distributed AI flow checks.
+each VM, starts VM1 Nacos first, starts Compose in VM3 -> VM2 -> VM1 order,
+then runs the three-VM health smoke and distributed AI flow checks.
 
 SSH passwords are never accepted as command arguments. Configure an SSH key or
 run the script in an interactive PowerShell window so OpenSSH can prompt.
@@ -154,6 +154,36 @@ function Invoke-Ssh {
     Invoke-External -Name $Name -Command { & ssh @options "$SshUser@$HostName" $RemoteCommand }
 }
 
+function Wait-HttpEndpoint {
+    param(
+        [string]$Name,
+        [string]$Url,
+        [int]$Seconds
+    )
+
+    Write-Host "==> Wait for $Name" -ForegroundColor Cyan
+    if ($DryRun) {
+        return
+    }
+
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    $lastError = ""
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec $TimeoutSeconds
+            if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) {
+                return
+            }
+            $lastError = "HTTP $($response.StatusCode)"
+        } catch {
+            $lastError = $_.Exception.Message
+        }
+        Start-Sleep -Seconds 5
+    }
+
+    throw "$Name did not become ready at $Url within $Seconds seconds. Last error: $lastError"
+}
+
 function Invoke-Scp {
     param(
         [string]$HostName,
@@ -223,13 +253,13 @@ try {
         }
     }
 
-    $deploymentOrder = @(
-        [pscustomobject]@{ Name = "VM3"; Host = $Vm3Ip; Compose = "deploy/docker-compose.vm3.yml" },
+    $deploymentTargets = @(
+        [pscustomobject]@{ Name = "VM1"; Host = $Vm1Ip; Compose = "deploy/docker-compose.vm1.yml" },
         [pscustomobject]@{ Name = "VM2"; Host = $Vm2Ip; Compose = "deploy/docker-compose.vm2.yml" },
-        [pscustomobject]@{ Name = "VM1"; Host = $Vm1Ip; Compose = "deploy/docker-compose.vm1.yml" }
+        [pscustomobject]@{ Name = "VM3"; Host = $Vm3Ip; Compose = "deploy/docker-compose.vm3.yml" }
     )
 
-    foreach ($vm in $deploymentOrder) {
+    foreach ($vm in $deploymentTargets) {
         Invoke-Ssh -HostName $vm.Host -Name "$($vm.Name) prerequisites" -RemoteCommand `
             "set -e; command -v docker >/dev/null; docker compose version >/dev/null; mkdir -p '$RemotePath'"
 
@@ -244,11 +274,27 @@ try {
             Invoke-Ssh -HostName $vm.Host -Name "$($vm.Name) remove stale recruit containers" -RemoteCommand `
                 "docker ps -aq --filter name=recruit- | xargs -r docker rm -f"
         }
+    }
 
+    Invoke-Ssh -HostName $Vm1Ip -Name "VM1 start Nacos bootstrap" -RemoteCommand `
+        "set -e; cd '$RemotePath'; docker compose --env-file deploy/three-vm.env -f 'deploy/docker-compose.vm1.yml' up -d nacos; docker compose --env-file deploy/three-vm.env -f 'deploy/docker-compose.vm1.yml' ps nacos"
+
+    Wait-HttpEndpoint -Name "VM1 Nacos" -Url "http://${Vm1Ip}:8848/nacos/" -Seconds ([Math]::Max(180, $TimeoutSeconds * 9))
+
+    $deploymentOrder = @(
+        [pscustomobject]@{ Name = "VM3"; Host = $Vm3Ip; Compose = "deploy/docker-compose.vm3.yml" },
+        [pscustomobject]@{ Name = "VM2"; Host = $Vm2Ip; Compose = "deploy/docker-compose.vm2.yml" },
+        [pscustomobject]@{ Name = "VM1"; Host = $Vm1Ip; Compose = "deploy/docker-compose.vm1.yml" }
+    )
+
+    foreach ($vm in $deploymentOrder) {
         $buildFlag = if ($SkipBuild) { "" } else { "--build" }
         Invoke-Ssh -HostName $vm.Host -Name "$($vm.Name) compose up" -RemoteCommand `
             "set -e; cd '$RemotePath'; docker compose --env-file deploy/three-vm.env -f '$($vm.Compose)' up -d $buildFlag --remove-orphans; docker compose --env-file deploy/three-vm.env -f '$($vm.Compose)' ps"
     }
+
+    Wait-HttpEndpoint -Name "VM1 gateway" -Url "http://${Vm1Ip}:8080/actuator/health" -Seconds ([Math]::Max(180, $TimeoutSeconds * 9))
+    Wait-HttpEndpoint -Name "VM3 AI service" -Url "http://${Vm3Ip}:8106/actuator/health" -Seconds ([Math]::Max(180, $TimeoutSeconds * 9))
 
     if (-not $SkipSmoke) {
         $smokeArgs = @{

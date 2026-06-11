@@ -1163,44 +1163,41 @@ const fallbackDeploymentTopology: DeploymentTopology = {
 const fallbackDeploymentGuide: DeploymentGuide = {
   generatedAt: new Date().toISOString(),
   environment: 'frontend-demo',
-  summary: '按 VM3 基础设施、VM1 接入层、VM2 业务服务、最终验收的顺序完成三虚拟机部署。',
+  summary: '按 VM1 Nacos 引导、VM3 数据与 AI、VM2 业务服务、VM1 接入层、最终验收的顺序完成三虚拟机部署。',
   steps: [
     {
       order: 1,
+      nodeId: 'vm1',
+      nodeName: 'VM1 Nacos Bootstrap',
+      title: '启动注册中心',
+      purpose: '先启动 Nacos，避免 VM3 AI 服务和 VM2 业务服务注册时出现启动竞争。',
+      commands: [
+        'docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml up -d nacos',
+        'docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml ps nacos'
+      ],
+      verifyUrls: ['http://192.168.56.11:8848/nacos/'],
+      expectedResult: 'Nacos 控制台可访问，VM2 和 VM3 能连接 VM1 的 8848/9848 端口。',
+      troubleshooting: ['Nacos 不可达时检查 VM1 防火墙端口', '服务无法注册时检查 VM2/VM3 到 VM1 的网络']
+    },
+    {
+      order: 2,
       nodeId: 'vm3',
       nodeName: 'VM3 Data and AI Node',
       title: '启动数据与 AI 节点',
-      purpose: '先启动 MySQL、Redis、MinIO、RocketMQ 和 AI 服务，保证业务服务依赖可用。',
+      purpose: '在 Nacos 可用后启动 MySQL、Redis、MinIO、RocketMQ 和 AI 服务。',
       commands: [
-        'docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm3.yml up -d',
-        'docker compose -f deploy/docker-compose.vm3.yml ps'
+        'docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm3.yml up -d --build',
+        'docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm3.yml ps'
       ],
       verifyUrls: [
         'tcp://192.168.56.13:3306',
         'tcp://192.168.56.13:6379',
         'http://192.168.56.13:9000/minio/health/live',
+        'tcp://192.168.56.13:9876',
         'http://192.168.56.13:8106/actuator/health'
       ],
       expectedResult: 'MySQL、Redis、MinIO、RocketMQ 和 ai-service 均可达。',
-      troubleshooting: ['先确认 VM3 防火墙端口开放', 'AI 服务异常时检查 AI 服务凭证是否已在 .env 中配置']
-    },
-    {
-      order: 2,
-      nodeId: 'vm1',
-      nodeName: 'VM1 Edge Node',
-      title: '启动注册中心与接入层',
-      purpose: '启动 Nacos、Gateway 和前端入口，建立统一访问入口。',
-      commands: [
-        'docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml up -d',
-        'docker compose -f deploy/docker-compose.vm1.yml ps'
-      ],
-      verifyUrls: [
-        'http://192.168.56.11:8848/nacos',
-        'http://192.168.56.11:8080/actuator/health',
-        'http://192.168.56.11/'
-      ],
-      expectedResult: 'Nacos、Gateway 和前端容器处于 running 状态。',
-      troubleshooting: ['Gateway 异常时检查 VM2/VM3 地址是否写入 deploy/three-vm.env', '前端打不开时检查 80 端口是否被占用']
+      troubleshooting: ['先确认 VM3 防火墙端口开放', 'AI 服务异常时检查 DASHSCOPE_API_KEY 和 Nacos 连接']
     },
     {
       order: 3,
@@ -1225,6 +1222,23 @@ const fallbackDeploymentGuide: DeploymentGuide = {
     },
     {
       order: 4,
+      nodeId: 'vm1',
+      nodeName: 'VM1 Gateway and Frontend',
+      title: '启动接入层',
+      purpose: '在 VM2 和 VM3 服务可用后启动 Gateway 和前端入口。',
+      commands: [
+        'docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml up -d --build gateway-service frontend',
+        'docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml ps'
+      ],
+      verifyUrls: [
+        'http://192.168.56.11:8080/actuator/health',
+        'http://192.168.56.11/'
+      ],
+      expectedResult: 'Gateway 健康检查通过，前端页面可打开。',
+      troubleshooting: ['Gateway 异常时检查 VM2/VM3 地址是否写入 deploy/three-vm.env', '前端打不开时检查 80 端口是否被占用']
+    },
+    {
+      order: 5,
       nodeId: 'acceptance',
       nodeName: 'Deployment Acceptance',
       title: '执行部署验收',

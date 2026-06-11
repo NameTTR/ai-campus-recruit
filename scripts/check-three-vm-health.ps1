@@ -263,13 +263,29 @@ function Resolve-ToolPath {
 function Invoke-NativeCommand {
     param(
         [string]$FilePath,
-        [string[]]$Arguments
+        [string[]]$Arguments,
+        [hashtable]$Environment = @{}
     )
 
-    $output = & $FilePath @Arguments 2>&1 | ForEach-Object { $_.ToString() }
-    $exitCode = $LASTEXITCODE
-    if ($null -eq $exitCode) {
-        $exitCode = 0
+    $previousErrorActionPreference = $ErrorActionPreference
+    $previousEnvironment = @{}
+    foreach ($key in $Environment.Keys) {
+        $previousEnvironment[$key] = [Environment]::GetEnvironmentVariable($key, "Process")
+        [Environment]::SetEnvironmentVariable($key, [string]$Environment[$key], "Process")
+    }
+
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = & $FilePath @Arguments 2>&1 | ForEach-Object { $_.ToString() }
+        $exitCode = $LASTEXITCODE
+        if ($null -eq $exitCode) {
+            $exitCode = 0
+        }
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+        foreach ($key in $Environment.Keys) {
+            [Environment]::SetEnvironmentVariable($key, $previousEnvironment[$key], "Process")
+        }
     }
 
     return [pscustomobject]@{
@@ -427,7 +443,8 @@ function Test-ComposeConfig {
     param(
         [string]$Name,
         [string]$ComposeFile,
-        [object]$ComposeCommand
+        [object]$ComposeCommand,
+        [hashtable]$ComposeEnvironment
     )
 
     if (-not (Test-Path -LiteralPath $ComposeFile -PathType Leaf)) {
@@ -449,7 +466,7 @@ function Test-ComposeConfig {
     $arguments = @()
     $arguments += $ComposeCommand.Prefix
     $arguments += @("--env-file", $EnvFile, "-f", $ComposeFile, "config", "--quiet")
-    $result = Invoke-NativeCommand -FilePath $ComposeCommand.FilePath -Arguments $arguments
+    $result = Invoke-NativeCommand -FilePath $ComposeCommand.FilePath -Arguments $arguments -Environment $ComposeEnvironment
     if ($result.ExitCode -eq 0) {
         Add-CheckResult -Category "compose" -Name "$Name compose config" -Target $ComposeFile -Status "PASS" -Detail $ComposeCommand.DisplayName
     } else {
@@ -694,6 +711,18 @@ $frontendPort = Get-ValueOrDefault -Values $envValues -Key "FRONTEND_PORT" -Defa
 $gatewayPort = Get-ValueOrDefault -Values $envValues -Key "GATEWAY_PORT" -DefaultValue "8080"
 $gatewayBaseUrl = "http://${vm1Host}:${gatewayPort}"
 
+$composeEnvironment = @{}
+foreach ($entry in $envValues.GetEnumerator()) {
+    if (-not [string]::IsNullOrWhiteSpace($entry.Key) -and $null -ne $entry.Value) {
+        $composeEnvironment[$entry.Key] = [string]$entry.Value
+    }
+}
+$composeEnvironment["VM1_HOST"] = $vm1Host
+$composeEnvironment["VM2_HOST"] = $vm2Host
+$composeEnvironment["VM3_HOST"] = $vm3Host
+$composeEnvironment["FRONTEND_PORT"] = $frontendPort
+$composeEnvironment["GATEWAY_PORT"] = $gatewayPort
+
 Write-Host "Using env file: $EnvFile"
 Write-Host "Checking VM1=$vm1Host VM2=$vm2Host VM3=$vm3Host"
 if ($DryRun) {
@@ -733,7 +762,7 @@ foreach ($vm in $vms) {
 
 $composeCommand = if ($DryRun) { $null } else { Get-ComposeCommand }
 foreach ($vm in $vms) {
-    Test-ComposeConfig -Name $vm.Name -ComposeFile $vm.ComposePath -ComposeCommand $composeCommand
+    Test-ComposeConfig -Name $vm.Name -ComposeFile $vm.ComposePath -ComposeCommand $composeCommand -ComposeEnvironment $composeEnvironment
 }
 
 foreach ($vm in $vms) {

@@ -29,10 +29,25 @@ public class AdminDeploymentGuideService {
         return List.of(
                 new AdminDeploymentGuide.Step(
                         1,
+                        "vm1",
+                        "VM1 Nacos Bootstrap",
+                        "Start service discovery",
+                        "Start Nacos first so VM2 business services and VM3 ai-service can register without startup races.",
+                        List.of(
+                                "cd /opt/ai-campus-recruit",
+                                "docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml up -d nacos",
+                                "docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml ps nacos"),
+                        List.of(httpUrl(config.vm1Host(), config.nacosPort(), "/nacos/")),
+                        "Nacos is running and the console endpoint is reachable before dependent services start.",
+                        List.of(
+                                "If Nacos is unavailable, check VM1 firewall rules for ports 8848 and 9848.",
+                                "If dependent services cannot register, confirm VM2 and VM3 can reach VM1 on the Nacos ports.")),
+                new AdminDeploymentGuide.Step(
+                        2,
                         "vm3",
                         "VM3 Data and AI Node",
                         "Start infrastructure and AI service",
-                        "Bring up MySQL, Redis, MinIO, RocketMQ, and ai-service before business services depend on them.",
+                        "Bring up MySQL, Redis, MinIO, RocketMQ, and ai-service after Nacos is ready.",
                         List.of(
                                 "cd /opt/ai-campus-recruit",
                                 "docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm3.yml up -d --build",
@@ -45,28 +60,9 @@ public class AdminDeploymentGuideService {
                                 httpUrl(config.vm3Host(), config.aiPort(), "/actuator/health")),
                         "MySQL, Redis, MinIO, RocketMQ, and ai-service containers are running; ai-service health returns UP or a normal Spring health payload.",
                         List.of(
-                                "If ai-service cannot start, check that VM1 Nacos is reachable after step 2 and restart ai-service.",
+                                "If ai-service cannot start, check that VM1 Nacos is reachable and restart ai-service.",
                                 "If storage services are unhealthy, inspect the VM3 compose logs and confirm data volumes were created.",
                                 "If the AI provider is not configured, the platform can still use offline demo AI responses.")),
-                new AdminDeploymentGuide.Step(
-                        2,
-                        "vm1",
-                        "VM1 Edge Node",
-                        "Start discovery and edge access",
-                        "Start Nacos, gateway-service, and frontend so later checks can go through the public gateway.",
-                        List.of(
-                                "cd /opt/ai-campus-recruit",
-                                "docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml up -d --build",
-                                "docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml ps"),
-                        List.of(
-                                httpUrl(config.vm1Host(), config.nacosPort(), "/nacos"),
-                                httpUrl(config.vm1Host(), config.gatewayPort(), "/actuator/health"),
-                                httpUrl(config.vm1Host(), config.frontendPort(), "/")),
-                        "Nacos console, gateway health, and frontend entry page are reachable from the host machine.",
-                        List.of(
-                                "If gateway routing fails, confirm VM2 and VM3 host addresses in deploy/three-vm.env.",
-                                "If Nacos is unavailable, check VM1 firewall rules for ports 8848 and 9848.",
-                                "If frontend loads but APIs fail, confirm the gateway container can reach VM2 service ports.")),
                 new AdminDeploymentGuide.Step(
                         3,
                         "vm2",
@@ -91,6 +87,23 @@ public class AdminDeploymentGuideService {
                                 "If delivery events fail, verify RocketMQ name server connectivity from delivery-service.")),
                 new AdminDeploymentGuide.Step(
                         4,
+                        "vm1",
+                        "VM1 Gateway and Frontend",
+                        "Start edge access",
+                        "Start gateway-service and frontend after VM2 and VM3 services are available.",
+                        List.of(
+                                "cd /opt/ai-campus-recruit",
+                                "docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml up -d --build gateway-service frontend",
+                                "docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml ps"),
+                        List.of(
+                                httpUrl(config.vm1Host(), config.gatewayPort(), "/actuator/health"),
+                                httpUrl(config.vm1Host(), config.frontendPort(), "/")),
+                        "Gateway health and the frontend entry page are reachable from the host machine.",
+                        List.of(
+                                "If gateway routing fails, confirm VM2 and VM3 host addresses in deploy/three-vm.env.",
+                                "If frontend loads but APIs fail, confirm the gateway container can reach VM2 service ports.")),
+                new AdminDeploymentGuide.Step(
+                        5,
                         "all",
                         "All Nodes",
                         "Run health checks and API smoke",
@@ -133,13 +146,13 @@ public class AdminDeploymentGuideService {
                 new AdminDeploymentGuide.AcceptanceCheck(
                         "Admin guide endpoint",
                         "curl " + httpUrl(config.vm1Host(), config.gatewayPort(), "/api/admin/system/deployment-guide"),
-                        "The response code is 0 and the steps array contains VM3, VM1, VM2, then all-nodes checks."));
+                        "The response code is 0 and the steps array contains VM1 Nacos, VM3, VM2, VM1 edge, then all-nodes checks."));
     }
 
     private List<String> warnings() {
         return List.of(
                 "This guide is generated from configuration defaults and environment overrides; it does not probe runtime network health.",
-                "Run the VM3 data and AI node first, then VM1 edge services, then VM2 business services to reduce startup retries.",
+                "Start VM1 Nacos before VM3 ai-service and VM2 business services to avoid registration startup races.",
                 "Keep credential values only in the env file or host environment; this API intentionally omits them.");
     }
 
