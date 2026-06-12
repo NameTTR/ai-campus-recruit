@@ -120,6 +120,12 @@ public class AiController {
         return ApiResponse.ok(aiCoachService.listPlanningRecords(resolveStudentId(studentId, userId, userRole), limit));
     }
 
+    @Operation(summary = "List all AI planning history records")
+    @GetMapping("/career/history/all")
+    public ApiResponse<List<AiPlanningRecord>> allCareerHistory(@RequestParam(required = false) Integer limit) {
+        return ApiResponse.ok(aiCoachService.listAllPlanningRecords(limit));
+    }
+
     @Operation(summary = "Search campus recruitment knowledge with local AI ranking")
     @PostMapping("/search")
     public ApiResponse<AiSearchResponse> search(@RequestBody AiSearchRequest request) {
@@ -338,6 +344,12 @@ public class AiController {
             @RequestHeader(value = X_USER_ID, required = false) String userId,
             @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
         return ApiResponse.ok(aiCoachService.listInterviewRecords(resolveStudentId(studentId, userId, userRole)));
+    }
+
+    @Operation(summary = "List all interview feedback records")
+    @GetMapping("/interview/records/all")
+    public ApiResponse<List<InterviewRecord>> allInterviewRecords(@RequestParam(required = false) Integer limit) {
+        return ApiResponse.ok(aiCoachService.listAllInterviewRecords(limit));
     }
 
     private CandidateScreenRequest resolveCompanyRequest(CandidateScreenRequest request, String userId, String userRole) {

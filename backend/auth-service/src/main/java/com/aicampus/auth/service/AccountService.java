@@ -4,6 +4,7 @@ import com.aicampus.common.dto.AccountCreateRequest;
 import com.aicampus.common.dto.AccountStatusUpdateRequest;
 import com.aicampus.common.dto.AccountSummary;
 import com.aicampus.common.dto.RegisterRequest;
+import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.enums.AccountStatus;
 import com.aicampus.common.enums.Role;
 import com.aicampus.common.security.RolePermissionPolicy;
@@ -30,6 +31,7 @@ public class AccountService {
         seed("S001", "student", "Student Demo", Role.STUDENT);
         seed("C001", "company", "Company HR", Role.COMPANY);
         seed("A001", "admin", "Admin Demo", Role.ADMIN);
+        seedDemoAccounts();
     }
 
     public AccountRecord authenticate(String username, String password) {
@@ -144,6 +146,23 @@ public class AccountService {
                 Instant.now());
         accountsByUserId.put(userId, record);
         userIdByUsername.put(username, userId);
+    }
+
+    private void seedDemoAccounts() {
+        DemoDataFactory.studentProfiles().forEach(profile ->
+                seed(profile.userId(), "demo_student_" + profile.userId().substring(1).toLowerCase(Locale.ROOT),
+                        profile.displayName(), Role.STUDENT));
+        for (int i = 1; i <= 24; i++) {
+            String userId = DemoDataFactory.companyId(i);
+            seed(userId, "demo_company_" + "%03d".formatted(i), "Campus HR " + userId, Role.COMPANY);
+        }
+        for (int i = 2; i <= 12; i++) {
+            String userId = "A" + "%03d".formatted(i);
+            seed(userId, "demo_admin_" + "%03d".formatted(i), "Operations Admin " + userId, Role.ADMIN);
+        }
+        studentSequence.set(DemoDataFactory.DEFAULT_SIZE + 1);
+        companySequence.set(25);
+        adminSequence.set(13);
     }
 
     private String nextUserId(Role role) {

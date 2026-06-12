@@ -1,5 +1,6 @@
 package com.aicampus.delivery.service;
 
+import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.DeliveryRecord;
 import com.aicampus.common.dto.InterviewSchedule;
 import com.aicampus.common.dto.InterviewScheduleRequest;
@@ -29,6 +30,7 @@ public class InterviewScheduleService {
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDefaultSchedules() {
+        DemoDataFactory.interviewSchedules().forEach(this::seed);
         seed(new InterviewSchedule(
                 "IS-DEMO-001",
                 "D003",
@@ -100,6 +102,12 @@ public class InterviewScheduleService {
         }
         return schedules.values().stream()
                 .filter(schedule -> filter.equals(schedule.companyId()))
+                .sorted(Comparator.comparing(InterviewSchedule::startTime).reversed())
+                .toList();
+    }
+
+    public List<InterviewSchedule> listAll() {
+        return schedules.values().stream()
                 .sorted(Comparator.comparing(InterviewSchedule::startTime).reversed())
                 .toList();
     }

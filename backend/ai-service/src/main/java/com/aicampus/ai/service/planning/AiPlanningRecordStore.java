@@ -7,4 +7,6 @@ public interface AiPlanningRecordStore {
     void save(AiPlanningRecord record);
 
     List<AiPlanningRecord> listByStudent(String studentId, int limit);
+
+    List<AiPlanningRecord> listAll(int limit);
 }

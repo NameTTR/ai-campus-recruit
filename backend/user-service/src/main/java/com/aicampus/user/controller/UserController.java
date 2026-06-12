@@ -1,13 +1,15 @@
 package com.aicampus.user.controller;
 
 import com.aicampus.common.api.ApiResponse;
+import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.DashboardStats;
 import com.aicampus.common.dto.UserProfile;
 import com.aicampus.common.enums.Role;
+import com.aicampus.user.dashboard.DashboardStatsService;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import com.aicampus.user.dashboard.DashboardStatsService;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -25,8 +27,7 @@ public class UserController {
 
     public UserController(DashboardStatsService dashboardStatsService) {
         this.dashboardStatsService = dashboardStatsService;
-        profiles.put("S001", new UserProfile("S001", "张同学", Role.STUDENT, "示范大学", "软件工程",
-                List.of("Java", "Spring Boot", "MySQL", "Redis"), "Java 后端实习生"));
+        DemoDataFactory.studentProfiles().forEach(profile -> profiles.putIfAbsent(profile.userId(), profile));
     }
 
     @GetMapping("/api/students/profile")
@@ -48,14 +49,21 @@ public class UserController {
         return ApiResponse.ok(saved);
     }
 
+    @GetMapping("/api/students")
+    public ApiResponse<List<UserProfile>> students() {
+        return ApiResponse.ok(profiles.values().stream()
+                .sorted(Comparator.comparing(UserProfile::userId))
+                .toList());
+    }
+
     @GetMapping("/api/admin/dashboard")
     public ApiResponse<DashboardStats> dashboard() {
         return ApiResponse.ok(dashboardStatsService.dashboard());
     }
 
     private static UserProfile defaultStudentProfile(String studentId) {
-        return new UserProfile(studentId, "学生" + studentId, Role.STUDENT, "示范大学", "软件工程",
-                List.of("Java", "Spring Boot", "MySQL", "Redis"), "Java 后端实习生");
+        return new UserProfile(studentId, "Student " + studentId, Role.STUDENT, "Demo University", "Software Engineering",
+                List.of("Java", "Spring Boot", "MySQL", "Redis"), "Java Backend Intern");
     }
 
     private static String effectiveStudentId(String role, String userId, String requestedStudentId) {
@@ -68,5 +76,4 @@ public class UserController {
     private static String valueOr(String value, String defaultValue) {
         return value == null || value.isBlank() ? defaultValue : value;
     }
-
 }

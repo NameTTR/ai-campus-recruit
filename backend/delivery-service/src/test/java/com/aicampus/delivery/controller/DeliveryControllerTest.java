@@ -6,6 +6,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.hasItem;
+
 import com.aicampus.delivery.DeliveryServiceApplication;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -142,6 +145,14 @@ class DeliveryControllerTest {
     }
 
     @Test
+    void listReturnsBulkDemoDeliveries() throws Exception {
+        mockMvc.perform(get("/api/deliveries"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data[*].deliveryId", hasItem("D001")));
+    }
+
+    @Test
     void listMineUsesStudentHeaderBeforeQueryParam() throws Exception {
         mockMvc.perform(post("/api/deliveries")
                         .header("X-User-Id", "S-GATEWAY-002")
@@ -166,7 +177,7 @@ class DeliveryControllerTest {
     void listCompanyDeliveriesReturnsOnlyCompanyRecords() throws Exception {
         mockMvc.perform(get("/api/deliveries/company?companyId=C001"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(4))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(4)))
                 .andExpect(jsonPath("$.data[0].companyId").value("C001"))
                 .andExpect(jsonPath("$.data[0].resumeSourceFormat").isNotEmpty())
                 .andExpect(jsonPath("$.data[0].resumeParseStatus").isNotEmpty());
@@ -178,7 +189,7 @@ class DeliveryControllerTest {
                         .header("X-User-Id", "C002")
                         .header("X-User-Role", "COMPANY"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.data[0].companyId").value("C002"));
     }
 
@@ -186,13 +197,21 @@ class DeliveryControllerTest {
     void statisticsReturnsStatusDistributionAndPendingCount() throws Exception {
         mockMvc.perform(get("/api/deliveries/statistics"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.totalCount").value(5))
-                .andExpect(jsonPath("$.data.pendingCount").value(1))
-                .andExpect(jsonPath("$.data.statusCounts.SUBMITTED").value(1))
-                .andExpect(jsonPath("$.data.statusCounts.VIEWED").value(1))
-                .andExpect(jsonPath("$.data.statusCounts.INTERVIEW").value(1))
-                .andExpect(jsonPath("$.data.statusCounts.OFFER").value(1))
-                .andExpect(jsonPath("$.data.statusCounts.REJECTED").value(1));
+                .andExpect(jsonPath("$.data.totalCount").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data.pendingCount").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.statusCounts.SUBMITTED").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.statusCounts.VIEWED").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.statusCounts.INTERVIEW").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.statusCounts.OFFER").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.statusCounts.REJECTED").value(greaterThanOrEqualTo(1)));
+    }
+
+    @Test
+    void listReturnsBulkDemoNotifications() throws Exception {
+        mockMvc.perform(get("/api/notifications"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data[0].notificationId").isNotEmpty());
     }
 
     @Test
@@ -206,7 +225,7 @@ class DeliveryControllerTest {
 
         mockMvc.perform(get("/api/notifications/my?studentId=S001"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.data[0].targetUserId").value("S001"));
     }
 
@@ -280,15 +299,23 @@ class DeliveryControllerTest {
                         .header("X-User-Id", "S003")
                         .header("X-User-Role", "STUDENT"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.data[0].studentId").value("S003"));
 
         mockMvc.perform(get("/api/interviews/schedules/company?companyId=C002")
                         .header("X-User-Id", "C001")
                         .header("X-User-Role", "COMPANY"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.data[0].companyId").value("C001"));
+    }
+
+    @Test
+    void listReturnsBulkDemoInterviewSchedules() throws Exception {
+        mockMvc.perform(get("/api/interviews/schedules"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data[0].scheduleId").isNotEmpty());
     }
 
     @Test

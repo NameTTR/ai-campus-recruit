@@ -42,7 +42,10 @@ public class PersistentCandidateScreenRecordStore implements CandidateScreenReco
     @Override
     public void save(CandidateScreenRecord record) {
         try {
-            mapper.insert(CandidateScreenRecordEntity.fromRecord(record));
+            CandidateScreenRecordEntity entity = CandidateScreenRecordEntity.fromRecord(record);
+            if (mapper.updateById(entity) == 0) {
+                mapper.insert(entity);
+            }
             evictRelatedCaches(record.companyId(), record.deliveryId());
         } catch (Exception ex) {
             log.warn("Failed to persist candidate screening record {}, falling back to in-memory store",

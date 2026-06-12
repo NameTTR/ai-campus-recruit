@@ -1,6 +1,7 @@
 package com.aicampus.ai.service.screening;
 
 import com.aicampus.ai.service.AiCoachService;
+import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.CandidateScreenRequest;
 import com.aicampus.common.dto.CandidateScreenResult;
 import com.aicampus.common.dto.CandidateScreenTask;
@@ -149,6 +150,34 @@ public class CandidateScreenTaskService implements DisposableBean {
     @EventListener(ApplicationReadyEvent.class)
     public void recoverInterruptedTasks() {
         taskStore.markInterruptedTasksFailed();
+        seedDemoTasks();
+    }
+
+    private void seedDemoTasks() {
+        DemoDataFactory.candidateScreenTasks().forEach(task -> {
+            if (taskStore.get(task.taskId(), null) != null) {
+                return;
+            }
+            CandidateScreenRequest request = new CandidateScreenRequest(
+                    task.deliveryId(),
+                    task.companyId(),
+                    task.studentId(),
+                    task.resumeId(),
+                    task.jobId(),
+                    task.result() == null ? "PDF" : task.result().resumeSourceFormat(),
+                    task.result() == null ? "TEXT_EXTRACTED" : task.result().resumeParseStatus(),
+                    task.result() == null ? 900 : task.result().resumeParsedTextLength(),
+                    "Java Backend Intern",
+                    List.of("Java", "Spring Boot", "MySQL"),
+                    List.of("Campus recruitment platform"),
+                    List.of("Java", "Spring Boot", "MySQL"),
+                    "Demo resume summary for async candidate screening task.",
+                    "Demo job description for seeded candidate screening task.");
+            CandidateScreenTaskSubmission submission = taskStore.create(task, request, "demo:" + task.taskId());
+            if (submission.created()) {
+                taskStore.update(task);
+            }
+        });
     }
 
     @Override

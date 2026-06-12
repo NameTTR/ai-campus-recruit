@@ -23,8 +23,18 @@ public class InMemoryAiPlanningRecordStore implements AiPlanningRecordStore {
         if (studentId == null || studentId.isBlank()) {
             return List.of();
         }
-        int normalizedLimit = Math.max(1, Math.min(limit, 100));
+        int normalizedLimit = Math.max(1, Math.min(limit, 200));
         return records.getOrDefault(studentId.trim(), List.of()).stream()
+                .sorted(Comparator.comparing(AiPlanningRecord::createdAt).reversed())
+                .limit(normalizedLimit)
+                .toList();
+    }
+
+    @Override
+    public List<AiPlanningRecord> listAll(int limit) {
+        int normalizedLimit = Math.max(1, Math.min(limit, 200));
+        return records.values().stream()
+                .flatMap(List::stream)
                 .sorted(Comparator.comparing(AiPlanningRecord::createdAt).reversed())
                 .limit(normalizedLimit)
                 .toList();

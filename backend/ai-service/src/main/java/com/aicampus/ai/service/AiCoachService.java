@@ -4,6 +4,7 @@ import com.aicampus.ai.service.screening.CandidateScreenRecordStore;
 import com.aicampus.ai.service.screening.InMemoryCandidateScreenRecordStore;
 import com.aicampus.ai.service.planning.AiPlanningRecordStore;
 import com.aicampus.ai.service.planning.InMemoryAiPlanningRecordStore;
+import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.AiCallRecord;
@@ -41,6 +42,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -154,6 +157,15 @@ public class AiCoachService {
         this.observabilityService = observabilityService == null
                 ? new AiObservabilityService()
                 : observabilityService;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void seedDemoAiData() {
+        DemoDataFactory.candidateScreenRecords().forEach(candidateScreenRecordStore::save);
+        DemoDataFactory.planningRecords().forEach(aiPlanningRecordStore::save);
+        DemoDataFactory.aiCallRecords().forEach(observabilityService::seed);
+        DemoDataFactory.interviewRecords().forEach(record ->
+                interviewRecords.computeIfAbsent(record.studentId(), ignored -> new CopyOnWriteArrayList<>()).add(record));
     }
 
     public AiAnalyzeResponse analyze(AiAnalyzeRequest request) {
@@ -359,6 +371,15 @@ public class AiCoachService {
                 .toList();
     }
 
+    public List<InterviewRecord> listAllInterviewRecords(Integer limit) {
+        int normalizedLimit = limit == null ? 20 : Math.max(1, Math.min(limit, 200));
+        return interviewRecords.values().stream()
+                .flatMap(List::stream)
+                .sorted(Comparator.comparing(InterviewRecord::createdAt).reversed())
+                .limit(normalizedLimit)
+                .toList();
+    }
+
     public List<CandidateScreenRecord> listCandidateScreenRecords(String companyId, String deliveryId) {
         return candidateScreenRecordStore.list(companyId, deliveryId);
     }
@@ -381,6 +402,11 @@ public class AiCoachService {
         }
         int normalizedLimit = limit == null ? 20 : Math.max(1, Math.min(limit, 100));
         return aiPlanningRecordStore.listByStudent(studentFilter, normalizedLimit);
+    }
+
+    public List<AiPlanningRecord> listAllPlanningRecords(Integer limit) {
+        int normalizedLimit = limit == null ? 20 : Math.max(1, Math.min(limit, 200));
+        return aiPlanningRecordStore.listAll(normalizedLimit);
     }
 
     private void recordDashScopeCall(

@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+
 import com.aicampus.job.JobServiceApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +25,7 @@ class JobControllerTest {
     void listReturnsSeedJob() throws Exception {
         mockMvc.perform(get("/api/jobs"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
                 .andExpect(jsonPath("$.data[0].jobId").value("J001"));
     }
 

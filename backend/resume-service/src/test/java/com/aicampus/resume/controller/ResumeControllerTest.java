@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+
 import com.aicampus.resume.ResumeServiceApplication;
 import java.io.ByteArrayOutputStream;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
@@ -74,6 +76,14 @@ class ResumeControllerTest {
                 .andExpect(jsonPath("$.data.score").value(86))
                 .andExpect(jsonPath("$.data.objectKey").value("resumes/R001/demo-resume.pdf"))
                 .andExpect(jsonPath("$.data.skills[4]").value("Docker"));
+    }
+
+    @Test
+    void listReturnsBulkDemoResumes() throws Exception {
+        mockMvc.perform(get("/api/resumes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data[0].resumeId").value("R001"));
     }
 
     @Test

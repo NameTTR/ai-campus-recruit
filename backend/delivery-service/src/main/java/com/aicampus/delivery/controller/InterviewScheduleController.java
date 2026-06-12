@@ -31,6 +31,11 @@ public class InterviewScheduleController {
         this.deliveryStore = deliveryStore;
     }
 
+    @GetMapping
+    public ApiResponse<List<InterviewSchedule>> list() {
+        return ApiResponse.ok(scheduleService.listAll());
+    }
+
     @PostMapping
     public ApiResponse<InterviewSchedule> create(
             @RequestBody InterviewScheduleRequest request,

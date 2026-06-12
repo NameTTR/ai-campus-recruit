@@ -1,6 +1,7 @@
 package com.aicampus.match.controller;
 
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -46,6 +47,14 @@ class MatchControllerTest {
     void listByStudentReturnsSeedMatch() throws Exception {
         mockMvc.perform(get("/api/matches/student/S001"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[*].matchId", hasItem("M001")));
+    }
+
+    @Test
+    void listReturnsBulkDemoMatches() throws Exception {
+        mockMvc.perform(get("/api/matches"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
                 .andExpect(jsonPath("$.data[*].matchId", hasItem("M001")));
     }
 

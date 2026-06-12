@@ -44,6 +44,14 @@ public class AiObservabilityService {
         return record;
     }
 
+    public void seed(AiCallRecord record) {
+        if (record == null || records.stream().anyMatch(existing -> existing.callId().equals(record.callId()))) {
+            return;
+        }
+        records.addFirst(record);
+        trim();
+    }
+
     public AiObservabilitySummary summary(AiModuleStatus status) {
         List<AiCallRecord> snapshot = snapshot();
         int total = snapshot.size();

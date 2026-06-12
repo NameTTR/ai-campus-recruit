@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+
 import com.aicampus.auth.AuthServiceApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -146,13 +148,21 @@ class AuthControllerTest {
 
         mockMvc.perform(get("/api/admin/accounts").header("X-User-Role", "ADMIN"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(org.hamcrest.Matchers.greaterThanOrEqualTo(4)));
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)));
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"company_v26\",\"password\":\"123456\"}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    void adminAccountListContainsBulkDemoAccounts() throws Exception {
+        mockMvc.perform(get("/api/admin/accounts").header("X-User-Role", "ADMIN"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data[0].accountId").isNotEmpty());
     }
 
     @Test

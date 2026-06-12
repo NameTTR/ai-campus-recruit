@@ -1,5 +1,6 @@
 package com.aicampus.delivery.service;
 
+import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.NotificationMessage;
 import java.time.LocalDateTime;
 import java.util.Comparator;
@@ -22,6 +23,7 @@ public class NotificationCenterService {
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDefaultNotifications() {
+        DemoDataFactory.notifications().forEach(this::seed);
         seed(new NotificationMessage(
                 "N-DEMO-STUDENT-001",
                 "STUDENT",
@@ -79,6 +81,12 @@ public class NotificationCenterService {
         return notifications.values().stream()
                 .filter(message -> role.isBlank() || role.equalsIgnoreCase(message.targetRole()))
                 .filter(message -> userId.isBlank() || userId.equals(message.targetUserId()))
+                .sorted(Comparator.comparing(NotificationMessage::createdAt).reversed())
+                .toList();
+    }
+
+    public List<NotificationMessage> listAll() {
+        return notifications.values().stream()
                 .sorted(Comparator.comparing(NotificationMessage::createdAt).reversed())
                 .toList();
     }

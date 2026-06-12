@@ -6,6 +6,7 @@ import com.aicampus.ai.service.knowledge.KnowledgeChunkRecord;
 import com.aicampus.ai.service.knowledge.KnowledgeVectorIndex;
 import com.aicampus.ai.service.knowledge.KnowledgeVectorMatch;
 import com.aicampus.ai.service.knowledge.PersistentKnowledgeBaseStore;
+import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.AiSearchResponse;
 import com.aicampus.common.dto.AiSearchResult;
 import com.aicampus.common.dto.KnowledgeAnswerRequest;
@@ -79,6 +80,7 @@ public class KnowledgeBaseService {
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDefaultDocuments() {
+        DemoDataFactory.knowledgeDocuments().forEach(this::seed);
         int imported = seedConfiguredCorpus();
         if (imported > 0) {
             return;

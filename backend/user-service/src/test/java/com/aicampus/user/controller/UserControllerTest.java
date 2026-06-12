@@ -5,6 +5,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.hasItem;
+
 import com.aicampus.user.UserServiceApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +27,14 @@ class UserControllerTest {
         mockMvc.perform(get("/api/students/profile"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.userId").value("S001"));
+    }
+
+    @Test
+    void studentsListContainsBulkDemoProfiles() throws Exception {
+        mockMvc.perform(get("/api/students"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data[*].userId", hasItem("S001")));
     }
 
     @Test

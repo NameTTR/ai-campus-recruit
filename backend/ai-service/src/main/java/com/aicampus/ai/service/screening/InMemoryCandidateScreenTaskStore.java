@@ -14,7 +14,7 @@ class InMemoryCandidateScreenTaskStore implements CandidateScreenTaskStore {
     private final Map<String, String> dedupKeys = new ConcurrentHashMap<>();
 
     InMemoryCandidateScreenTaskStore(int maxTasks) {
-        this.maxTasks = Math.max(20, maxTasks);
+        this.maxTasks = Math.max(200, maxTasks);
     }
 
     @Override

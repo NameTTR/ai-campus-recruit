@@ -1,6 +1,7 @@
 package com.aicampus.resume.controller;
 
 import com.aicampus.common.api.ApiResponse;
+import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.ResumeSummary;
@@ -49,6 +50,7 @@ public class ResumeController {
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDefaultResume() {
+        seedBulkDemoResumes();
         ResumeSummary seed = new ResumeSummary("R001", "S001", "demo-resume.pdf", "示范大学 软件工程 本科",
                 List.of("Java", "Spring Boot", "MySQL", "Redis"), List.of("校园二手交易系统", "在线考试平台"),
                 "简历结构完整，建议补充量化成果和实习经历。", 82,
@@ -83,6 +85,13 @@ public class ResumeController {
                 .orElseGet(() -> ApiResponse.fail("Resume not found"));
     }
 
+    @GetMapping
+    public ApiResponse<List<ResumeSummary>> list() {
+        return ApiResponse.ok(resumeStore.listAll().stream()
+                .map(ResumeRecord::summary)
+                .toList());
+    }
+
     @PostMapping("/{id}/analyze")
     public ApiResponse<ResumeSummary> analyze(@PathVariable("id") String id) {
         ResumeRecord currentRecord = resumeStore.findById(id).orElse(null);
@@ -99,6 +108,18 @@ public class ResumeController {
                 current.sourceFormat(), current.parseStatus(), current.parsedTextLength());
         resumeStore.save(new ResumeRecord(analyzed, resumeText));
         return ApiResponse.ok(analyzed);
+    }
+
+    private void seedBulkDemoResumes() {
+        List<ResumeSummary> summaries = DemoDataFactory.resumes();
+        List<String> texts = DemoDataFactory.resumeTexts();
+        for (int i = 0; i < summaries.size(); i++) {
+            ResumeSummary summary = summaries.get(i);
+            String parsedText = texts.get(i);
+            resumeStore.findById(summary.resumeId())
+                    .ifPresentOrElse(existing -> {
+                    }, () -> resumeStore.save(new ResumeRecord(summary, parsedText)));
+        }
     }
 
     private static ResumeRecord defaultResumeRecord() {

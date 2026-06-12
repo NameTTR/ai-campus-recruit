@@ -2,6 +2,7 @@ package com.aicampus.resume.service.store;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +67,21 @@ public class PersistentResumeRecordStore implements ResumeRecordStore {
             log.warn("Failed to query resume record {} from database, falling back to in-memory store", resumeId, ex);
         }
         return fallbackStore.findById(resumeId);
+    }
+
+    @Override
+    public List<ResumeRecord> listAll() {
+        try {
+            return mapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers.<ResumeRecordEntity>lambdaQuery()
+                            .orderByDesc(ResumeRecordEntity::getUpdatedAt)
+                            .orderByAsc(ResumeRecordEntity::getResumeId))
+                    .stream()
+                    .map(entity -> entity.toRecord(objectMapper))
+                    .toList();
+        } catch (Exception ex) {
+            log.warn("Failed to query resume records from database, falling back to in-memory store", ex);
+            return fallbackStore.listAll();
+        }
     }
 
     private Optional<ResumeRecord> readDetailCache(String resumeId) {

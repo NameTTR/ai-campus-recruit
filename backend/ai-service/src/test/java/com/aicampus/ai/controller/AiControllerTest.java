@@ -84,6 +84,16 @@ class AiControllerTest {
     }
 
     @Test
+    void aiCallObservabilityContainsBulkSeedData() throws Exception {
+        mockMvc.perform(get("/api/ai/observability/calls")
+                        .param("limit", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data[0].callId").isNotEmpty());
+    }
+
+    @Test
     void knowledgeSearchReturnsSeededRagDocuments() throws Exception {
         mockMvc.perform(post("/api/ai/knowledge/search")
                         .header("X-User-Role", "STUDENT")
@@ -108,13 +118,24 @@ class AiControllerTest {
         mockMvc.perform(get("/api/ai/knowledge/stats"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data.documentCount").value(greaterThanOrEqualTo(12)))
-                .andExpect(jsonPath("$.data.chunkCount").value(greaterThanOrEqualTo(12)))
+                .andExpect(jsonPath("$.data.documentCount").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data.chunkCount").value(greaterThanOrEqualTo(100)))
                 .andExpect(jsonPath("$.data.categoryCounts.rag").value(greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.data.roleCounts.ADMIN").value(greaterThanOrEqualTo(12)))
                 .andExpect(jsonPath("$.data.sourceCounts['internal-corpus:v3.10']").value(greaterThanOrEqualTo(12)))
                 .andExpect(jsonPath("$.data.corpusVersion").value("v3.10-campus-rag-corpus"))
                 .andExpect(jsonPath("$.data.seedEnabled").value(true));
+    }
+
+    @Test
+    void knowledgeDocumentsListContainsBulkSeedData() throws Exception {
+        mockMvc.perform(get("/api/ai/knowledge/documents")
+                        .param("limit", "100")
+                        .param("role", "ADMIN"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data[0].documentId").isNotEmpty());
     }
 
     @Test
@@ -557,6 +578,16 @@ class AiControllerTest {
     }
 
     @Test
+    void allPlanningHistoryContainsBulkSeedData() throws Exception {
+        mockMvc.perform(get("/api/ai/career/history/all")
+                        .param("limit", "120"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data[0].recordId").isNotEmpty());
+    }
+
+    @Test
     void candidateScreeningUsesCompanyHeaderBeforeRequestCompanyId() throws Exception {
         mockMvc.perform(post("/api/ai/candidates/screen")
                         .header("X-User-Id", "C-GATEWAY-TRUST-001")
@@ -746,6 +777,15 @@ class AiControllerTest {
     }
 
     @Test
+    void asyncCandidateScreeningTasksContainBulkSeedData() throws Exception {
+        mockMvc.perform(get("/api/ai/candidates/screen/tasks"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data[0].taskId").isNotEmpty());
+    }
+
+    @Test
     void candidateScreeningRecordsInitiallyReturnsEmptyArrayForUnknownCompany() throws Exception {
         mockMvc.perform(get("/api/ai/candidates/screenings")
                         .param("companyId", "C-HISTORY-EMPTY"))
@@ -822,6 +862,15 @@ class AiControllerTest {
     }
 
     @Test
+    void candidateScreeningRecordsContainBulkSeedData() throws Exception {
+        mockMvc.perform(get("/api/ai/candidates/screenings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data[0].screeningId").isNotEmpty());
+    }
+
+    @Test
     void studentCanQueryOwnCandidateScreeningFeedback() throws Exception {
         screenCandidate("C-STUDENT-LOOP-001", "D-STUDENT-LOOP-001", "S-STUDENT-LOOP-001", "J-STUDENT-LOOP-001");
         screenCandidate("C-STUDENT-LOOP-001", "D-STUDENT-LOOP-002", "S-OTHER-LOOP-001", "J-STUDENT-LOOP-001");
@@ -880,6 +929,16 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data").isArray())
                 .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void interviewRecordsContainBulkSeedData() throws Exception {
+        mockMvc.perform(get("/api/ai/interview/records/all")
+                        .param("limit", "120"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
+                .andExpect(jsonPath("$.data[0].recordId").isNotEmpty());
     }
 
     @Test

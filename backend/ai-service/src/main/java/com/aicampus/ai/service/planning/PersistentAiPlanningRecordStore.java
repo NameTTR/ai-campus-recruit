@@ -22,7 +22,10 @@ public class PersistentAiPlanningRecordStore implements AiPlanningRecordStore {
     @Override
     public void save(AiPlanningRecord record) {
         try {
-            mapper.insert(AiPlanningRecordEntity.fromRecord(record, objectMapper));
+            AiPlanningRecordEntity entity = AiPlanningRecordEntity.fromRecord(record, objectMapper);
+            if (mapper.updateById(entity) == 0) {
+                mapper.insert(entity);
+            }
         } catch (Exception ex) {
             log.warn("Failed to persist AI planning record {}, falling back to in-memory store",
                     record == null ? "" : record.recordId(), ex);
@@ -35,7 +38,7 @@ public class PersistentAiPlanningRecordStore implements AiPlanningRecordStore {
         if (studentId == null || studentId.isBlank()) {
             return List.of();
         }
-        int normalizedLimit = Math.max(1, Math.min(limit, 100));
+        int normalizedLimit = Math.max(1, Math.min(limit, 200));
         try {
             return mapper.selectList(Wrappers.<AiPlanningRecordEntity>lambdaQuery()
                             .eq(AiPlanningRecordEntity::getStudentId, studentId.trim())
@@ -47,6 +50,22 @@ public class PersistentAiPlanningRecordStore implements AiPlanningRecordStore {
         } catch (Exception ex) {
             log.warn("Failed to query AI planning records from database, falling back to in-memory store", ex);
             return fallbackStore.listByStudent(studentId, normalizedLimit);
+        }
+    }
+
+    @Override
+    public List<AiPlanningRecord> listAll(int limit) {
+        int normalizedLimit = Math.max(1, Math.min(limit, 200));
+        try {
+            return mapper.selectList(Wrappers.<AiPlanningRecordEntity>lambdaQuery()
+                            .orderByDesc(AiPlanningRecordEntity::getCreatedAt)
+                            .last("LIMIT " + normalizedLimit))
+                    .stream()
+                    .map(this::toRecord)
+                    .toList();
+        } catch (Exception ex) {
+            log.warn("Failed to query all AI planning records from database, falling back to in-memory store", ex);
+            return fallbackStore.listAll(normalizedLimit);
         }
     }
 

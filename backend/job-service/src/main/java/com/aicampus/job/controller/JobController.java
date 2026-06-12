@@ -1,6 +1,7 @@
 package com.aicampus.job.controller;
 
 import com.aicampus.common.api.ApiResponse;
+import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.JobPostRequest;
@@ -36,6 +37,9 @@ public class JobController {
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDefaultJobs() {
+        DemoDataFactory.jobs().forEach(job -> jobStore.findById(job.jobId())
+                .ifPresentOrElse(existing -> {
+                }, () -> jobStore.save(job)));
         JobSummary seed = new JobSummary("J001", "C001", "星河科技", "Java 后端实习生", "杭州",
                 "180-260/天", List.of("Java", "Spring Boot", "MySQL", "Redis"),
                 "参与招聘平台、数据看板和中台接口开发。", "适合具备 Java Web 项目经验的应届生。");

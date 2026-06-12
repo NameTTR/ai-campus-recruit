@@ -1,6 +1,7 @@
 package com.aicampus.delivery.controller;
 
 import com.aicampus.common.api.ApiResponse;
+import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.DeliveryEvent;
 import com.aicampus.common.dto.DeliveryRecord;
 import com.aicampus.common.dto.DeliveryRequest;
@@ -46,6 +47,7 @@ public class DeliveryController {
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDefaultRecords() {
+        DemoDataFactory.deliveries().forEach(this::seed);
         seed(new DeliveryRecord("D001", "S001", "R001", "J001", "C001", "PDF", "SEEDED", 62, DeliveryStatus.SUBMITTED, LocalDateTime.now().minusDays(1)));
         seed(new DeliveryRecord("D002", "S002", "R002", "J001", "C001", "DOCX", "UNPARSED", 0, DeliveryStatus.VIEWED, LocalDateTime.now().minusHours(20)));
         seed(new DeliveryRecord("D003", "S003", "R003", "J002", "C001", "PDF", "TEXT_EXTRACTED", 96, DeliveryStatus.INTERVIEW, LocalDateTime.now().minusHours(12)));

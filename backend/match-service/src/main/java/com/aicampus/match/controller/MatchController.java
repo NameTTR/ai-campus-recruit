@@ -1,6 +1,7 @@
 package com.aicampus.match.controller;
 
 import com.aicampus.common.api.ApiResponse;
+import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.MatchRequest;
 import com.aicampus.common.dto.MatchResult;
 import com.aicampus.match.service.store.MatchRecordStore;
@@ -29,6 +30,10 @@ public class MatchController {
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDefaultMatches() {
+        List<MatchResult> existing = matchStore.listAll();
+        DemoDataFactory.matches().stream()
+                .filter(match -> existing.stream().noneMatch(item -> item.matchId().equals(match.matchId())))
+                .forEach(matchStore::save);
         boolean seedExists = matchStore.listByStudent("S001").stream()
                 .anyMatch(match -> "M001".equals(match.matchId()));
         if (!seedExists) {

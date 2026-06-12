@@ -26,7 +26,7 @@ class PersistentCandidateScreenTaskStore implements CandidateScreenTaskStore {
             int maxTasks) {
         this.mapper = mapper;
         this.objectMapper = objectMapper;
-        this.maxTasks = Math.max(20, maxTasks);
+        this.maxTasks = Math.max(200, maxTasks);
         this.fallbackStore = new InMemoryCandidateScreenTaskStore(maxTasks);
     }
 

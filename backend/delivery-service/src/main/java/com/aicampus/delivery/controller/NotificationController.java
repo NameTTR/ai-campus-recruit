@@ -23,6 +23,11 @@ public class NotificationController {
         this.notificationCenterService = notificationCenterService;
     }
 
+    @GetMapping
+    public ApiResponse<List<NotificationMessage>> list() {
+        return ApiResponse.ok(notificationCenterService.listAll());
+    }
+
     @GetMapping("/my")
     public ApiResponse<List<NotificationMessage>> my(
             @RequestHeader(value = "X-User-Id", required = false) String userId,
