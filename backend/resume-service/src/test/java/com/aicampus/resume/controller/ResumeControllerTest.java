@@ -102,6 +102,14 @@ class ResumeControllerTest {
                 .andExpect(jsonPath("$.data").value(false));
     }
 
+    @Test
+    void uploadWithNonMultipartRequestReturnsApiResponseBadRequest() throws Exception {
+        mockMvc.perform(post("/api/resumes/upload"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.data").value(false));
+    }
+
     private static byte[] docxBytes(String text) throws Exception {
         try (XWPFDocument document = new XWPFDocument();
                 ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
