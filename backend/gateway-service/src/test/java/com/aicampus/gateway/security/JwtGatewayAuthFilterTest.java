@@ -307,6 +307,17 @@ class JwtGatewayAuthFilterTest {
         assertThat(studentKnowledgeSearch.getResponse().getStatusCode()).isNull();
         assertThat(studentKnowledgeSearchChain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("STUDENT");
 
+        MockServerWebExchange studentKnowledgeAnswer = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/ai/knowledge/answer")
+                        .header("Authorization", "Bearer " + studentToken)
+                        .build());
+        CapturingChain studentKnowledgeAnswerChain = new CapturingChain();
+
+        filter.filter(studentKnowledgeAnswer, studentKnowledgeAnswerChain).block();
+
+        assertThat(studentKnowledgeAnswer.getResponse().getStatusCode()).isNull();
+        assertThat(studentKnowledgeAnswerChain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("STUDENT");
+
         String adminToken = jwtTokenService.issue("A001", "Admin", Role.ADMIN);
         MockServerWebExchange adminCreateKnowledge = MockServerWebExchange.from(
                 MockServerHttpRequest.post("/api/ai/knowledge/documents")

@@ -445,6 +445,28 @@ export interface KnowledgeSearchRequest {
   limit?: number
 }
 
+export interface KnowledgeAnswerRequest extends KnowledgeSearchRequest {
+  useAi?: boolean
+}
+
+export interface KnowledgeCitation {
+  documentId: string
+  chunkId: string
+  title: string
+  source: string
+  score: number
+  snippet: string
+}
+
+export interface KnowledgeAnswerResponse {
+  query: string
+  answer: string
+  citations: KnowledgeCitation[]
+  mocked: boolean
+  provider: string
+  generatedAt: string
+}
+
 export type DeliveryStatus = 'SUBMITTED' | 'VIEWED' | 'INTERVIEW' | 'OFFER' | 'REJECTED'
 export type AccountStatus = 'ACTIVE' | 'DISABLED' | 'LOCKED'
 export type PermissionCode =
@@ -2031,6 +2053,43 @@ export function searchKnowledgeBase(payload: KnowledgeSearchRequest) {
     method: 'POST',
     body: JSON.stringify({ ...payload, query, role, limit })
   }, fallbackKnowledgeResults({ ...payload, query, role, limit }))
+}
+
+function fallbackKnowledgeAnswer(payload: KnowledgeAnswerRequest): KnowledgeAnswerResponse {
+  const query = payload.query.trim()
+  const retrieval = fallbackKnowledgeResults({ ...payload, query, limit: payload.limit ?? 5 })
+  const citations = retrieval.results.slice(0, payload.limit ?? 5).map((result, index) => ({
+    documentId: result.id.replace(/-CH-\d+$/, ''),
+    chunkId: result.id.includes('-CH-') ? result.id : `${result.id}-CH-${String(index + 1).padStart(3, '0')}`,
+    title: result.title,
+    source: result.owner,
+    score: result.score,
+    snippet: result.summary
+  }))
+  const answer = citations.length
+    ? `根据知识库证据，${query || '当前问题'} 可以从这些资料展开：${citations
+      .map((citation, index) => `[${index + 1}] ${citation.snippet}`)
+      .join(' ')}`
+    : '知识库中暂时没有匹配的可读资料。'
+  return {
+    query,
+    answer,
+    citations,
+    mocked: true,
+    provider: 'local-rag-fallback',
+    generatedAt: new Date().toISOString()
+  }
+}
+
+export function answerKnowledgeBase(payload: KnowledgeAnswerRequest) {
+  const query = payload.query.trim()
+  const limit = payload.limit ?? 5
+  const role = payload.role || currentRole() || 'STUDENT'
+  const body = { ...payload, query, role, limit, useAi: payload.useAi ?? true }
+  return request<KnowledgeAnswerResponse>('/api/ai/knowledge/answer', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  }, fallbackKnowledgeAnswer(body))
 }
 
 export function listKnowledgeDocuments(keyword = '', role = currentRole() || 'STUDENT', limit = 20) {

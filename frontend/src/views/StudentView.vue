@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import { Bell, Brain, BriefcaseBusiness, CalendarDays, ClipboardList, Clock3, FileUp, Library, RefreshCw, Route, Search, Send, Sparkles } from 'lucide-vue-next'
 import {
   analyzeResume,
+  answerKnowledgeBase,
   createDelivery,
   currentStudentId,
   generateCoachAdvice,
@@ -40,6 +41,7 @@ import {
   type InterviewSchedule,
   type InterviewRecord,
   type JobSummary,
+  type KnowledgeAnswerResponse,
   type NotificationMessage,
   type MatchResult,
   type ResumeRewriteResponse,
@@ -82,6 +84,8 @@ const scheduleActionLoading = ref<Record<string, boolean>>({})
 const knowledgeQuery = ref('Java Redis 面试')
 const knowledgeLoading = ref(false)
 const knowledgeResponse = ref<AiSearchResponse>()
+const knowledgeAnswer = ref<KnowledgeAnswerResponse>()
+const knowledgeAnswerLoading = ref(false)
 
 const capabilityLabels: Record<string, string> = {
   'resume-analysis': '简历诊断',
@@ -193,7 +197,7 @@ onMounted(async () => {
     refreshPlanningHistory(),
     refreshNotifications(),
     refreshSchedules(),
-    runKnowledgeSearch(false)
+    runKnowledgeSearch(false, false)
   ])
 })
 
@@ -415,24 +419,37 @@ async function changeScheduleStatus(schedule: InterviewSchedule, status: 'CONFIR
   }
 }
 
-async function runKnowledgeSearch(showMessage = true) {
+async function runKnowledgeSearch(showMessage = true, useAi = true) {
   const query = knowledgeQuery.value.trim()
   if (!query) {
     knowledgeResponse.value = undefined
+    knowledgeAnswer.value = undefined
     return
   }
   knowledgeLoading.value = true
+  knowledgeAnswerLoading.value = true
   try {
-    knowledgeResponse.value = await searchKnowledgeBase({
-      query,
-      role: 'STUDENT',
-      limit: 6
-    })
+    const [retrieval, answer] = await Promise.all([
+      searchKnowledgeBase({
+        query,
+        role: 'STUDENT',
+        limit: 6
+      }),
+      answerKnowledgeBase({
+        query,
+        role: 'STUDENT',
+        limit: 4,
+        useAi
+      })
+    ])
+    knowledgeResponse.value = retrieval
+    knowledgeAnswer.value = answer
     if (showMessage) {
       ElMessage.success('知识库检索完成')
     }
   } finally {
     knowledgeLoading.value = false
+    knowledgeAnswerLoading.value = false
   }
 }
 
@@ -1129,6 +1146,25 @@ function formatTime(value: string) {
           检索
         </el-button>
       </div>
+      <div v-if="knowledgeAnswer || knowledgeAnswerLoading" v-loading="knowledgeAnswerLoading" class="rag-answer">
+        <header>
+          <strong>AI 引用回答</strong>
+          <el-tag :type="knowledgeAnswer?.mocked ? 'warning' : 'success'" size="small">
+            {{ knowledgeAnswer?.provider || 'generating' }}
+          </el-tag>
+        </header>
+        <p>{{ knowledgeAnswer?.answer || '正在生成基于知识库证据的回答...' }}</p>
+        <div v-if="knowledgeAnswer?.citations.length" class="citation-list">
+          <div v-for="(citation, index) in knowledgeAnswer.citations" :key="citation.chunkId" class="citation-row">
+            <span>[{{ index + 1 }}]</span>
+            <div>
+              <strong>{{ citation.title }}</strong>
+              <small>{{ citation.source }} / {{ citation.score }} 分 / {{ citation.chunkId }}</small>
+              <p>{{ citation.snippet }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
       <el-empty
         v-if="!knowledgeResponse?.results.length && !knowledgeLoading"
         class="compact-empty"
@@ -1502,6 +1538,67 @@ function formatTime(value: string) {
   gap: 10px;
   margin-bottom: 16px;
   min-width: 0;
+}
+
+.rag-answer {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid #c7ded8;
+  border-radius: 8px;
+  background: #f6fbf9;
+  min-width: 0;
+}
+
+.rag-answer header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.rag-answer strong {
+  overflow-wrap: anywhere;
+}
+
+.rag-answer p {
+  margin: 0;
+  color: #344054;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.citation-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.citation-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #dce9e5;
+  min-width: 0;
+}
+
+.citation-row > span {
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.citation-row div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.citation-row small {
+  color: #667085;
+  overflow-wrap: anywhere;
 }
 
 .interview-toolbar {

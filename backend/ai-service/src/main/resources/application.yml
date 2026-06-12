@@ -33,6 +33,9 @@ ai:
   planning:
     persistence:
       enabled: ${AI_PLANNING_PERSISTENCE_ENABLED:false}
+  knowledge:
+    persistence:
+      enabled: ${AI_KNOWLEDGE_PERSISTENCE_ENABLED:false}
 
 management:
   health:

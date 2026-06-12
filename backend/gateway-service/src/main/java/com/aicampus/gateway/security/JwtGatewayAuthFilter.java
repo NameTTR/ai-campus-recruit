@@ -189,7 +189,7 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
         if (path.startsWith("/api/ai/knowledge/documents") && !path.endsWith("/search")) {
             return Permission.AI_OBSERVABILITY_READ;
         }
-        if (path.startsWith("/api/ai/knowledge/search")) {
+        if (path.startsWith("/api/ai/knowledge/search") || path.startsWith("/api/ai/knowledge/answer")) {
             return Permission.AI_ANALYZE;
         }
         if (path.startsWith("/api/ai/candidates")) {

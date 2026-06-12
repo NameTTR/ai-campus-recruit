@@ -4,9 +4,10 @@ Runs a lightweight gateway load smoke test for the campus recruitment MVP.
 
 .DESCRIPTION
 Starts concurrent PowerShell worker jobs. Each worker logs in with the student,
-company, and admin demo accounts, then repeatedly calls core read endpoints and
-records pass/fail counts plus average and P95 latency. Optional future endpoints
-returning 404 are recorded as SKIPPED instead of failing the run.
+company, and admin demo accounts, then repeatedly calls core read endpoints plus
+RAG retrieval probes and records pass/fail counts plus average and P95 latency.
+Optional future endpoints returning 404 are recorded as SKIPPED instead of
+failing the run.
 
 The script never writes demo passwords or bearer tokens to console output or to
 the Markdown report.
@@ -265,6 +266,7 @@ function Write-LoadSmokeReport {
     $lines.Add("- Per iteration: ``GET /api/deliveries/company?companyId=C001`` as company.")
     $lines.Add("- Per iteration: ``GET /api/ai/status`` as student.")
     $lines.Add("- Per iteration: ``POST /api/ai/knowledge/search`` as admin; HTTP 404 is recorded as ``SKIPPED``.")
+    $lines.Add("- Per iteration: ``POST /api/ai/knowledge/answer`` as admin with ``useAi=false`` to exercise RAG retrieval without external model cost; HTTP 404 is recorded as ``SKIPPED``.")
     $lines.Add("- Per iteration: ``GET /api/notifications/my`` as student; HTTP 404 is recorded as ``SKIPPED``.")
 
     New-Item -ItemType Directory -Force -Path $ReportDirectory | Out-Null
@@ -612,6 +614,19 @@ $workerScript = {
                     query = "Java backend internship"
                     role = "ADMIN"
                     limit = 5
+                }
+            },
+            [pscustomobject]@{
+                Endpoint = "ai knowledge answer"
+                Method = "POST"
+                Path = "/api/ai/knowledge/answer"
+                Role = "admin"
+                Optional404 = $true
+                Body = @{
+                    query = "Java backend internship"
+                    role = "ADMIN"
+                    limit = 4
+                    useAi = $false
                 }
             },
             [pscustomobject]@{

@@ -25,6 +25,8 @@ import com.aicampus.common.dto.InterviewFeedbackRequest;
 import com.aicampus.common.dto.InterviewQuestion;
 import com.aicampus.common.dto.InterviewQuestionRequest;
 import com.aicampus.common.dto.InterviewRecord;
+import com.aicampus.common.dto.KnowledgeAnswerRequest;
+import com.aicampus.common.dto.KnowledgeAnswerResponse;
 import com.aicampus.common.dto.KnowledgeDocument;
 import com.aicampus.common.dto.KnowledgeDocumentRequest;
 import com.aicampus.common.dto.KnowledgeSearchRequest;
@@ -139,6 +141,19 @@ public class AiController {
                 request == null ? null : request.query(),
                 role,
                 request == null ? null : request.limit())));
+    }
+
+    @Operation(summary = "Answer a RAG question with citations")
+    @PostMapping("/knowledge/answer")
+    public ApiResponse<KnowledgeAnswerResponse> answerKnowledge(
+            @RequestBody KnowledgeAnswerRequest request,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        String role = resolveKnowledgeRole(request == null ? null : request.role(), userRole);
+        return ApiResponse.ok(knowledgeBaseService.answer(new KnowledgeAnswerRequest(
+                request == null ? null : request.query(),
+                role,
+                request == null ? null : request.limit(),
+                request == null ? null : request.useAi())));
     }
 
     @Operation(summary = "Generate AI career coach advice")

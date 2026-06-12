@@ -32,6 +32,10 @@ async function main() {
     await assertText(client, ['优先行动', '风险提醒', '学习路径', '面试训练'])
     await screenshot(client, '02b-student-coach-advice.png')
 
+    await navigate(client, `${baseUrl}/student/knowledge`)
+    await assertText(client, ['AI 引用回答', 'RAG'])
+    await screenshot(client, '02c-student-rag.png')
+
     await navigate(client, `${baseUrl}/student/jobs`)
     await clickButton(client, '匹配')
     await clickButton(client, '投递')

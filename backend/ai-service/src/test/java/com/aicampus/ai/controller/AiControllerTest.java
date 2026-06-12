@@ -180,6 +180,81 @@ class AiControllerTest {
     }
 
     @Test
+    void knowledgeAnswerFallsBackWithCitationsWhenDashScopeKeyIsMissing() throws Exception {
+        mockMvc.perform(post("/api/ai/knowledge/answer")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "Java Redis interview",
+                                  "role": "ADMIN",
+                                  "limit": 4,
+                                  "useAi": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.query").value("Java Redis interview"))
+                .andExpect(jsonPath("$.data.mocked").value(true))
+                .andExpect(jsonPath("$.data.provider").value("local-rag-fallback"))
+                .andExpect(jsonPath("$.data.answer").value(org.hamcrest.Matchers.containsString("[1]")))
+                .andExpect(jsonPath("$.data.citations.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.citations[0].chunkId").isNotEmpty());
+    }
+
+    @Test
+    void knowledgeAnswerCanDisableExternalAiForLoadSmoke() throws Exception {
+        mockMvc.perform(post("/api/ai/knowledge/answer")
+                        .header("X-User-Role", "COMPANY")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "screening playbook",
+                                  "role": "STUDENT",
+                                  "limit": 3,
+                                  "useAi": false
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.mocked").value(true))
+                .andExpect(jsonPath("$.data.citations.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.citations[0].title").value("Company candidate screening playbook"));
+    }
+
+    @Test
+    void knowledgeSearchUsesChunkedLongDocuments() throws Exception {
+        mockMvc.perform(post("/api/ai/knowledge/documents")
+                        .header("X-User-Id", "A-KB-CHUNK")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Long RAG chunking guide",
+                                  "content": "Chunk one explains general backend topics. %s target-chunk-keyword validates that retrieval can find text placed after the first window with enough context for a citation.",
+                                  "category": "rag",
+                                  "source": "admin-note",
+                                  "tags": ["chunking", "embedding"],
+                                  "roles": ["STUDENT", "ADMIN"]
+                                }
+                                """.formatted("padding ".repeat(90))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "target-chunk-keyword citation",
+                                  "role": "STUDENT",
+                                  "limit": 5
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.results.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.results[0].title").value("Long RAG chunking guide"));
+    }
+
+    @Test
     void coachAdviceUsesStudentHeaderAndRecordsObservability() throws Exception {
         mockMvc.perform(post("/api/ai/coach/advice")
                         .header("X-User-Id", "S-COACH-HTTP-001")

@@ -22,6 +22,7 @@ import {
   getDeliveryStatistics,
   getDeploymentTopology,
   getSystemStatus,
+  answerKnowledgeBase,
   listAiPlanningHistory,
   listAiCallRecords,
   listAccounts,
@@ -1082,6 +1083,48 @@ describe('api fallback behavior', () => {
       query: 'Redis',
       role: 'STUDENT',
       limit: 4
+    })
+  })
+
+  it('returns rag answer fallback with citations when gateway is offline', async () => {
+    const result = await answerKnowledgeBase({ query: 'Java Redis interview', role: 'STUDENT', limit: 3 })
+
+    expect(result.query).toBe('Java Redis interview')
+    expect(result.mocked).toBe(true)
+    expect(result.provider).toBe('local-rag-fallback')
+    expect(result.citations.length).toBeGreaterThan(0)
+    expect(result.answer).toContain('[1]')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls rag answer endpoint with trimmed query and useAi flag when proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          query: 'Redis',
+          answer: 'Use Redis evidence [1].',
+          citations: [],
+          mocked: false,
+          provider: 'dashscope',
+          generatedAt: '2026-06-12T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await answerKnowledgeBase({ query: ' Redis ', role: 'STUDENT', limit: 4, useAi: false })
+
+    expect(result.query).toBe('Redis')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/knowledge/answer', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(requestInit.body))).toEqual({
+      query: 'Redis',
+      role: 'STUDENT',
+      limit: 4,
+      useAi: false
     })
   })
 

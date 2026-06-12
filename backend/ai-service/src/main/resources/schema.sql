@@ -52,3 +52,34 @@ CREATE TABLE IF NOT EXISTS ai_planning_record (
     KEY idx_ai_planning_record_student_created (student_id, created_at),
     KEY idx_ai_planning_record_operation_created (operation, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_knowledge_document (
+    document_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    content MEDIUMTEXT NOT NULL,
+    category VARCHAR(64) NOT NULL,
+    source VARCHAR(128) NOT NULL,
+    tags TEXT NOT NULL,
+    roles TEXT NOT NULL,
+    created_by VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    KEY idx_ai_knowledge_document_category_created (category, created_at),
+    KEY idx_ai_knowledge_document_source_created (source, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_knowledge_chunk (
+    chunk_id VARCHAR(96) NOT NULL PRIMARY KEY,
+    document_id VARCHAR(64) NOT NULL,
+    chunk_index INT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    chunk_text TEXT NOT NULL,
+    category VARCHAR(64) NOT NULL,
+    source VARCHAR(128) NOT NULL,
+    tags TEXT NOT NULL,
+    roles TEXT NOT NULL,
+    created_by VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    embedding MEDIUMTEXT NOT NULL,
+    KEY idx_ai_knowledge_chunk_document_index (document_id, chunk_index),
+    KEY idx_ai_knowledge_chunk_category_created (category, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
