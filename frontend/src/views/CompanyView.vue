@@ -2,16 +2,20 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { Bot, ClipboardList, Plus, RefreshCw } from 'lucide-vue-next'
+import { Bell, Bot, CalendarDays, ClipboardList, Plus, RefreshCw } from 'lucide-vue-next'
 import {
   analyzeJob,
   createJob,
   createCandidateScreenTask,
+  createInterviewSchedule,
   currentCompanyId,
   getCandidateScreenTask,
   listCandidateScreenTasks,
   listCompanyDeliveries,
+  listCompanyInterviewSchedules,
+  listCompanyNotifications,
   listJobs,
+  markNotificationRead,
   matchResumeJob,
   retryCandidateScreenTask,
   updateDeliveryStatus,
@@ -19,8 +23,10 @@ import {
   type CandidateScreenTaskStatus,
   type DeliveryRecord,
   type DeliveryStatus,
+  type InterviewSchedule,
   type JobSummary,
   type MatchResult,
+  type NotificationMessage,
   type ResumeParseMetadata
 } from '../api/client'
 
@@ -38,6 +44,11 @@ const screeningTasks = ref<CandidateScreenTask[]>([])
 const screeningLoading = ref<Record<string, boolean>>({})
 const taskActionLoading = ref<Record<string, boolean>>({})
 const historyRefreshing = ref(false)
+const schedules = ref<InterviewSchedule[]>([])
+const schedulesLoading = ref(false)
+const scheduleLoading = ref<Record<string, boolean>>({})
+const notifications = ref<NotificationMessage[]>([])
+const notificationsLoading = ref(false)
 const form = reactive({
   title: 'Java 后端实习生',
   city: '杭州',
@@ -58,14 +69,18 @@ const hasAnyDeliveryParseMetadata = computed(() =>
   deliveries.value.some((delivery) => hasResumeParseMetadata(delivery)))
 
 onMounted(async () => {
-  const [jobList, deliveryList, taskList] = await Promise.all([
+  const [jobList, deliveryList, taskList, scheduleList, notificationList] = await Promise.all([
     listJobs(),
     listCompanyDeliveries(),
-    listCandidateScreenTasks()
+    listCandidateScreenTasks(),
+    listCompanyInterviewSchedules(),
+    listCompanyNotifications()
   ])
   jobs.value = jobList
   deliveries.value = deliveryList
   screeningTasks.value = taskList
+  schedules.value = scheduleList
+  notifications.value = notificationList
 })
 
 async function publish() {
@@ -95,6 +110,64 @@ async function changeDeliveryStatus(delivery: DeliveryRecord, status: DeliverySt
   const updated = await updateDeliveryStatus(delivery, status)
   deliveries.value = deliveries.value.map((item) => item.deliveryId === updated.deliveryId ? updated : item)
   ElMessage.success('投递状态已更新')
+}
+
+async function scheduleInterview(delivery: DeliveryRecord) {
+  scheduleLoading.value = { ...scheduleLoading.value, [delivery.deliveryId]: true }
+  try {
+    const scheduledAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    scheduledAt.setMinutes(0, 0, 0)
+    const schedule = await createInterviewSchedule({
+      deliveryId: delivery.deliveryId,
+      companyId: delivery.companyId,
+      studentId: delivery.studentId,
+      jobId: delivery.jobId,
+      title: 'Backend technical interview',
+      startTime: scheduledAt.toISOString().slice(0, 19),
+      durationMinutes: 45,
+      location: 'Online',
+      meetingUrl: `https://meet.example.com/${delivery.deliveryId.toLowerCase()}`,
+      note: 'Prepare one backend project, one MySQL case, and one Redis cache case.'
+    })
+    schedules.value = [schedule, ...schedules.value.filter((item) => item.scheduleId !== schedule.scheduleId)]
+    if (delivery.status !== 'INTERVIEW') {
+      await changeDeliveryStatus(delivery, 'INTERVIEW')
+    }
+    await refreshCompanyNotifications()
+    ElMessage.success('面试已安排')
+  } finally {
+    scheduleLoading.value = { ...scheduleLoading.value, [delivery.deliveryId]: false }
+  }
+}
+
+async function refreshCompanySchedules(showMessage = false) {
+  schedulesLoading.value = true
+  try {
+    schedules.value = await listCompanyInterviewSchedules()
+    if (showMessage) {
+      ElMessage.success('面试日程已刷新')
+    }
+  } finally {
+    schedulesLoading.value = false
+  }
+}
+
+async function refreshCompanyNotifications(showMessage = false) {
+  notificationsLoading.value = true
+  try {
+    notifications.value = await listCompanyNotifications()
+    if (showMessage) {
+      ElMessage.success('通知已刷新')
+    }
+  } finally {
+    notificationsLoading.value = false
+  }
+}
+
+async function readCompanyNotification(notification: NotificationMessage) {
+  const updated = await markNotificationRead(notification)
+  notifications.value = notifications.value.map((item) =>
+    item.notificationId === updated.notificationId ? updated : item)
 }
 
 async function runCandidateScreen(delivery: DeliveryRecord) {
@@ -232,6 +305,28 @@ function taskStatusTagType(status: CandidateScreenTaskStatus) {
     RUNNING: 'warning',
     COMPLETED: 'success',
     FAILED: 'danger'
+  }
+  return types[status]
+}
+
+function scheduleStatusText(status: InterviewSchedule['status']) {
+  const labels: Record<InterviewSchedule['status'], string> = {
+    PROPOSED: 'Proposed',
+    CONFIRMED: 'Confirmed',
+    DECLINED: 'Declined',
+    COMPLETED: 'Completed',
+    CANCELLED: 'Cancelled'
+  }
+  return labels[status]
+}
+
+function scheduleStatusTagType(status: InterviewSchedule['status']) {
+  const types: Record<InterviewSchedule['status'], 'success' | 'warning' | 'info' | 'danger' | 'primary'> = {
+    PROPOSED: 'warning',
+    CONFIRMED: 'success',
+    DECLINED: 'danger',
+    COMPLETED: 'primary',
+    CANCELLED: 'info'
   }
   return types[status]
 }
@@ -441,6 +536,15 @@ function formatDateTime(value: string) {
                 异步初筛
               </el-button>
               <el-button
+                size="small"
+                type="success"
+                :loading="scheduleLoading[row.deliveryId]"
+                @click="scheduleInterview(row)"
+              >
+                <CalendarDays :size="15" />
+                安排面试
+              </el-button>
+              <el-button
                 v-for="item in reviewStatuses"
                 :key="item.status"
                 size="small"
@@ -484,6 +588,15 @@ function formatDateTime(value: string) {
               异步初筛
             </el-button>
             <el-button
+              size="small"
+              type="success"
+              :loading="scheduleLoading[delivery.deliveryId]"
+              @click="scheduleInterview(delivery)"
+            >
+              <CalendarDays :size="15" />
+              安排面试
+            </el-button>
+            <el-button
               v-for="item in reviewStatuses"
               :key="item.status"
               size="small"
@@ -493,6 +606,69 @@ function formatDateTime(value: string) {
             >
               {{ item.label }}
             </el-button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section v-if="activeModule === 'schedule'" class="panel module-panel">
+      <div class="panel-title schedule-title">
+        <span>
+          面试日程
+          <CalendarDays :size="19" />
+        </span>
+        <el-button size="small" :loading="schedulesLoading" @click="refreshCompanySchedules(true)">
+          <RefreshCw :size="15" />
+          刷新
+        </el-button>
+      </div>
+      <el-table
+        v-loading="schedulesLoading"
+        class="company-delivery-table"
+        :data="schedules"
+        style="width: 100%"
+        empty-text="暂无面试日程"
+      >
+        <el-table-column prop="scheduleId" label="编号" min-width="128" />
+        <el-table-column prop="studentId" label="学生" width="110" />
+        <el-table-column prop="jobId" label="岗位" width="110" />
+        <el-table-column prop="title" label="主题" min-width="180" />
+        <el-table-column label="时间" width="150">
+          <template #default="{ row }">{{ formatDateTime(row.startTime) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="scheduleStatusTagType(row.status)">{{ scheduleStatusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="location" label="地点" min-width="120" />
+      </el-table>
+    </section>
+
+    <section v-if="activeModule === 'notifications'" class="panel module-panel">
+      <div class="panel-title schedule-title">
+        <span>
+          通知中心
+          <Bell :size="19" />
+        </span>
+        <el-button size="small" :loading="notificationsLoading" @click="refreshCompanyNotifications(true)">
+          <RefreshCw :size="15" />
+          刷新
+        </el-button>
+      </div>
+      <el-empty v-if="notifications.length === 0 && !notificationsLoading" description="暂无通知" />
+      <div v-else v-loading="notificationsLoading" class="notification-list">
+        <article v-for="notification in notifications" :key="notification.notificationId" class="item-card notification-card">
+          <header>
+            <div>
+              <strong>{{ notification.title }}</strong>
+              <span>{{ notification.sourceType }} / {{ notification.sourceId }} / {{ formatDateTime(notification.createdAt) }}</span>
+            </div>
+            <el-tag :type="notification.read ? 'info' : 'warning'">{{ notification.read ? '已读' : '未读' }}</el-tag>
+          </header>
+          <p>{{ notification.content }}</p>
+          <div class="actions">
+            <el-button size="small" :disabled="notification.read" @click="readCompanyNotification(notification)">标记已读</el-button>
           </div>
         </article>
       </div>
@@ -607,6 +783,62 @@ function formatDateTime(value: string) {
   display: inline-flex;
   gap: 8px;
   align-items: center;
+}
+
+.schedule-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.schedule-title span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notification-list {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.notification-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.notification-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.notification-card header div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.notification-card strong,
+.notification-card span,
+.notification-card p {
+  overflow-wrap: anywhere;
+}
+
+.notification-card span {
+  color: #667085;
+  font-size: 13px;
+}
+
+.notification-card p {
+  margin: 0;
+  color: #475467;
+  line-height: 1.6;
 }
 
 :deep(.company-delivery-table .cell) {
@@ -811,6 +1043,12 @@ function formatDateTime(value: string) {
 @media (max-width: 640px) {
   .company-delivery-table {
     display: none;
+  }
+
+  .schedule-title,
+  .notification-card header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .delivery-review-cards {

@@ -100,10 +100,17 @@ public class DeliveryController {
     }
 
     @PutMapping("/{id}/status")
-    public ApiResponse<DeliveryRecord> updateStatus(@PathVariable("id") String id, @RequestParam("status") DeliveryStatus status) {
+    public ApiResponse<DeliveryRecord> updateStatus(
+            @PathVariable("id") String id,
+            @RequestParam("status") DeliveryStatus status,
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role) {
         DeliveryRecord current = deliveryStore.findById(id).orElse(null);
         if (current == null) {
             return ApiResponse.fail("Delivery not found");
+        }
+        if ("COMPANY".equalsIgnoreCase(valueOr(role, "")) && hasText(userId) && !userId.trim().equals(current.companyId())) {
+            return ApiResponse.fail("Delivery access denied");
         }
         DeliveryRecord updated = new DeliveryRecord(current.deliveryId(), current.studentId(), current.resumeId(),
                 current.jobId(), current.companyId(), current.resumeSourceFormat(), current.resumeParseStatus(),

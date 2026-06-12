@@ -327,3 +327,69 @@
 - `GET /api/admin/dashboard`: management dashboard statistics.
   - When `DASHBOARD_REALTIME_ENABLED=true` and the `user-service` MySQL datasource is reachable, the dashboard aggregates real persisted tables including `resume_summary_record`, `job_record`, `match_result_record`, `delivery_record`, `ai_candidate_screen_record`, and `ai_planning_record`.
   - If realtime mode is disabled, datasource configuration is missing, the MySQL driver is unavailable, or MySQL cannot be queried, the endpoint returns the stable deterministic fallback dataset so the admin screen remains usable for demos and smoke tests.
+
+## v3.8 Load Smoke
+
+- `scripts/run-load-smoke.ps1` provides a lightweight performance smoke check for deployed Gateway APIs. It logs in the `student`, `company`, and `admin` demo users, then repeatedly calls `GET /api/jobs`, `GET /api/deliveries/my`, `GET /api/deliveries/company?companyId=C001`, `GET /api/ai/status`, `POST /api/ai/knowledge/search`, and `GET /api/notifications/my`.
+- `POST /api/ai/knowledge/search` and `GET /api/notifications/my` are optional compatibility probes in this script. HTTP 404 is recorded as `SKIPPED`; other non-2xx responses or `ApiResponse.code != 0` are recorded as `FAIL`.
+- Every run writes `reports/deploy/load-smoke-<timestamp>.md` with PASS/FAIL/SKIPPED counts, average latency, P95 latency, endpoint-level summaries, and failed/skipped details. Demo passwords and bearer tokens are never written to console output or reports.
+
+## v3.8 Notifications, Interview Scheduling, RAG, and MQ Events
+
+### Notifications
+
+- `GET /api/notifications/my?studentId=S001`
+  - Gateway permission: student profile access; `X-User-Role=STUDENT` and `X-User-Id` override the `studentId` query value.
+  - Returns: `ApiResponse<List<NotificationMessage>>`.
+- `GET /api/notifications/company?companyId=C001`
+  - Gateway permission: company delivery read; `X-User-Role=COMPANY` and `X-User-Id` override the `companyId` query value.
+  - Returns: `ApiResponse<List<NotificationMessage>>`.
+- `POST /api/notifications/{id}/read`
+  - Marks one notification as read. Student/company users can only update their own notifications; admin/direct-service demo calls can update by id.
+  - Returns: `ApiResponse<NotificationMessage>` or `ApiResponse.fail("Notification not found")`.
+- `NotificationMessage` fields: `notificationId`, `targetRole`, `targetUserId`, `title`, `content`, `sourceType`, `sourceId`, `read`, `createdAt`.
+
+### Interview Schedules
+
+- `POST /api/interviews/schedules`
+  - Gateway permission: company delivery read.
+  - Request fields: `deliveryId`, `companyId`, `studentId`, `jobId`, `title`, `startTime`, `durationMinutes`, `location`, `meetingUrl`, `note`.
+  - Company identity from Gateway overrides the request company id; the target delivery must belong to that company.
+  - Creates an interview schedule, a student notification, and an `INTERVIEW_SCHEDULED` lifecycle event on the existing `delivery-events` topic when RocketMQ publishing is enabled.
+  - Returns: `ApiResponse<InterviewSchedule>`.
+- `GET /api/interviews/schedules/my?studentId=S001`
+  - Gateway permission: student interview access; student identity overrides query `studentId`.
+  - Returns: `ApiResponse<List<InterviewSchedule>>`.
+- `GET /api/interviews/schedules/company?companyId=C001`
+  - Gateway permission: company delivery read; company identity overrides query `companyId`.
+  - Returns: `ApiResponse<List<InterviewSchedule>>`.
+- `PUT /api/interviews/schedules/{id}/status?status=CONFIRMED`
+  - Supported statuses: `PROPOSED`, `CONFIRMED`, `DECLINED`, `COMPLETED`, `CANCELLED`.
+  - Students can confirm or decline their own proposed schedules. Companies can update schedules for their own company. Admin/direct-service demo calls can update by id.
+  - Creates company/student notifications and an `INTERVIEW_STATUS_CHANGED` lifecycle event.
+  - Returns: `ApiResponse<InterviewSchedule>` or `ApiResponse.fail(...)`.
+
+### RAG Knowledge Base
+
+- `POST /api/ai/knowledge/documents`
+  - Gateway permission: admin AI observability/read capability, effectively admin only.
+  - Request fields: `title`, `content`, `category`, `source`, `tags`, `roles`.
+  - Returns: `ApiResponse<KnowledgeDocument>`.
+- `GET /api/ai/knowledge/documents?keyword=Redis&role=STUDENT&limit=20`
+  - Lists readable knowledge documents with optional keyword and role filtering.
+  - Returns: `ApiResponse<List<KnowledgeDocument>>`.
+- `POST /api/ai/knowledge/search`
+  - Gateway permission: AI analyze.
+  - Request fields: `query`, `role`, `limit`.
+  - Gateway-injected `STUDENT` or `COMPANY` role overrides the request body role to avoid cross-role retrieval.
+  - Returns: `ApiResponse<AiSearchResponse>` where each result uses `AiSearchResult` with `type="knowledge"`.
+- `KnowledgeDocument` fields: `documentId`, `title`, `content`, `category`, `source`, `tags`, `roles`, `createdBy`, `createdAt`.
+
+### MQ Event Expansion
+
+- Existing `delivery.events.rocketmq.*` settings are reused; no new service or topic is required.
+- New event types written through the existing publisher:
+  - `NOTIFICATION_CREATED`
+  - `INTERVIEW_SCHEDULED`
+  - `INTERVIEW_STATUS_CHANGED`
+- The publisher still records recent events at `GET /api/deliveries/events` with `publishStatus=DISABLED`, RocketMQ send status, or `FAILED`.

@@ -81,6 +81,105 @@ class AiControllerTest {
     }
 
     @Test
+    void knowledgeSearchReturnsSeededRagDocuments() throws Exception {
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "Java Redis interview",
+                                  "role": "ADMIN",
+                                  "limit": 5
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.query").value("Java Redis interview"))
+                .andExpect(jsonPath("$.data.results.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.results[0].type").value("knowledge"))
+                .andExpect(jsonPath("$.data.results[0].score").value(greaterThanOrEqualTo(40)));
+    }
+
+    @Test
+    void knowledgeDocumentsCanBeCreatedAndSearched() throws Exception {
+        mockMvc.perform(post("/api/ai/knowledge/documents")
+                        .header("X-User-Id", "A-KB-001")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Distributed load testing checklist",
+                                  "content": "Validate gateway latency, delivery throughput, AI fallback status, Redis cache behavior, RocketMQ event lag and three VM health.",
+                                  "category": "performance",
+                                  "source": "admin-note",
+                                  "tags": ["load-test", "gateway", "rocketmq"],
+                                  "roles": ["ADMIN", "COMPANY"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.documentId").isNotEmpty())
+                .andExpect(jsonPath("$.data.createdBy").value("A-KB-001"));
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "RocketMQ event lag",
+                                  "role": "COMPANY",
+                                  "limit": 3
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.results.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.results[0].title").value("Distributed load testing checklist"));
+    }
+
+    @Test
+    void knowledgeSearchUsesGatewayRoleBeforeRequestRole() throws Exception {
+        mockMvc.perform(post("/api/ai/knowledge/documents")
+                        .header("X-User-Id", "A-KB-PRIVATE")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Company private screening note",
+                                  "content": "company-private-keyword should be visible only to company and admin roles.",
+                                  "category": "screening",
+                                  "source": "admin-note",
+                                  "tags": ["private"],
+                                  "roles": ["COMPANY", "ADMIN"]
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "company-private-keyword",
+                                  "role": "COMPANY",
+                                  "limit": 3
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.results.length()").value(0));
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "COMPANY")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "company-private-keyword",
+                                  "role": "STUDENT",
+                                  "limit": 3
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.results.length()").value(greaterThanOrEqualTo(1)));
+    }
+
+    @Test
     void coachAdviceUsesStudentHeaderAndRecordsObservability() throws Exception {
         mockMvc.perform(post("/api/ai/coach/advice")
                         .header("X-User-Id", "S-COACH-HTTP-001")

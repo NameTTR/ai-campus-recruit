@@ -4,6 +4,7 @@ import {
   createAccount,
   createCandidateScreenTask,
   createDelivery,
+  createInterviewSchedule,
   exportAdminAudit,
   getAuthSession,
   generateCareerPlan,
@@ -27,16 +28,23 @@ import {
   listCandidateScreenRecords,
   listCandidateScreenTasks,
   listMyCandidateScreenRecords,
+  listMyInterviewSchedules,
+  listMyNotifications,
   listInterviewRecords,
   listCompanyDeliveries,
+  listCompanyInterviewSchedules,
+  listCompanyNotifications,
   login,
+  markNotificationRead,
   matchResumeJob,
   saveAuthSession,
   screenCandidate,
   searchAiKnowledge,
+  searchKnowledgeBase,
   submitInterviewFeedback,
   retryCandidateScreenTask,
   rewriteResume,
+  updateInterviewScheduleStatus,
   updateAccountStatus
 } from './client'
 
@@ -1041,6 +1049,42 @@ describe('api fallback behavior', () => {
     })
   })
 
+  it('returns rag knowledge search fallback with role filtering', async () => {
+    const studentResult = await searchKnowledgeBase({ query: 'screening playbook', role: 'STUDENT', limit: 5 })
+    const companyResult = await searchKnowledgeBase({ query: 'screening playbook', role: 'COMPANY', limit: 5 })
+
+    expect(studentResult.results.some((item) => item.id === 'KB-DEMO-003')).toBe(false)
+    expect(companyResult.results.some((item) => item.id === 'KB-DEMO-003')).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls rag knowledge search endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          query: 'Redis',
+          results: [],
+          generatedAt: '2026-06-12T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await searchKnowledgeBase({ query: ' Redis ', role: 'STUDENT', limit: 4 })
+
+    expect(result.query).toBe('Redis')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/knowledge/search', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(requestInit.body))).toEqual({
+      query: 'Redis',
+      role: 'STUDENT',
+      limit: 4
+    })
+  })
+
   it('returns interview record fallback when gateway is offline', async () => {
     const result = await listInterviewRecords('S001')
 
@@ -1066,6 +1110,101 @@ describe('api fallback behavior', () => {
     expect(result.totalCount).toBe(5)
     expect(result.pendingCount).toBe(1)
     expect(result.statusCounts.INTERVIEW).toBe(1)
+  })
+
+  it('returns notification fallback and marks read locally', async () => {
+    const notifications = await listMyNotifications('S001')
+
+    expect(notifications.length).toBeGreaterThan(0)
+    expect(notifications[0].targetRole).toBe('STUDENT')
+    expect(notifications[0].read).toBe(false)
+
+    const updated = await markNotificationRead(notifications[0])
+
+    expect(updated.notificationId).toBe(notifications[0].notificationId)
+    expect(updated.read).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('uses current company identity when loading company notifications', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    saveAuthSession({
+      token: 'company-token',
+      userId: 'C777',
+      displayName: 'Company HR',
+      role: 'COMPANY'
+    })
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: []
+      })
+    } as Response)
+
+    await listCompanyNotifications()
+
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/notifications/company?companyId=C777', expect.any(Object))
+  })
+
+  it('returns interview schedule fallback and updates status locally', async () => {
+    const schedules = await listMyInterviewSchedules('S003')
+
+    expect(schedules).toHaveLength(1)
+    expect(schedules[0].status).toBe('PROPOSED')
+
+    const updated = await updateInterviewScheduleStatus(schedules[0], 'CONFIRMED')
+
+    expect(updated.scheduleId).toBe(schedules[0].scheduleId)
+    expect(updated.status).toBe('CONFIRMED')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls create interview schedule endpoint when api base url is configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          scheduleId: 'IS-900',
+          deliveryId: 'D001',
+          companyId: 'C001',
+          studentId: 'S001',
+          jobId: 'J001',
+          title: 'Backend interview',
+          startTime: '2026-06-15T09:30:00',
+          durationMinutes: 45,
+          location: 'Online',
+          meetingUrl: 'https://meet.example.com/is-900',
+          note: 'Prepare project cases',
+          status: 'PROPOSED',
+          createdAt: '2026-06-12T00:00:00',
+          updatedAt: '2026-06-12T00:00:00'
+        }
+      })
+    } as Response)
+
+    const payload = {
+      deliveryId: 'D001',
+      companyId: 'C001',
+      studentId: 'S001',
+      jobId: 'J001',
+      title: 'Backend interview',
+      startTime: '2026-06-15T09:30:00',
+      durationMinutes: 45,
+      location: 'Online',
+      meetingUrl: 'https://meet.example.com/is-900',
+      note: 'Prepare project cases'
+    }
+    const result = await createInterviewSchedule(payload)
+
+    expect(result.scheduleId).toBe('IS-900')
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/interviews/schedules', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(requestInit.body))).toEqual(payload)
   })
 
   it('returns enriched dashboard fallback when gateway is offline', async () => {

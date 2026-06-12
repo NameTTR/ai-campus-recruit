@@ -45,7 +45,7 @@ spring:
         - id: delivery-service
           uri: ${DELIVERY_SERVICE_URI:http://localhost:8107}
           predicates:
-            - Path=/api/deliveries/**
+            - Path=/api/deliveries/**,/api/notifications/**,/api/interviews/schedules/**
 
 management:
   endpoints:

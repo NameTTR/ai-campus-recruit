@@ -109,6 +109,24 @@ class DeliveryControllerTest {
     }
 
     @Test
+    void updateStatusUsesCompanyHeaderToProtectDeliveryOwnership() throws Exception {
+        mockMvc.perform(put("/api/deliveries/D001/status?status=INTERVIEW")
+                        .header("X-User-Id", "C002")
+                        .header("X-User-Role", "COMPANY"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.message").value("Delivery access denied"));
+
+        mockMvc.perform(put("/api/deliveries/D001/status?status=INTERVIEW")
+                        .header("X-User-Id", "C001")
+                        .header("X-User-Role", "COMPANY"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.companyId").value("C001"))
+                .andExpect(jsonPath("$.data.status").value("INTERVIEW"));
+    }
+
+    @Test
     void updateStatusReturnsApiResponseForInvalidStatus() throws Exception {
         mockMvc.perform(put("/api/deliveries/D001/status?status=NOT_A_STATUS"))
                 .andExpect(status().isBadRequest())
@@ -175,5 +193,118 @@ class DeliveryControllerTest {
                 .andExpect(jsonPath("$.data.statusCounts.INTERVIEW").value(1))
                 .andExpect(jsonPath("$.data.statusCounts.OFFER").value(1))
                 .andExpect(jsonPath("$.data.statusCounts.REJECTED").value(1));
+    }
+
+    @Test
+    void listStudentNotificationsUsesStudentHeaderBeforeQueryParam() throws Exception {
+        mockMvc.perform(get("/api/notifications/my?studentId=S001")
+                        .header("X-User-Id", "S-NO-NOTIFICATIONS")
+                        .header("X-User-Role", "STUDENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(0));
+
+        mockMvc.perform(get("/api/notifications/my?studentId=S001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].targetUserId").value("S001"));
+    }
+
+    @Test
+    void markNotificationReadIsIsolatedByIdentityHeader() throws Exception {
+        mockMvc.perform(post("/api/notifications/N-DEMO-STUDENT-001/read")
+                        .header("X-User-Id", "S-OTHER")
+                        .header("X-User-Role", "STUDENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.message").value("Notification not found"));
+
+        mockMvc.perform(post("/api/notifications/N-DEMO-STUDENT-001/read")
+                        .header("X-User-Id", "S001")
+                        .header("X-User-Role", "STUDENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.read").value(true));
+    }
+
+    @Test
+    void companyCanScheduleInterviewForOwnDeliveryAndCreatesEventsAndNotification() throws Exception {
+        mockMvc.perform(post("/api/interviews/schedules")
+                        .header("X-User-Id", "C001")
+                        .header("X-User-Role", "COMPANY")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "deliveryId": "D001",
+                                  "companyId": "C-BODY-IGNORED",
+                                  "title": "Backend interview",
+                                  "startTime": "2026-06-15T09:30:00",
+                                  "durationMinutes": 45,
+                                  "location": "Online",
+                                  "meetingUrl": "https://meet.example.com/backend",
+                                  "note": "Prepare Java and MySQL cases"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.deliveryId").value("D001"))
+                .andExpect(jsonPath("$.data.companyId").value("C001"))
+                .andExpect(jsonPath("$.data.studentId").value("S001"))
+                .andExpect(jsonPath("$.data.status").value("PROPOSED"));
+
+        mockMvc.perform(get("/api/notifications/my?studentId=S001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].sourceType").value("INTERVIEW"));
+
+        mockMvc.perform(get("/api/deliveries/events"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].eventType").value("INTERVIEW_SCHEDULED"))
+                .andExpect(jsonPath("$.data[0].publishStatus").value("DISABLED"));
+    }
+
+    @Test
+    void companyCannotScheduleInterviewForAnotherCompanyDelivery() throws Exception {
+        mockMvc.perform(post("/api/interviews/schedules")
+                        .header("X-User-Id", "C002")
+                        .header("X-User-Role", "COMPANY")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deliveryId\":\"D001\",\"startTime\":\"2026-06-15T09:30:00\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.message").value("Delivery does not belong to company"));
+    }
+
+    @Test
+    void listInterviewSchedulesUsesIdentityHeaders() throws Exception {
+        mockMvc.perform(get("/api/interviews/schedules/my?studentId=S001")
+                        .header("X-User-Id", "S003")
+                        .header("X-User-Role", "STUDENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].studentId").value("S003"));
+
+        mockMvc.perform(get("/api/interviews/schedules/company?companyId=C002")
+                        .header("X-User-Id", "C001")
+                        .header("X-User-Role", "COMPANY"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].companyId").value("C001"));
+    }
+
+    @Test
+    void studentCanConfirmOwnInterviewScheduleButNotOthers() throws Exception {
+        mockMvc.perform(put("/api/interviews/schedules/IS-DEMO-001/status?status=CONFIRMED")
+                        .header("X-User-Id", "S001")
+                        .header("X-User-Role", "STUDENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.message").value("Interview schedule access denied"));
+
+        mockMvc.perform(put("/api/interviews/schedules/IS-DEMO-001/status?status=CONFIRMED")
+                        .header("X-User-Id", "S003")
+                        .header("X-User-Role", "STUDENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.status").value("CONFIRMED"));
     }
 }

@@ -380,6 +380,71 @@ export interface InterviewRecord {
   createdAt: string
 }
 
+export interface NotificationMessage {
+  notificationId: string
+  targetRole: 'STUDENT' | 'COMPANY' | 'ADMIN' | string
+  targetUserId: string
+  title: string
+  content: string
+  sourceType: string
+  sourceId: string
+  read: boolean
+  createdAt: string
+}
+
+export type InterviewScheduleStatus = 'PROPOSED' | 'CONFIRMED' | 'DECLINED' | 'COMPLETED' | 'CANCELLED'
+
+export interface InterviewScheduleRequest {
+  deliveryId: string
+  companyId?: string
+  studentId?: string
+  jobId?: string
+  title: string
+  startTime: string
+  durationMinutes: number
+  location: string
+  meetingUrl: string
+  note: string
+}
+
+export interface InterviewSchedule {
+  scheduleId: string
+  deliveryId: string
+  companyId: string
+  studentId: string
+  jobId: string
+  title: string
+  startTime: string
+  durationMinutes: number
+  location: string
+  meetingUrl: string
+  note: string
+  status: InterviewScheduleStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface KnowledgeDocumentRequest {
+  title: string
+  content: string
+  category: string
+  source: string
+  tags: string[]
+  roles: string[]
+}
+
+export interface KnowledgeDocument extends KnowledgeDocumentRequest {
+  documentId: string
+  createdBy: string
+  createdAt: string
+}
+
+export interface KnowledgeSearchRequest {
+  query: string
+  role?: string
+  limit?: number
+}
+
 export type DeliveryStatus = 'SUBMITTED' | 'VIEWED' | 'INTERVIEW' | 'OFFER' | 'REJECTED'
 export type AccountStatus = 'ACTIVE' | 'DISABLED' | 'LOCKED'
 export type PermissionCode =
@@ -1083,6 +1148,42 @@ const fallbackAiSearchResults: AiSearchResult[] = [
   }
 ]
 
+const fallbackKnowledgeDocuments: KnowledgeDocument[] = [
+  {
+    documentId: 'KB-DEMO-001',
+    title: 'Campus recruitment Java backend interview guide',
+    content: 'Focus on Spring Boot layering, MySQL indexes, Redis cache consistency, Gateway routing, RocketMQ async delivery events, and three-VM deployment troubleshooting.',
+    category: 'interview',
+    source: 'seed',
+    tags: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'RocketMQ'],
+    roles: ['STUDENT', 'COMPANY', 'ADMIN'],
+    createdBy: 'system',
+    createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    documentId: 'KB-DEMO-002',
+    title: 'Resume evidence checklist',
+    content: 'Connect every resume claim to project ownership, API behavior, latency, data volume, screenshots, test reports, and deployment proof.',
+    category: 'resume',
+    source: 'seed',
+    tags: ['resume', 'evidence', 'metrics'],
+    roles: ['STUDENT', 'ADMIN'],
+    createdBy: 'system',
+    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    documentId: 'KB-DEMO-003',
+    title: 'Company candidate screening playbook',
+    content: 'Screening should combine delivery status, parsed resume quality, skill overlap, interview risk questions, and auditable AI recommendation records.',
+    category: 'screening',
+    source: 'seed',
+    tags: ['screening', 'AI', 'audit'],
+    roles: ['COMPANY', 'ADMIN'],
+    createdBy: 'system',
+    createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString()
+  }
+]
+
 const fallbackInterviewRecords: InterviewRecord[] = [
   {
     recordId: 'IR-DEMO-001',
@@ -1166,6 +1267,50 @@ const fallbackDeliveryStatistics: DeliveryStatistics = {
   statusCounts: fallbackDeliveryStatusCounts,
   pendingCount: fallbackDeliveryStatusCounts.SUBMITTED
 }
+
+const fallbackNotifications: NotificationMessage[] = [
+  {
+    notificationId: 'N-DEMO-STUDENT-001',
+    targetRole: 'STUDENT',
+    targetUserId: 'S001',
+    title: 'Interview invitation',
+    content: 'C001 invited you to a Java backend interview. Confirm the schedule before the deadline.',
+    sourceType: 'INTERVIEW',
+    sourceId: 'IS-DEMO-001',
+    read: false,
+    createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    notificationId: 'N-DEMO-COMPANY-001',
+    targetRole: 'COMPANY',
+    targetUserId: 'C001',
+    title: 'New candidate delivery',
+    content: 'A new resume was delivered to J001 and is waiting for screening.',
+    sourceType: 'DELIVERY',
+    sourceId: 'D001',
+    read: false,
+    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+  }
+]
+
+const fallbackInterviewSchedules: InterviewSchedule[] = [
+  {
+    scheduleId: 'IS-DEMO-001',
+    deliveryId: 'D003',
+    companyId: 'C001',
+    studentId: 'S003',
+    jobId: 'J002',
+    title: 'Java backend technical interview',
+    startTime: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+    durationMinutes: 45,
+    location: 'Online',
+    meetingUrl: 'https://meet.example.com/demo-java-backend',
+    note: 'Prepare one backend project and one MySQL troubleshooting case.',
+    status: 'PROPOSED',
+    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  }
+]
 
 const fallbackAdminAuditRecords: AdminAuditRecord[] = [
   {
@@ -1841,6 +1986,86 @@ export function searchAiKnowledge(payload: AiSearchRequest) {
   })
 }
 
+function canReadKnowledgeDocument(document: KnowledgeDocument, role?: string) {
+  const normalizedRole = role?.trim().toUpperCase()
+  return !normalizedRole || document.roles.includes(normalizedRole) || document.roles.includes('ALL')
+}
+
+function fallbackKnowledgeResults(payload: KnowledgeSearchRequest): AiSearchResponse {
+  const query = payload.query.trim()
+  const limit = payload.limit ?? 5
+  const normalized = query.toLowerCase()
+  const role = payload.role || currentRole() || 'STUDENT'
+  const results = fallbackKnowledgeDocuments
+    .filter((document) => canReadKnowledgeDocument(document, role))
+    .map((document) => {
+      const text = `${document.title} ${document.content} ${document.tags.join(' ')}`.toLowerCase()
+      const score = normalized
+        ? (text.includes(normalized) ? 92 : query.split(/\s+/).reduce((sum, term) => sum + (text.includes(term.toLowerCase()) ? 12 : 0), 0))
+        : 55
+      return {
+        id: document.documentId,
+        type: 'knowledge',
+        title: document.title,
+        owner: document.createdBy,
+        summary: document.content,
+        score,
+        highlights: document.tags.length ? document.tags : [document.category]
+      }
+    })
+    .filter((result) => !normalized || result.score > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit)
+  return {
+    query,
+    results,
+    generatedAt: new Date().toISOString()
+  }
+}
+
+export function searchKnowledgeBase(payload: KnowledgeSearchRequest) {
+  const query = payload.query.trim()
+  const limit = payload.limit ?? 5
+  const role = payload.role || currentRole() || 'STUDENT'
+  return request<AiSearchResponse>('/api/ai/knowledge/search', {
+    method: 'POST',
+    body: JSON.stringify({ ...payload, query, role, limit })
+  }, fallbackKnowledgeResults({ ...payload, query, role, limit }))
+}
+
+export function listKnowledgeDocuments(keyword = '', role = currentRole() || 'STUDENT', limit = 20) {
+  const params = new URLSearchParams()
+  if (keyword.trim()) {
+    params.set('keyword', keyword.trim())
+  }
+  if (role) {
+    params.set('role', role)
+  }
+  params.set('limit', String(limit))
+  const normalized = keyword.trim().toLowerCase()
+  const fallback = fallbackKnowledgeDocuments
+    .filter((document) => canReadKnowledgeDocument(document, role))
+    .filter((document) => !normalized
+      || document.title.toLowerCase().includes(normalized)
+      || document.content.toLowerCase().includes(normalized)
+      || document.tags.some((tag) => tag.toLowerCase().includes(normalized)))
+    .slice(0, limit)
+  return request<KnowledgeDocument[]>(`/api/ai/knowledge/documents?${params.toString()}`, { method: 'GET' }, fallback)
+}
+
+export function createKnowledgeDocument(payload: KnowledgeDocumentRequest) {
+  const fallback: KnowledgeDocument = {
+    ...payload,
+    documentId: `KB-DEMO-${Date.now().toString().slice(-6)}`,
+    createdBy: getAuthSession()?.userId || 'demo-admin',
+    createdAt: new Date().toISOString()
+  }
+  return request<KnowledgeDocument>('/api/ai/knowledge/documents', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, fallback)
+}
+
 export function listInterviewRecords(studentId = currentStudentId()) {
   return request<InterviewRecord[]>(`/api/ai/interview/records?studentId=${encodeURIComponent(studentId)}`, {
     method: 'GET'
@@ -1886,6 +2111,74 @@ export function updateDeliveryStatus(delivery: DeliveryRecord, status: DeliveryS
   return request<DeliveryRecord>(`/api/deliveries/${delivery.deliveryId}/status?status=${status}`, {
     method: 'PUT'
   }, updated)
+}
+
+export function listMyNotifications(studentId = currentStudentId()) {
+  return request<NotificationMessage[]>(
+    `/api/notifications/my?studentId=${encodeURIComponent(studentId)}`,
+    { method: 'GET' },
+    fallbackNotifications.filter((notification) => notification.targetRole === 'STUDENT' && notification.targetUserId === studentId))
+}
+
+export function listCompanyNotifications(companyId = currentCompanyId()) {
+  return request<NotificationMessage[]>(
+    `/api/notifications/company?companyId=${encodeURIComponent(companyId)}`,
+    { method: 'GET' },
+    fallbackNotifications.filter((notification) => notification.targetRole === 'COMPANY' && notification.targetUserId === companyId))
+}
+
+export function markNotificationRead(notification: NotificationMessage) {
+  const updated = { ...notification, read: true }
+  return request<NotificationMessage>(
+    `/api/notifications/${encodeURIComponent(notification.notificationId)}/read`,
+    { method: 'POST' },
+    updated)
+}
+
+export function listMyInterviewSchedules(studentId = currentStudentId()) {
+  return request<InterviewSchedule[]>(
+    `/api/interviews/schedules/my?studentId=${encodeURIComponent(studentId)}`,
+    { method: 'GET' },
+    fallbackInterviewSchedules.filter((schedule) => schedule.studentId === studentId))
+}
+
+export function listCompanyInterviewSchedules(companyId = currentCompanyId()) {
+  return request<InterviewSchedule[]>(
+    `/api/interviews/schedules/company?companyId=${encodeURIComponent(companyId)}`,
+    { method: 'GET' },
+    fallbackInterviewSchedules.filter((schedule) => schedule.companyId === companyId))
+}
+
+export function createInterviewSchedule(payload: InterviewScheduleRequest) {
+  const delivery = fallbackDeliveries.find((item) => item.deliveryId === payload.deliveryId)
+  const fallback: InterviewSchedule = {
+    scheduleId: `IS-DEMO-${Date.now().toString().slice(-6)}`,
+    deliveryId: payload.deliveryId,
+    companyId: payload.companyId || delivery?.companyId || currentCompanyId(),
+    studentId: payload.studentId || delivery?.studentId || 'S001',
+    jobId: payload.jobId || delivery?.jobId || 'J001',
+    title: payload.title,
+    startTime: payload.startTime,
+    durationMinutes: payload.durationMinutes,
+    location: payload.location,
+    meetingUrl: payload.meetingUrl,
+    note: payload.note,
+    status: 'PROPOSED',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+  return request<InterviewSchedule>('/api/interviews/schedules', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, fallback)
+}
+
+export function updateInterviewScheduleStatus(schedule: InterviewSchedule, status: InterviewScheduleStatus) {
+  const updated = { ...schedule, status, updatedAt: new Date().toISOString() }
+  return request<InterviewSchedule>(
+    `/api/interviews/schedules/${encodeURIComponent(schedule.scheduleId)}/status?status=${status}`,
+    { method: 'PUT' },
+    updated)
 }
 
 export function getDeliveryStatistics() {

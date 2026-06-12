@@ -1,6 +1,7 @@
 package com.aicampus.ai.controller;
 
 import com.aicampus.ai.service.AiCoachService;
+import com.aicampus.ai.service.KnowledgeBaseService;
 import com.aicampus.ai.service.screening.CandidateScreenTaskService;
 import com.aicampus.common.api.ApiResponse;
 import com.aicampus.common.dto.AiAnalyzeRequest;
@@ -24,6 +25,9 @@ import com.aicampus.common.dto.InterviewFeedbackRequest;
 import com.aicampus.common.dto.InterviewQuestion;
 import com.aicampus.common.dto.InterviewQuestionRequest;
 import com.aicampus.common.dto.InterviewRecord;
+import com.aicampus.common.dto.KnowledgeDocument;
+import com.aicampus.common.dto.KnowledgeDocumentRequest;
+import com.aicampus.common.dto.KnowledgeSearchRequest;
 import com.aicampus.common.dto.ResumeRewriteRequest;
 import com.aicampus.common.dto.ResumeRewriteResponse;
 import com.aicampus.common.enums.CandidateScreenTaskSource;
@@ -50,10 +54,15 @@ public class AiController {
 
     private final AiCoachService aiCoachService;
     private final CandidateScreenTaskService candidateScreenTaskService;
+    private final KnowledgeBaseService knowledgeBaseService;
 
-    public AiController(AiCoachService aiCoachService, CandidateScreenTaskService candidateScreenTaskService) {
+    public AiController(
+            AiCoachService aiCoachService,
+            CandidateScreenTaskService candidateScreenTaskService,
+            KnowledgeBaseService knowledgeBaseService) {
         this.aiCoachService = aiCoachService;
         this.candidateScreenTaskService = candidateScreenTaskService;
+        this.knowledgeBaseService = knowledgeBaseService;
     }
 
     @Operation(summary = "Get AI module provider status")
@@ -100,6 +109,36 @@ public class AiController {
     @PostMapping("/search")
     public ApiResponse<AiSearchResponse> search(@RequestBody AiSearchRequest request) {
         return ApiResponse.ok(aiCoachService.search(request));
+    }
+
+    @Operation(summary = "Create a RAG knowledge document")
+    @PostMapping("/knowledge/documents")
+    public ApiResponse<KnowledgeDocument> createKnowledgeDocument(
+            @RequestBody KnowledgeDocumentRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId) {
+        return ApiResponse.ok(knowledgeBaseService.create(request, valueOr(userId, "system")));
+    }
+
+    @Operation(summary = "List RAG knowledge documents")
+    @GetMapping("/knowledge/documents")
+    public ApiResponse<List<KnowledgeDocument>> knowledgeDocuments(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String role,
+            @RequestParam(required = false) Integer limit,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(knowledgeBaseService.list(keyword, resolveKnowledgeRole(role, userRole), limit));
+    }
+
+    @Operation(summary = "Search RAG knowledge base with local retrieval")
+    @PostMapping("/knowledge/search")
+    public ApiResponse<AiSearchResponse> searchKnowledge(
+            @RequestBody KnowledgeSearchRequest request,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        String role = resolveKnowledgeRole(request == null ? null : request.role(), userRole);
+        return ApiResponse.ok(knowledgeBaseService.search(new KnowledgeSearchRequest(
+                request == null ? null : request.query(),
+                role,
+                request == null ? null : request.limit())));
     }
 
     @Operation(summary = "Generate AI career coach advice")
@@ -350,6 +389,13 @@ public class AiController {
         return hasText(userRole) && expectedRole.equalsIgnoreCase(userRole.trim());
     }
 
+    private String resolveKnowledgeRole(String requestRole, String userRole) {
+        if (isRole(userRole, ROLE_STUDENT) || isRole(userRole, ROLE_COMPANY)) {
+            return userRole.trim();
+        }
+        return requestRole;
+    }
+
     private boolean sameText(String left, String right) {
         if (left == null) {
             return right == null;
@@ -359,5 +405,9 @@ public class AiController {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String valueOr(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 }

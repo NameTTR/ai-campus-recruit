@@ -238,6 +238,89 @@ class JwtGatewayAuthFilterTest {
     }
 
     @Test
+    void protectsNotificationAndInterviewScheduleApisByRole() {
+        String studentToken = jwtTokenService.issue("S001", "Student", Role.STUDENT);
+        MockServerWebExchange studentNotifications = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/notifications/my")
+                        .header("Authorization", "Bearer " + studentToken)
+                        .build());
+        CapturingChain studentNotificationChain = new CapturingChain();
+
+        filter.filter(studentNotifications, studentNotificationChain).block();
+
+        assertThat(studentNotifications.getResponse().getStatusCode()).isNull();
+        assertThat(studentNotificationChain.exchange.getRequest().getHeaders().getFirst("X-User-Id")).isEqualTo("S001");
+
+        MockServerWebExchange studentCreateSchedule = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/interviews/schedules")
+                        .header("Authorization", "Bearer " + studentToken)
+                        .build());
+
+        filter.filter(studentCreateSchedule, passThrough()).block();
+
+        assertThat(studentCreateSchedule.getResponse().getStatusCode().value()).isEqualTo(403);
+
+        String companyToken = jwtTokenService.issue("C001", "Company", Role.COMPANY);
+        MockServerWebExchange companyCreateSchedule = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/interviews/schedules")
+                        .header("Authorization", "Bearer " + companyToken)
+                        .build());
+        CapturingChain companyCreateScheduleChain = new CapturingChain();
+
+        filter.filter(companyCreateSchedule, companyCreateScheduleChain).block();
+
+        assertThat(companyCreateSchedule.getResponse().getStatusCode()).isNull();
+        assertThat(companyCreateScheduleChain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("COMPANY");
+
+        MockServerWebExchange companyNotifications = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/notifications/company")
+                        .header("Authorization", "Bearer " + companyToken)
+                        .build());
+        CapturingChain companyNotificationChain = new CapturingChain();
+
+        filter.filter(companyNotifications, companyNotificationChain).block();
+
+        assertThat(companyNotifications.getResponse().getStatusCode()).isNull();
+        assertThat(companyNotificationChain.exchange.getRequest().getHeaders().getFirst("X-User-Id")).isEqualTo("C001");
+    }
+
+    @Test
+    void protectsKnowledgeWriteButAllowsRoleKnowledgeSearch() {
+        String studentToken = jwtTokenService.issue("S001", "Student", Role.STUDENT);
+        MockServerWebExchange studentCreateKnowledge = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/ai/knowledge/documents")
+                        .header("Authorization", "Bearer " + studentToken)
+                        .build());
+
+        filter.filter(studentCreateKnowledge, passThrough()).block();
+
+        assertThat(studentCreateKnowledge.getResponse().getStatusCode().value()).isEqualTo(403);
+
+        MockServerWebExchange studentKnowledgeSearch = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/ai/knowledge/search")
+                        .header("Authorization", "Bearer " + studentToken)
+                        .build());
+        CapturingChain studentKnowledgeSearchChain = new CapturingChain();
+
+        filter.filter(studentKnowledgeSearch, studentKnowledgeSearchChain).block();
+
+        assertThat(studentKnowledgeSearch.getResponse().getStatusCode()).isNull();
+        assertThat(studentKnowledgeSearchChain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("STUDENT");
+
+        String adminToken = jwtTokenService.issue("A001", "Admin", Role.ADMIN);
+        MockServerWebExchange adminCreateKnowledge = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/ai/knowledge/documents")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .build());
+        CapturingChain adminCreateKnowledgeChain = new CapturingChain();
+
+        filter.filter(adminCreateKnowledge, adminCreateKnowledgeChain).block();
+
+        assertThat(adminCreateKnowledge.getResponse().getStatusCode()).isNull();
+        assertThat(adminCreateKnowledgeChain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("ADMIN");
+    }
+
+    @Test
     void limitsAdminAuditToAdminRole() {
         String studentToken = jwtTokenService.issue("S001", "Student", Role.STUDENT);
         MockServerWebExchange studentAudit = MockServerWebExchange.from(

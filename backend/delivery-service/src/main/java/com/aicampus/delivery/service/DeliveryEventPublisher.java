@@ -2,6 +2,7 @@ package com.aicampus.delivery.service;
 
 import com.aicampus.common.dto.DeliveryEvent;
 import com.aicampus.common.dto.DeliveryRecord;
+import com.aicampus.common.enums.DeliveryStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -45,6 +46,25 @@ public class DeliveryEventPublisher implements DisposableBean {
         DeliveryEvent result = enabled ? send(event) : withStatus(event, "DISABLED");
         remember(result);
         return result;
+    }
+
+    public DeliveryEvent publishLifecycleEvent(
+            String eventType,
+            String deliveryId,
+            String studentId,
+            String resumeId,
+            String jobId,
+            String companyId,
+            DeliveryStatus deliveryStatus) {
+        DeliveryRecord record = new DeliveryRecord(
+                valueOr(deliveryId, "UNKNOWN"),
+                valueOr(studentId, ""),
+                valueOr(resumeId, ""),
+                valueOr(jobId, ""),
+                valueOr(companyId, ""),
+                deliveryStatus == null ? DeliveryStatus.SUBMITTED : deliveryStatus,
+                LocalDateTime.now());
+        return publish(eventType, record);
     }
 
     public List<DeliveryEvent> recentEvents() {
@@ -117,6 +137,10 @@ public class DeliveryEventPublisher implements DisposableBean {
                 event.deliveryStatus(),
                 publishStatus,
                 event.createdAt());
+    }
+
+    private static String valueOr(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     @Override

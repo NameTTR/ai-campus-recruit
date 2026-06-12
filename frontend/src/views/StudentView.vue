@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { Brain, BriefcaseBusiness, ClipboardList, Clock3, FileUp, RefreshCw, Route, Send, Sparkles } from 'lucide-vue-next'
+import { Bell, Brain, BriefcaseBusiness, CalendarDays, ClipboardList, Clock3, FileUp, Library, RefreshCw, Route, Search, Send, Sparkles } from 'lucide-vue-next'
 import {
   analyzeResume,
   createDelivery,
@@ -18,21 +18,29 @@ import {
   listInterviewRecords,
   listJobs,
   listMyCandidateScreenRecords,
+  listMyInterviewSchedules,
+  listMyNotifications,
+  markNotificationRead,
   matchResumeJob,
   rewriteResume,
+  searchKnowledgeBase,
   submitInterviewFeedback,
   uploadResume,
+  updateInterviewScheduleStatus,
   type AiModuleStatus,
   type AiCoachAdviceResponse,
   type AiPlanningRecord,
+  type AiSearchResponse,
   type CandidateScreenRecord,
   type CareerPlanResponse,
   type DeliveryRecord,
   type DeliveryStatus,
   type InterviewFeedback,
   type InterviewQuestion,
+  type InterviewSchedule,
   type InterviewRecord,
   type JobSummary,
+  type NotificationMessage,
   type MatchResult,
   type ResumeRewriteResponse,
   type ResumeSummary,
@@ -66,6 +74,14 @@ const resumeRewriteLoading = ref(false)
 const careerPlanLoading = ref(false)
 const coachAdviceLoading = ref(false)
 const planningHistoryLoading = ref(false)
+const notifications = ref<NotificationMessage[]>([])
+const notificationsLoading = ref(false)
+const schedules = ref<InterviewSchedule[]>([])
+const schedulesLoading = ref(false)
+const scheduleActionLoading = ref<Record<string, boolean>>({})
+const knowledgeQuery = ref('Java Redis 面试')
+const knowledgeLoading = ref(false)
+const knowledgeResponse = ref<AiSearchResponse>()
 
 const capabilityLabels: Record<string, string> = {
   'resume-analysis': '简历诊断',
@@ -170,7 +186,15 @@ onMounted(async () => {
   resume.value = await getResume()
   jobs.value = await listJobs()
   deliveries.value = await listDeliveries()
-  await Promise.all([refreshAiStatus(), refreshInterviewRecords(), refreshCandidateScreenRecords(), refreshPlanningHistory()])
+  await Promise.all([
+    refreshAiStatus(),
+    refreshInterviewRecords(),
+    refreshCandidateScreenRecords(),
+    refreshPlanningHistory(),
+    refreshNotifications(),
+    refreshSchedules(),
+    runKnowledgeSearch(false)
+  ])
 })
 
 function onFileChange(event: Event) {
@@ -349,6 +373,69 @@ async function refreshCandidateScreenRecords() {
   }
 }
 
+async function refreshNotifications(showMessage = false) {
+  notificationsLoading.value = true
+  try {
+    notifications.value = await listMyNotifications(activeStudentId.value)
+    if (showMessage) {
+      ElMessage.success('通知已刷新')
+    }
+  } finally {
+    notificationsLoading.value = false
+  }
+}
+
+async function readNotification(notification: NotificationMessage) {
+  const updated = await markNotificationRead(notification)
+  notifications.value = notifications.value.map((item) =>
+    item.notificationId === updated.notificationId ? updated : item)
+}
+
+async function refreshSchedules(showMessage = false) {
+  schedulesLoading.value = true
+  try {
+    schedules.value = await listMyInterviewSchedules(activeStudentId.value)
+    if (showMessage) {
+      ElMessage.success('面试日程已刷新')
+    }
+  } finally {
+    schedulesLoading.value = false
+  }
+}
+
+async function changeScheduleStatus(schedule: InterviewSchedule, status: 'CONFIRMED' | 'DECLINED') {
+  scheduleActionLoading.value = { ...scheduleActionLoading.value, [schedule.scheduleId]: true }
+  try {
+    const updated = await updateInterviewScheduleStatus(schedule, status)
+    schedules.value = schedules.value.map((item) => item.scheduleId === updated.scheduleId ? updated : item)
+    await refreshNotifications()
+    ElMessage.success(status === 'CONFIRMED' ? '已确认面试' : '已拒绝面试')
+  } finally {
+    scheduleActionLoading.value = { ...scheduleActionLoading.value, [schedule.scheduleId]: false }
+  }
+}
+
+async function runKnowledgeSearch(showMessage = true) {
+  const query = knowledgeQuery.value.trim()
+  if (!query) {
+    knowledgeResponse.value = undefined
+    return
+  }
+  knowledgeLoading.value = true
+  try {
+    knowledgeResponse.value = await searchKnowledgeBase({
+      query,
+      role: 'STUDENT',
+      limit: 6
+    })
+    if (showMessage) {
+      ElMessage.success('知识库检索完成')
+    }
+  } finally {
+    knowledgeLoading.value = false
+  }
+}
+
 async function refreshPlanningHistory(showLoading = true) {
   if (showLoading) {
     planningHistoryLoading.value = true
@@ -429,6 +516,28 @@ function statusTagType(status: DeliveryStatus) {
     INTERVIEW: 'warning',
     OFFER: 'success',
     REJECTED: 'danger'
+  }
+  return types[status]
+}
+
+function scheduleStatusText(status: InterviewSchedule['status']) {
+  const labels: Record<InterviewSchedule['status'], string> = {
+    PROPOSED: '待确认',
+    CONFIRMED: '已确认',
+    DECLINED: '已拒绝',
+    COMPLETED: '已完成',
+    CANCELLED: '已取消'
+  }
+  return labels[status]
+}
+
+function scheduleStatusTagType(status: InterviewSchedule['status']) {
+  const types: Record<InterviewSchedule['status'], 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
+    PROPOSED: 'warning',
+    CONFIRMED: 'success',
+    DECLINED: 'danger',
+    COMPLETED: 'primary',
+    CANCELLED: 'info'
   }
   return types[status]
 }
@@ -918,6 +1027,132 @@ function formatTime(value: string) {
       </div>
     </section>
 
+    <section v-if="activeModule === 'schedule'" class="panel module-panel">
+      <div class="panel-title history-title">
+        <span>
+          面试日程
+          <CalendarDays :size="19" />
+        </span>
+        <el-button size="small" :loading="schedulesLoading" @click="refreshSchedules(true)">
+          <RefreshCw :size="15" />
+          刷新
+        </el-button>
+      </div>
+      <el-table
+        v-loading="schedulesLoading"
+        class="delivery-table"
+        :data="schedules"
+        style="width: 100%"
+        empty-text="暂无面试日程"
+      >
+        <el-table-column prop="title" label="主题" min-width="180" />
+        <el-table-column prop="companyId" label="企业" width="110" />
+        <el-table-column prop="jobId" label="岗位" width="110" />
+        <el-table-column label="时间" width="150">
+          <template #default="{ row }">{{ formatTime(row.startTime) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="scheduleStatusTagType(row.status)">{{ scheduleStatusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="location" label="地点" min-width="140" />
+        <el-table-column label="操作" width="190">
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              type="success"
+              :disabled="row.status !== 'PROPOSED'"
+              :loading="scheduleActionLoading[row.scheduleId]"
+              @click="changeScheduleStatus(row, 'CONFIRMED')"
+            >
+              确认
+            </el-button>
+            <el-button
+              size="small"
+              type="danger"
+              plain
+              :disabled="row.status !== 'PROPOSED'"
+              :loading="scheduleActionLoading[row.scheduleId]"
+              @click="changeScheduleStatus(row, 'DECLINED')"
+            >
+              拒绝
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+
+    <section v-if="activeModule === 'notifications'" class="panel module-panel">
+      <div class="panel-title history-title">
+        <span>
+          通知中心
+          <Bell :size="19" />
+        </span>
+        <el-button size="small" :loading="notificationsLoading" @click="refreshNotifications(true)">
+          <RefreshCw :size="15" />
+          刷新
+        </el-button>
+      </div>
+      <el-empty v-if="notifications.length === 0 && !notificationsLoading" class="compact-empty" description="暂无通知" />
+      <div v-else v-loading="notificationsLoading" class="notification-list">
+        <article v-for="notification in notifications" :key="notification.notificationId" class="item-card notification-card">
+          <header>
+            <div>
+              <strong>{{ notification.title }}</strong>
+              <span>{{ notification.sourceType }} / {{ notification.sourceId }} / {{ formatTime(notification.createdAt) }}</span>
+            </div>
+            <el-tag :type="notification.read ? 'info' : 'warning'">{{ notification.read ? '已读' : '未读' }}</el-tag>
+          </header>
+          <p>{{ notification.content }}</p>
+          <div class="actions">
+            <el-button size="small" :disabled="notification.read" @click="readNotification(notification)">标记已读</el-button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section v-if="activeModule === 'knowledge'" class="panel module-panel">
+      <h2 class="panel-title">
+        RAG 知识库问答
+        <Library :size="19" />
+      </h2>
+      <div class="knowledge-search">
+        <el-input
+          v-model="knowledgeQuery"
+          clearable
+          placeholder="搜索 Java、Redis、面试、简历证据、三虚拟机部署"
+          @keyup.enter="runKnowledgeSearch(true)"
+        />
+        <el-button type="primary" :loading="knowledgeLoading" @click="runKnowledgeSearch(true)">
+          <Search :size="17" />
+          检索
+        </el-button>
+      </div>
+      <el-empty
+        v-if="!knowledgeResponse?.results.length && !knowledgeLoading"
+        class="compact-empty"
+        description="输入关键词后检索知识库"
+      />
+      <div v-else v-loading="knowledgeLoading" class="knowledge-results">
+        <article v-for="result in knowledgeResponse?.results || []" :key="result.id" class="item-card knowledge-card">
+          <header>
+            <div>
+              <strong>{{ result.title }}</strong>
+              <span>{{ result.type }} / {{ result.owner }} / {{ result.score }} 分</span>
+            </div>
+            <el-tag type="success">RAG</el-tag>
+          </header>
+          <p>{{ result.summary }}</p>
+          <div class="tag-row">
+            <el-tag v-for="highlight in result.highlights" :key="`${result.id}-${highlight}`" size="small" effect="plain">
+              {{ highlight }}
+            </el-tag>
+          </div>
+        </article>
+      </div>
+    </section>
+
     <section v-if="activeModule === 'history'" class="panel interview-history-panel module-panel">
       <div class="panel-title history-title">
         <span>
@@ -1209,6 +1444,64 @@ function formatTime(value: string) {
   margin: 0;
   color: #b45309;
   font-size: 13px;
+}
+
+.notification-list,
+.knowledge-results {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.notification-card,
+.knowledge-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.notification-card header,
+.knowledge-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.notification-card header div,
+.knowledge-card header div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.notification-card strong,
+.knowledge-card strong {
+  word-break: break-word;
+}
+
+.notification-card span,
+.knowledge-card span {
+  color: #667085;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.notification-card p,
+.knowledge-card p {
+  margin: 0;
+  color: #475467;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-search {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 10px;
+  margin-bottom: 16px;
+  min-width: 0;
 }
 
 .interview-toolbar {
@@ -1902,6 +2195,7 @@ function formatTime(value: string) {
 
   .interview-grid,
   .feedback-lists,
+  .knowledge-search,
   .plan-grid,
   .plan-summary-strip,
   .plan-two-columns,

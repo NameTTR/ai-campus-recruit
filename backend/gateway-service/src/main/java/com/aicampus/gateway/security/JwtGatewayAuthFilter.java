@@ -137,6 +137,12 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
         if (path.startsWith("/api/deliveries")) {
             return deliveryPermission(path, method);
         }
+        if (path.startsWith("/api/notifications")) {
+            return notificationPermission(path, method);
+        }
+        if (path.startsWith("/api/interviews/schedules")) {
+            return interviewSchedulePermission(path, method);
+        }
         if (path.startsWith("/api/jobs")) {
             return method == HttpMethod.GET ? Permission.JOB_READ : Permission.COMPANY_JOB_WRITE;
         }
@@ -156,9 +162,35 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
         return Permission.AUTH_SELF;
     }
 
+    private Permission notificationPermission(String path, HttpMethod method) {
+        if (path.startsWith("/api/notifications/company")) {
+            return Permission.COMPANY_DELIVERY_READ;
+        }
+        if (path.startsWith("/api/notifications/my")) {
+            return Permission.STUDENT_PROFILE;
+        }
+        return Permission.AUTH_SELF;
+    }
+
+    private Permission interviewSchedulePermission(String path, HttpMethod method) {
+        if (path.startsWith("/api/interviews/schedules/company") || method == HttpMethod.POST) {
+            return Permission.COMPANY_DELIVERY_READ;
+        }
+        if (path.startsWith("/api/interviews/schedules/my")) {
+            return Permission.STUDENT_INTERVIEW_WRITE;
+        }
+        return Permission.AUTH_SELF;
+    }
+
     private Permission aiPermission(String path) {
         if (path.startsWith("/api/ai/observability")) {
             return Permission.AI_OBSERVABILITY_READ;
+        }
+        if (path.startsWith("/api/ai/knowledge/documents") && !path.endsWith("/search")) {
+            return Permission.AI_OBSERVABILITY_READ;
+        }
+        if (path.startsWith("/api/ai/knowledge/search")) {
+            return Permission.AI_ANALYZE;
         }
         if (path.startsWith("/api/ai/candidates")) {
             return Permission.COMPANY_SCREENING_WRITE;
