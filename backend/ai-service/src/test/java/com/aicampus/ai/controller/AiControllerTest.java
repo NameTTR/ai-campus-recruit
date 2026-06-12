@@ -101,6 +101,38 @@ class AiControllerTest {
     }
 
     @Test
+    void knowledgeStatsReflectsRealSeedCorpus() throws Exception {
+        mockMvc.perform(get("/api/ai/knowledge/stats"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.documentCount").value(greaterThanOrEqualTo(12)))
+                .andExpect(jsonPath("$.data.chunkCount").value(greaterThanOrEqualTo(12)))
+                .andExpect(jsonPath("$.data.categoryCounts.rag").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.roleCounts.ADMIN").value(greaterThanOrEqualTo(12)))
+                .andExpect(jsonPath("$.data.sourceCounts['internal-corpus:v3.10']").value(greaterThanOrEqualTo(12)))
+                .andExpect(jsonPath("$.data.corpusVersion").value("v3.10-campus-rag-corpus"))
+                .andExpect(jsonPath("$.data.seedEnabled").value(true));
+    }
+
+    @Test
+    void knowledgeSearchFindsThreeVmCorpusEvidence() throws Exception {
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "ADMIN")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "three VM Docker Nacos RocketMQ",
+                                  "role": "ADMIN",
+                                  "limit": 5
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.results.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.results[*].title").value(hasItem("Three VM microservice deployment topology")));
+    }
+
+    @Test
     void knowledgeDocumentsCanBeCreatedAndSearched() throws Exception {
         mockMvc.perform(post("/api/ai/knowledge/documents")
                         .header("X-User-Id", "A-KB-001")

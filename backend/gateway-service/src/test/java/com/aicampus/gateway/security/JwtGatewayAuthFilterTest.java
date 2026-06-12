@@ -296,6 +296,15 @@ class JwtGatewayAuthFilterTest {
 
         assertThat(studentCreateKnowledge.getResponse().getStatusCode().value()).isEqualTo(403);
 
+        MockServerWebExchange studentKnowledgeStats = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/ai/knowledge/stats")
+                        .header("Authorization", "Bearer " + studentToken)
+                        .build());
+
+        filter.filter(studentKnowledgeStats, passThrough()).block();
+
+        assertThat(studentKnowledgeStats.getResponse().getStatusCode().value()).isEqualTo(403);
+
         MockServerWebExchange studentKnowledgeSearch = MockServerWebExchange.from(
                 MockServerHttpRequest.post("/api/ai/knowledge/search")
                         .header("Authorization", "Bearer " + studentToken)
@@ -329,6 +338,17 @@ class JwtGatewayAuthFilterTest {
 
         assertThat(adminCreateKnowledge.getResponse().getStatusCode()).isNull();
         assertThat(adminCreateKnowledgeChain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("ADMIN");
+
+        MockServerWebExchange adminKnowledgeStats = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/ai/knowledge/stats")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .build());
+        CapturingChain adminKnowledgeStatsChain = new CapturingChain();
+
+        filter.filter(adminKnowledgeStats, adminKnowledgeStatsChain).block();
+
+        assertThat(adminKnowledgeStats.getResponse().getStatusCode()).isNull();
+        assertThat(adminKnowledgeStatsChain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("ADMIN");
     }
 
     @Test

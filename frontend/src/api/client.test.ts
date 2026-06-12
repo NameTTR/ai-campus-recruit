@@ -5,8 +5,10 @@ import {
   createCandidateScreenTask,
   createDelivery,
   createInterviewSchedule,
+  createKnowledgeDocument,
   exportAdminAudit,
   getAuthSession,
+  getKnowledgeBaseStats,
   generateCareerPlan,
   generateCoachAdvice,
   generateInterviewQuestions,
@@ -32,6 +34,7 @@ import {
   listMyInterviewSchedules,
   listMyNotifications,
   listInterviewRecords,
+  listKnowledgeDocuments,
   listCompanyDeliveries,
   listCompanyInterviewSchedules,
   listCompanyNotifications,
@@ -1057,6 +1060,142 @@ describe('api fallback behavior', () => {
     expect(studentResult.results.some((item) => item.id === 'KB-DEMO-003')).toBe(false)
     expect(companyResult.results.some((item) => item.id === 'KB-DEMO-003')).toBe(true)
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('returns knowledge document fallback with keyword and role filters', async () => {
+    const studentResult = await listKnowledgeDocuments('screening', 'STUDENT', 10)
+    const companyResult = await listKnowledgeDocuments('screening', 'COMPANY', 10)
+
+    expect(studentResult.some((item) => item.documentId === 'KB-DEMO-003')).toBe(false)
+    expect(companyResult).toHaveLength(1)
+    expect(companyResult[0]).toMatchObject({
+      documentId: 'KB-DEMO-003',
+      source: 'seed',
+      roles: ['COMPANY', 'ADMIN']
+    })
+    expect(companyResult[0].tags).toContain('screening')
+    expect(companyResult[0].createdAt).toBeTruthy()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('returns knowledge base stats fallback when gateway is offline', async () => {
+    const result = await getKnowledgeBaseStats()
+
+    expect(result.documentCount).toBeGreaterThanOrEqual(3)
+    expect(result.chunkCount).toBeGreaterThanOrEqual(3)
+    expect(result.categoryCounts.interview).toBeGreaterThanOrEqual(1)
+    expect(result.roleCounts.ADMIN).toBeGreaterThanOrEqual(3)
+    expect(result.seedEnabled).toBe(true)
+    expect(result.persistentStore).toBe(false)
+    expect(result.generatedAt).toBeTruthy()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls knowledge stats endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          documentCount: 12,
+          chunkCount: 16,
+          categoryCounts: { rag: 1 },
+          roleCounts: { ADMIN: 12 },
+          sourceCounts: { 'internal-corpus:v3.10': 12 },
+          tagCounts: { RAG: 1 },
+          corpusVersion: 'v3.10-campus-rag-corpus',
+          seedEnabled: true,
+          persistentStore: true,
+          generatedAt: '2026-06-12T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await getKnowledgeBaseStats()
+
+    expect(result.documentCount).toBe(12)
+    expect(result.persistentStore).toBe(true)
+    expect(fetch).toHaveBeenCalledWith('/api/ai/knowledge/stats', expect.any(Object))
+  })
+
+  it('calls knowledge document list endpoint with trimmed filters when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: []
+      })
+    } as Response)
+
+    const result = await listKnowledgeDocuments(' resume ', ' ADMIN ', 10)
+
+    expect(result).toEqual([])
+    expect(fetch).toHaveBeenCalledWith('/api/ai/knowledge/documents?keyword=resume&role=ADMIN&limit=10', expect.any(Object))
+  })
+
+  it('creates knowledge document fallback with author metadata when gateway is offline', async () => {
+    saveAuthSession({
+      token: 'admin-token',
+      userId: 'A777',
+      displayName: 'Admin User',
+      role: 'ADMIN'
+    })
+
+    const result = await createKnowledgeDocument({
+      title: 'Interview FAQ',
+      content: 'Prepare project evidence and Redis cache examples.',
+      category: 'interview',
+      source: 'admin-console',
+      tags: ['Redis', 'interview'],
+      roles: ['STUDENT', 'ADMIN']
+    })
+
+    expect(result.documentId).toContain('KB-DEMO-')
+    expect(result.createdBy).toBe('A777')
+    expect(result.createdAt).toBeTruthy()
+    expect(result.tags).toEqual(['Redis', 'interview'])
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls knowledge document create endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          documentId: 'KB-900',
+          title: 'Offer checklist',
+          content: 'Confirm offer timeline and interview feedback.',
+          category: 'offer',
+          source: 'admin-console',
+          tags: ['offer'],
+          roles: ['ADMIN'],
+          createdBy: 'A001',
+          createdAt: '2026-06-12T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const payload = {
+      title: 'Offer checklist',
+      content: 'Confirm offer timeline and interview feedback.',
+      category: 'offer',
+      source: 'admin-console',
+      tags: ['offer'],
+      roles: ['ADMIN']
+    }
+    const result = await createKnowledgeDocument(payload)
+
+    expect(result.documentId).toBe('KB-900')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/knowledge/documents', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(requestInit.body))).toEqual(payload)
   })
 
   it('calls rag knowledge search endpoint when ai proxy is configured', async () => {

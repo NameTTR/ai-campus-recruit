@@ -330,9 +330,9 @@
 
 ## v3.8 Load Smoke
 
-- `scripts/run-load-smoke.ps1` provides a lightweight performance smoke check for deployed Gateway APIs. It logs in the `student`, `company`, and `admin` demo users, then repeatedly calls `GET /api/jobs`, `GET /api/deliveries/my`, `GET /api/deliveries/company?companyId=C001`, `GET /api/ai/status`, `POST /api/ai/knowledge/search`, `POST /api/ai/knowledge/answer`, and `GET /api/notifications/my`.
+- `scripts/run-load-smoke.ps1` provides a lightweight performance smoke check for deployed Gateway APIs. It logs in the `student`, `company`, and `admin` demo users, then repeatedly calls `GET /api/jobs`, `GET /api/deliveries/my`, `GET /api/deliveries/company?companyId=C001`, `GET /api/ai/status`, `POST /api/ai/knowledge/search`, `GET /api/ai/knowledge/stats`, `POST /api/ai/knowledge/answer`, and `GET /api/notifications/my`.
 - `POST /api/ai/knowledge/answer` is called with `useAi=false` by the smoke script so the test covers RAG retrieval and citation assembly without external model cost.
-- `POST /api/ai/knowledge/search`, `POST /api/ai/knowledge/answer`, and `GET /api/notifications/my` are optional compatibility probes in this script. HTTP 404 is recorded as `SKIPPED`; other non-2xx responses or `ApiResponse.code != 0` are recorded as `FAIL`.
+- `POST /api/ai/knowledge/search`, `GET /api/ai/knowledge/stats`, `POST /api/ai/knowledge/answer`, and `GET /api/notifications/my` are optional compatibility probes in this script. HTTP 404 is recorded as `SKIPPED`; other non-2xx responses or `ApiResponse.code != 0` are recorded as `FAIL`.
 - Every run writes `reports/deploy/load-smoke-<timestamp>.md` with PASS/FAIL/SKIPPED counts, average latency, P95 latency, endpoint-level summaries, and failed/skipped details. Demo passwords and bearer tokens are never written to console output or reports.
 - `scripts/run-step-load-smoke.ps1` runs the smoke script across stepped user counts, for example `-UserSteps 3,10,30,50`, and writes `reports/deploy/step-load-smoke-<timestamp>.md` plus child reports for each step.
 
@@ -382,6 +382,10 @@
 - `GET /api/ai/knowledge/documents?keyword=Redis&role=STUDENT&limit=20`
   - Lists readable knowledge documents with optional keyword and role filtering.
   - Returns: `ApiResponse<List<KnowledgeDocument>>`.
+- `GET /api/ai/knowledge/stats`
+  - Gateway permission: admin AI observability/read capability, effectively admin only.
+  - Returns the current RAG corpus document count, chunk count, top categories, readable role counts, source counts, tag counts, corpus version, seed status, and whether the active store is persistent.
+  - Returns: `ApiResponse<KnowledgeBaseStats>`.
 - `POST /api/ai/knowledge/search`
   - Gateway permission: AI analyze.
   - Request fields: `query`, `role`, `limit`.
@@ -395,6 +399,7 @@
   - Retrieves top chunks, returns citations, and calls DashScope only when `useAi` is not `false` and `DASHSCOPE_API_KEY` is configured. Missing key, model failure, no evidence, or `useAi=false` returns a deterministic `mocked=true` local answer with citations.
   - Returns: `ApiResponse<KnowledgeAnswerResponse>`.
 - `KnowledgeDocument` fields: `documentId`, `title`, `content`, `category`, `source`, `tags`, `roles`, `createdBy`, `createdAt`.
+- `KnowledgeBaseStats` fields: `documentCount`, `chunkCount`, `categoryCounts`, `roleCounts`, `sourceCounts`, `tagCounts`, `corpusVersion`, `seedEnabled`, `persistentStore`, `generatedAt`.
 - `KnowledgeAnswerResponse` fields: `query`, `answer`, `citations`, `mocked`, `provider`, `generatedAt`.
 - `KnowledgeCitation` fields: `documentId`, `chunkId`, `title`, `source`, `score`, `snippet`.
 

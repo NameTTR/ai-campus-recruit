@@ -265,7 +265,7 @@ function Write-LoadSmokeReport {
     $lines.Add("- Per iteration: ``GET /api/deliveries/my`` as student.")
     $lines.Add("- Per iteration: ``GET /api/deliveries/company?companyId=C001`` as company.")
     $lines.Add("- Per iteration: ``GET /api/ai/status`` as student.")
-    $lines.Add("- Per iteration: ``POST /api/ai/knowledge/search`` as admin; HTTP 404 is recorded as ``SKIPPED``.")
+    $lines.Add("- Per iteration: ``POST /api/ai/knowledge/search`` and ``GET /api/ai/knowledge/stats`` as admin; HTTP 404 is recorded as ``SKIPPED``.")
     $lines.Add("- Per iteration: ``POST /api/ai/knowledge/answer`` as admin with ``useAi=false`` to exercise RAG retrieval without external model cost; HTTP 404 is recorded as ``SKIPPED``.")
     $lines.Add("- Per iteration: ``GET /api/notifications/my`` as student; HTTP 404 is recorded as ``SKIPPED``.")
 
@@ -615,6 +615,14 @@ $workerScript = {
                     role = "ADMIN"
                     limit = 5
                 }
+            },
+            [pscustomobject]@{
+                Endpoint = "ai knowledge stats"
+                Method = "GET"
+                Path = "/api/ai/knowledge/stats"
+                Role = "admin"
+                Optional404 = $true
+                Body = $null
             },
             [pscustomobject]@{
                 Endpoint = "ai knowledge answer"

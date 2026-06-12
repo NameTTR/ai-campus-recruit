@@ -27,6 +27,7 @@ import com.aicampus.common.dto.InterviewQuestionRequest;
 import com.aicampus.common.dto.InterviewRecord;
 import com.aicampus.common.dto.KnowledgeAnswerRequest;
 import com.aicampus.common.dto.KnowledgeAnswerResponse;
+import com.aicampus.common.dto.KnowledgeBaseStats;
 import com.aicampus.common.dto.KnowledgeDocument;
 import com.aicampus.common.dto.KnowledgeDocumentRequest;
 import com.aicampus.common.dto.KnowledgeSearchRequest;
@@ -129,6 +130,12 @@ public class AiController {
             @RequestParam(required = false) Integer limit,
             @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
         return ApiResponse.ok(knowledgeBaseService.list(keyword, resolveKnowledgeRole(role, userRole), limit));
+    }
+
+    @Operation(summary = "Get RAG knowledge base statistics")
+    @GetMapping("/knowledge/stats")
+    public ApiResponse<KnowledgeBaseStats> knowledgeStats() {
+        return ApiResponse.ok(knowledgeBaseService.stats());
     }
 
     @Operation(summary = "Search RAG knowledge base with local retrieval")

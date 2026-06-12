@@ -1,15 +1,22 @@
 package com.aicampus.ai.service;
 
 import com.aicampus.ai.service.knowledge.KnowledgeBaseStore;
+import com.aicampus.ai.service.knowledge.KnowledgeBaseProperties;
 import com.aicampus.ai.service.knowledge.KnowledgeChunkRecord;
+import com.aicampus.ai.service.knowledge.PersistentKnowledgeBaseStore;
 import com.aicampus.common.dto.AiSearchResponse;
 import com.aicampus.common.dto.AiSearchResult;
 import com.aicampus.common.dto.KnowledgeAnswerRequest;
 import com.aicampus.common.dto.KnowledgeAnswerResponse;
+import com.aicampus.common.dto.KnowledgeBaseStats;
 import com.aicampus.common.dto.KnowledgeCitation;
 import com.aicampus.common.dto.KnowledgeDocument;
 import com.aicampus.common.dto.KnowledgeDocumentRequest;
 import com.aicampus.common.dto.KnowledgeSearchRequest;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.io.InputStream;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -19,14 +26,21 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.ResourcePatternResolver;
 import org.springframework.stereotype.Service;
 
 @Service
 public class KnowledgeBaseService {
+    private static final Logger log = LoggerFactory.getLogger(KnowledgeBaseService.class);
     private static final int EMBEDDING_DIMENSIONS = 96;
     private static final int CHUNK_TARGET_CHARS = 420;
     private static final int CHUNK_OVERLAP_CHARS = 80;
@@ -34,18 +48,52 @@ public class KnowledgeBaseService {
     private final KnowledgeBaseStore store;
     private final DashScopeClient dashScopeClient;
     private final AiObservabilityService observabilityService;
+    private final KnowledgeBaseProperties properties;
+    private final ObjectMapper objectMapper;
+    private final ResourcePatternResolver resourcePatternResolver;
 
     public KnowledgeBaseService(
             KnowledgeBaseStore store,
             DashScopeClient dashScopeClient,
-            AiObservabilityService observabilityService) {
+            AiObservabilityService observabilityService,
+            KnowledgeBaseProperties properties,
+            ObjectMapper objectMapper,
+            ResourcePatternResolver resourcePatternResolver) {
         this.store = store;
         this.dashScopeClient = dashScopeClient;
         this.observabilityService = observabilityService;
+        this.properties = properties;
+        this.objectMapper = objectMapper;
+        this.resourcePatternResolver = resourcePatternResolver;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDefaultDocuments() {
+        int imported = seedConfiguredCorpus();
+        if (imported > 0) {
+            return;
+        }
+
+        seedFallbackDocuments();
+    }
+
+    public KnowledgeBaseStats stats() {
+        List<KnowledgeDocument> documents = store.listDocuments();
+        List<KnowledgeChunkRecord> chunks = store.listChunks();
+        return new KnowledgeBaseStats(
+                documents.size(),
+                chunks.size(),
+                countBy(documents.stream().map(KnowledgeDocument::category).toList()),
+                countBy(documents.stream().flatMap(document -> cleanList(document.roles(), List.of()).stream()).toList()),
+                countBy(documents.stream().map(KnowledgeDocument::source).toList()),
+                countBy(documents.stream().flatMap(document -> cleanList(document.tags(), List.of()).stream()).toList()),
+                valueOr(properties.getSeed().getCorpusVersion(), "unknown"),
+                properties.getSeed().isEnabled(),
+                store instanceof PersistentKnowledgeBaseStore,
+                Instant.now());
+    }
+
+    private void seedFallbackDocuments() {
         seed(new KnowledgeDocument(
                 "KB-DEMO-001",
                 "Campus recruitment Java backend interview guide",
@@ -76,6 +124,62 @@ public class KnowledgeBaseService {
                 List.of("COMPANY", "ADMIN"),
                 "system",
                 LocalDateTime.now().minusHours(12)));
+    }
+
+    private int seedConfiguredCorpus() {
+        if (!properties.getSeed().isEnabled()) {
+            log.info("Knowledge corpus seeding is disabled");
+            return 0;
+        }
+
+        int imported = 0;
+        for (String location : cleanList(properties.getSeed().getLocations(), List.of("classpath*:/knowledge/*.json"))) {
+            try {
+                Resource[] resources = resourcePatternResolver.getResources(location);
+                for (Resource resource : resources) {
+                    imported += seedResource(resource);
+                }
+            } catch (IOException ex) {
+                log.warn("Failed to resolve knowledge corpus location {}", location, ex);
+            }
+        }
+        return imported;
+    }
+
+    private int seedResource(Resource resource) {
+        if (resource == null || !resource.exists()) {
+            return 0;
+        }
+
+        try (InputStream inputStream = resource.getInputStream()) {
+            List<KnowledgeDocument> documents = objectMapper.readValue(inputStream, new TypeReference<>() {
+            });
+            int imported = 0;
+            for (KnowledgeDocument document : documents) {
+                if (seed(normalizeSeedDocument(document, resource))) {
+                    imported++;
+                }
+            }
+            log.info("Loaded {} RAG knowledge documents from {}", documents.size(), resource.getDescription());
+            return imported;
+        } catch (IOException | RuntimeException ex) {
+            log.warn("Failed to load RAG knowledge corpus from {}", resource.getDescription(), ex);
+            return 0;
+        }
+    }
+
+    private KnowledgeDocument normalizeSeedDocument(KnowledgeDocument document, Resource resource) {
+        String stableSuffix = Integer.toHexString(valueOr(document == null ? null : document.title(), "knowledge").hashCode());
+        return new KnowledgeDocument(
+                valueOr(document == null ? null : document.documentId(), "KB-SEED-" + stableSuffix),
+                valueOr(document == null ? null : document.title(), "Untitled seeded knowledge"),
+                valueOr(document == null ? null : document.content(), ""),
+                valueOr(document == null ? null : document.category(), "general"),
+                valueOr(document == null ? null : document.source(), "seed:" + valueOr(resource.getFilename(), "resource")),
+                cleanList(document == null ? null : document.tags(), List.of("seed")),
+                normalizeRoles(document == null ? null : document.roles()),
+                valueOr(document == null ? null : document.createdBy(), "system"),
+                document == null || document.createdAt() == null ? LocalDateTime.now() : document.createdAt());
     }
 
     public KnowledgeDocument create(KnowledgeDocumentRequest request, String createdBy) {
@@ -286,12 +390,24 @@ public class KnowledgeBaseService {
                 truncate(chunk.text(), 240));
     }
 
-    private void seed(KnowledgeDocument document) {
-        boolean exists = store.listDocuments().stream()
-                .anyMatch(existing -> existing.documentId().equals(document.documentId()));
-        if (!exists) {
+    private boolean seed(KnowledgeDocument document) {
+        KnowledgeDocument existing = store.listDocuments().stream()
+                .filter(item -> item.documentId().equals(document.documentId()))
+                .findFirst()
+                .orElse(null);
+        if (existing == null || isSystemSeed(existing)) {
             saveWithChunks(document);
+            return true;
         }
+        return false;
+    }
+
+    private boolean isSystemSeed(KnowledgeDocument document) {
+        String source = valueOr(document.source(), "");
+        return "system".equalsIgnoreCase(valueOr(document.createdBy(), ""))
+                && ("seed".equalsIgnoreCase(source)
+                || source.startsWith("seed:")
+                || source.startsWith("internal-corpus:"));
     }
 
     private void saveWithChunks(KnowledgeDocument document) {
@@ -537,6 +653,12 @@ public class KnowledgeBaseService {
                 .map(String::trim)
                 .toList();
         return clean.isEmpty() ? fallback : clean;
+    }
+
+    private Map<String, Long> countBy(List<String> values) {
+        return values.stream()
+                .map(value -> valueOr(value, "unknown"))
+                .collect(Collectors.groupingBy(value -> value, java.util.TreeMap::new, Collectors.counting()));
     }
 
     private List<String> tokens(String query) {

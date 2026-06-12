@@ -439,6 +439,12 @@ Test-Api -Category "RBAC" -Name "company cannot call student coach" -Method "POS
 Test-Api -Category "RBAC" -Name "admin dashboard allowed" -Method "GET" -Path "/api/admin/dashboard" -Token $adminToken -ExpectedStatus @(200) -ExpectedCode 0 | Out-Null
 Test-Api -Category "RBAC" -Name "student cannot read AI observability" -Method "GET" -Path "/api/ai/observability/summary" -Token $studentToken -ExpectedStatus @(403) -ExpectedCode 403 | Out-Null
 Test-Api -Category "RBAC" -Name "admin can read AI observability" -Method "GET" -Path "/api/ai/observability/summary" -Token $adminToken -ExpectedStatus @(200) -ExpectedCode 0 | Out-Null
+Test-Api -Category "RBAC" -Name "student cannot read RAG knowledge stats" -Method "GET" -Path "/api/ai/knowledge/stats" -Token $studentToken -ExpectedStatus @(403) -ExpectedCode 403 | Out-Null
+Test-Api -Category "RBAC" -Name "admin can read RAG knowledge stats" -Method "GET" -Path "/api/ai/knowledge/stats" -Token $adminToken -ExpectedStatus @(200) -ExpectedCode 0 -Assert {
+    param($result)
+    if ($result.Json.data.documentCount -ge 1 -and $result.Json.data.chunkCount -ge 1) { return $true }
+    return "documentCount=$($result.Json.data.documentCount); chunkCount=$($result.Json.data.chunkCount)"
+} | Out-Null
 
 $createdDelivery = Test-Api -Category "Trusted identity" -Name "student delivery body identity overridden" -Method "POST" -Path "/api/deliveries" -Token $studentToken -ExpectedStatus @(200) -ExpectedCode 0 -Body @{
     studentId = "S999"

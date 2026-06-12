@@ -47,6 +47,14 @@ async function main() {
     await assertText(client, ['学校就业看板', '周投递趋势', '转化漏斗', '技能需求 Top', '风险告警'])
     await screenshot(client, '04-admin-overview.png')
 
+    await navigate(client, `${baseUrl}/admin/ai`)
+    await assertText(client, ['RAG Documents', 'Knowledge Documents', 'Knowledge Store', 'Add Knowledge Document'])
+    await screenshot(client, '04b-admin-ai-rag.png')
+    await scrollToText(client, 'Knowledge Documents')
+    await screenshot(client, '04c-admin-ai-knowledge-documents.png')
+    await scrollToText(client, 'Add Knowledge Document')
+    await screenshot(client, '04d-admin-ai-knowledge-form.png')
+
     await setSession(client, 'COMPANY', 'C001', 'company')
     await navigate(client, `${baseUrl}/company/screening`)
     await assertText(client, ['AI 异步初筛'])
@@ -276,6 +284,21 @@ async function waitForText(client, expected) {
     await sleep(500)
   }
   throw new Error(`Timed out waiting for text: ${expected}`)
+}
+
+async function scrollToText(client, expected) {
+  await client.send('Runtime.evaluate', {
+    expression: `
+      (() => {
+        const target = [...document.querySelectorAll('h1,h2,h3,strong,span,button,label')]
+          .find((item) => item.innerText && item.innerText.includes(${JSON.stringify(expected)}));
+        if (target) {
+          target.scrollIntoView({ block: 'center', inline: 'nearest' });
+        }
+      })()
+    `
+  })
+  await sleep(700)
 }
 
 async function waitForExpression(client, expression) {

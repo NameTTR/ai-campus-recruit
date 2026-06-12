@@ -439,6 +439,19 @@ export interface KnowledgeDocument extends KnowledgeDocumentRequest {
   createdAt: string
 }
 
+export interface KnowledgeBaseStats {
+  documentCount: number
+  chunkCount: number
+  categoryCounts: Record<string, number>
+  roleCounts: Record<string, number>
+  sourceCounts: Record<string, number>
+  tagCounts: Record<string, number>
+  corpusVersion: string
+  seedEnabled: boolean
+  persistentStore: boolean
+  generatedAt: string
+}
+
 export interface KnowledgeSearchRequest {
   query: string
   role?: string
@@ -1205,6 +1218,29 @@ const fallbackKnowledgeDocuments: KnowledgeDocument[] = [
     createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString()
   }
 ]
+
+function countKnowledgeValues(values: string[]) {
+  return values.reduce<Record<string, number>>((counts, value) => {
+    const key = value.trim() || 'unknown'
+    counts[key] = (counts[key] || 0) + 1
+    return counts
+  }, {})
+}
+
+function fallbackKnowledgeBaseStats(): KnowledgeBaseStats {
+  return {
+    documentCount: fallbackKnowledgeDocuments.length,
+    chunkCount: fallbackKnowledgeDocuments.length,
+    categoryCounts: countKnowledgeValues(fallbackKnowledgeDocuments.map((document) => document.category)),
+    roleCounts: countKnowledgeValues(fallbackKnowledgeDocuments.flatMap((document) => document.roles)),
+    sourceCounts: countKnowledgeValues(fallbackKnowledgeDocuments.map((document) => document.source)),
+    tagCounts: countKnowledgeValues(fallbackKnowledgeDocuments.flatMap((document) => document.tags)),
+    corpusVersion: 'local-demo-fallback',
+    seedEnabled: true,
+    persistentStore: false,
+    generatedAt: new Date().toISOString()
+  }
+}
 
 const fallbackInterviewRecords: InterviewRecord[] = [
   {
@@ -2092,22 +2128,28 @@ export function answerKnowledgeBase(payload: KnowledgeAnswerRequest) {
   }, fallbackKnowledgeAnswer(body))
 }
 
-export function listKnowledgeDocuments(keyword = '', role = currentRole() || 'STUDENT', limit = 20) {
+export function listKnowledgeDocuments(keyword = '', role: string = currentRole() || 'STUDENT', limit = 20) {
   const params = new URLSearchParams()
-  if (keyword.trim()) {
-    params.set('keyword', keyword.trim())
+  const normalizedKeyword = keyword.trim()
+  const normalizedRole = role.trim()
+  if (normalizedKeyword) {
+    params.set('keyword', normalizedKeyword)
   }
-  if (role) {
-    params.set('role', role)
+  if (normalizedRole) {
+    params.set('role', normalizedRole)
   }
   params.set('limit', String(limit))
-  const normalized = keyword.trim().toLowerCase()
+  const normalized = normalizedKeyword.toLowerCase()
   const fallback = fallbackKnowledgeDocuments
-    .filter((document) => canReadKnowledgeDocument(document, role))
+    .filter((document) => canReadKnowledgeDocument(document, normalizedRole))
     .filter((document) => !normalized
       || document.title.toLowerCase().includes(normalized)
       || document.content.toLowerCase().includes(normalized)
+      || document.category.toLowerCase().includes(normalized)
+      || document.source.toLowerCase().includes(normalized)
+      || document.createdBy.toLowerCase().includes(normalized)
       || document.tags.some((tag) => tag.toLowerCase().includes(normalized)))
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     .slice(0, limit)
   return request<KnowledgeDocument[]>(`/api/ai/knowledge/documents?${params.toString()}`, { method: 'GET' }, fallback)
 }
@@ -2123,6 +2165,12 @@ export function createKnowledgeDocument(payload: KnowledgeDocumentRequest) {
     method: 'POST',
     body: JSON.stringify(payload)
   }, fallback)
+}
+
+export function getKnowledgeBaseStats() {
+  return request<KnowledgeBaseStats>('/api/ai/knowledge/stats', {
+    method: 'GET'
+  }, fallbackKnowledgeBaseStats())
 }
 
 export function listInterviewRecords(studentId = currentStudentId()) {

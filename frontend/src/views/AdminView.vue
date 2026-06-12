@@ -32,9 +32,12 @@ import {
   getDeploymentGuide,
   getDashboard,
   getCurrentPermissions,
+  getKnowledgeBaseStats,
   getSystemStatus,
+  createKnowledgeDocument,
   listAiCallRecords,
   listAccounts,
+  listKnowledgeDocuments,
   searchAiKnowledge,
   updateAccountStatus,
   type AccountStatus,
@@ -51,6 +54,8 @@ import {
   type DeploymentGuide,
   type DeploymentTopology,
   type DeliveryStatus,
+  type KnowledgeBaseStats,
+  type KnowledgeDocument,
   type Role,
   type SystemServiceStatus,
   type SystemStatus
@@ -64,6 +69,8 @@ const deploymentGuide = ref<DeploymentGuide>()
 const aiObservabilitySummary = ref<AiObservabilitySummary>()
 const aiCallRecords = ref<AiCallRecord[]>([])
 const aiSearchResponse = ref<AiSearchResponse>()
+const knowledgeStats = ref<KnowledgeBaseStats>()
+const knowledgeDocuments = ref<KnowledgeDocument[]>([])
 const auditOverview = ref<AdminAuditOverview>()
 const auditExport = ref<AdminAuditExportResult>()
 const accounts = ref<AccountSummary[]>([])
@@ -71,6 +78,8 @@ const currentPermissions = ref<CurrentPermissions>()
 const systemStatusLoading = ref(false)
 const aiLoading = ref(false)
 const aiSearchLoading = ref(false)
+const knowledgeLoading = ref(false)
+const knowledgeCreating = ref(false)
 const auditLoading = ref(false)
 const auditExportLoading = ref(false)
 const accountsLoading = ref(false)
@@ -83,6 +92,19 @@ const aiSearchForm = reactive({
   query: 'Java backend',
   role: 'ADMIN',
   limit: 5
+})
+const knowledgeFilters = reactive({
+  keyword: '',
+  role: 'ADMIN',
+  limit: 20
+})
+const knowledgeForm = reactive({
+  title: '',
+  category: 'guidance',
+  source: 'admin-console',
+  tags: '',
+  roles: ['ADMIN'] as string[],
+  content: ''
 })
 const auditFilters = reactive({
   keyword: '',
@@ -161,6 +183,9 @@ const permissionTags = computed(() => currentPermissions.value?.permissions || [
 const aiProviderRows = computed(() => aiCallBreakdown('provider'))
 const aiTaskRows = computed(() => aiCallBreakdown('operation'))
 const aiSearchResults = computed(() => aiSearchResponse.value?.results || [])
+const knowledgeTopCategories = computed(() => topCountRows(knowledgeStats.value?.categoryCounts))
+const knowledgeTopSources = computed(() => topCountRows(knowledgeStats.value?.sourceCounts))
+const knowledgeDocumentRows = computed(() => knowledgeDocuments.value)
 const auditMetrics = computed(() => auditOverview.value?.metrics || [])
 const auditRows = computed(() => auditOverview.value?.records || [])
 const auditWarnings = computed(() => auditOverview.value?.warnings || [])
@@ -174,8 +199,15 @@ function aiCallBreakdown(field: 'provider' | 'operation') {
   return Array.from(counts.entries()).map(([name, count]) => ({ name, count }))
 }
 
+function topCountRows(counts?: Record<string, number>) {
+  return Object.entries(counts || {})
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, 5)
+    .map(([name, count]) => ({ name, count }))
+}
+
 onMounted(async () => {
-  const [dashboard, status, topology, guide, accountList, permissions, aiSummary, aiCalls, aiSearch, audit] = await Promise.all([
+  const [dashboard, status, topology, guide, accountList, permissions, aiSummary, aiCalls, aiSearch, kbStats, knowledgeDocs, audit] = await Promise.all([
     getDashboard(),
     getSystemStatus(),
     getDeploymentTopology(),
@@ -185,6 +217,8 @@ onMounted(async () => {
     getAiObservabilitySummary(),
     listAiCallRecords(),
     searchAiKnowledge(aiSearchForm),
+    getKnowledgeBaseStats(),
+    listKnowledgeDocuments(knowledgeFilters.keyword, knowledgeFilters.role, knowledgeFilters.limit),
     getAdminAuditOverview(auditFilters)
   ])
   stats.value = dashboard
@@ -196,6 +230,8 @@ onMounted(async () => {
   aiObservabilitySummary.value = aiSummary
   aiCallRecords.value = aiCalls
   aiSearchResponse.value = aiSearch
+  knowledgeStats.value = kbStats
+  knowledgeDocuments.value = knowledgeDocs
   auditOverview.value = audit
 })
 
@@ -265,6 +301,85 @@ async function runAiSearch() {
     })
   } finally {
     aiSearchLoading.value = false
+  }
+}
+
+async function refreshKnowledgeDocuments() {
+  knowledgeLoading.value = true
+  try {
+    const [stats, documents] = await Promise.all([
+      getKnowledgeBaseStats(),
+      listKnowledgeDocuments(
+        knowledgeFilters.keyword,
+        knowledgeFilters.role,
+        knowledgeFilters.limit
+      )
+    ])
+    knowledgeStats.value = stats
+    knowledgeDocuments.value = documents
+  } finally {
+    knowledgeLoading.value = false
+  }
+}
+
+function parseKnowledgeTags(value: string) {
+  return value
+    .split(/[,;\n]/)
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+}
+
+function knowledgeDocumentMatchesFilters(document: KnowledgeDocument) {
+  const role = knowledgeFilters.role.trim()
+  const keyword = knowledgeFilters.keyword.trim().toLowerCase()
+  const roleMatches = !role || document.roles.includes(role) || document.roles.includes('ALL')
+  const keywordSource = [
+    document.title,
+    document.content,
+    document.category,
+    document.source,
+    document.createdBy,
+    ...document.tags
+  ].join(' ').toLowerCase()
+  return roleMatches && (!keyword || keywordSource.includes(keyword))
+}
+
+async function submitKnowledgeDocument() {
+  const title = knowledgeForm.title.trim()
+  const content = knowledgeForm.content.trim()
+  const roles = knowledgeForm.roles.map((role) => role.trim()).filter(Boolean)
+  if (!title || !content) {
+    ElMessage.warning('Please enter a knowledge document title and content')
+    return
+  }
+  if (!roles.length) {
+    ElMessage.warning('Please select at least one readable role')
+    return
+  }
+
+  knowledgeCreating.value = true
+  try {
+    const created = await createKnowledgeDocument({
+      title,
+      content,
+      category: knowledgeForm.category.trim() || 'general',
+      source: knowledgeForm.source.trim() || 'admin-console',
+      tags: parseKnowledgeTags(knowledgeForm.tags),
+      roles
+    })
+    if (knowledgeDocumentMatchesFilters(created)) {
+      knowledgeDocuments.value = [
+        created,
+        ...knowledgeDocuments.value.filter((item) => item.documentId !== created.documentId)
+      ].slice(0, knowledgeFilters.limit)
+    }
+    knowledgeStats.value = await getKnowledgeBaseStats()
+    knowledgeForm.title = ''
+    knowledgeForm.content = ''
+    knowledgeForm.tags = ''
+    ElMessage.success('Knowledge document created')
+  } finally {
+    knowledgeCreating.value = false
   }
 }
 
@@ -707,6 +822,24 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </div>
       </div>
 
+      <div class="grid three">
+        <div class="metric ai-metric">
+          <Database :size="22" />
+          <span>RAG Documents</span>
+          <strong>{{ knowledgeStats?.documentCount || 0 }}</strong>
+        </div>
+        <div class="metric ai-metric">
+          <HardDrive :size="22" />
+          <span>RAG Chunks</span>
+          <strong>{{ knowledgeStats?.chunkCount || 0 }}</strong>
+        </div>
+        <div class="metric ai-metric">
+          <ShieldCheck :size="22" />
+          <span>Knowledge Store</span>
+          <strong>{{ knowledgeStats?.persistentStore ? 'MySQL' : 'Memory' }}</strong>
+        </div>
+      </div>
+
       <section class="panel module-panel">
         <h2 class="panel-title">
           AI Observability
@@ -817,6 +950,120 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
           </article>
         </div>
         <el-empty v-else description="No search results yet" />
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          Knowledge Documents
+          <span class="panel-title-actions">
+            <span class="generated-at">{{ knowledgeStats?.corpusVersion || 'unknown corpus' }}</span>
+            <el-button circle size="small" :loading="knowledgeLoading" @click="refreshKnowledgeDocuments">
+              <RefreshCw :size="15" />
+            </el-button>
+            <Database :size="19" />
+          </span>
+        </h2>
+        <div class="knowledge-summary">
+          <div class="ai-breakdown">
+            <h3>Categories</h3>
+            <div v-for="row in knowledgeTopCategories" :key="row.name" class="ai-breakdown-row">
+              <span>{{ row.name }}</span>
+              <strong>{{ row.count }}</strong>
+            </div>
+          </div>
+          <div class="ai-breakdown">
+            <h3>Sources</h3>
+            <div v-for="row in knowledgeTopSources" :key="row.name" class="ai-breakdown-row">
+              <span>{{ row.name }}</span>
+              <strong>{{ row.count }}</strong>
+            </div>
+          </div>
+        </div>
+        <div class="knowledge-toolbar">
+          <el-input v-model="knowledgeFilters.keyword" clearable placeholder="Keyword, source, tag" @keyup.enter="refreshKnowledgeDocuments" />
+          <el-select v-model="knowledgeFilters.role" clearable placeholder="role">
+            <el-option label="ADMIN" value="ADMIN" />
+            <el-option label="STUDENT" value="STUDENT" />
+            <el-option label="COMPANY" value="COMPANY" />
+          </el-select>
+          <el-select v-model="knowledgeFilters.limit" placeholder="limit">
+            <el-option label="10" :value="10" />
+            <el-option label="20" :value="20" />
+            <el-option label="50" :value="50" />
+          </el-select>
+          <el-button :loading="knowledgeLoading" @click="refreshKnowledgeDocuments">Apply</el-button>
+        </div>
+
+        <el-table v-loading="knowledgeLoading" class="knowledge-table" :data="knowledgeDocumentRows" style="width: 100%">
+          <el-table-column label="Document" min-width="220">
+            <template #default="{ row }">
+              <div class="knowledge-title">
+                <strong>{{ row.title }}</strong>
+                <span>{{ row.documentId }} / {{ row.category }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="Source" min-width="150">
+            <template #default="{ row }">
+              <div class="knowledge-source">
+                <strong>{{ row.source }}</strong>
+                <span>{{ row.createdBy }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="Roles" min-width="150">
+            <template #default="{ row }">
+              <div class="knowledge-tag-list">
+                <el-tag v-for="role in row.roles" :key="role" size="small">{{ role }}</el-tag>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="Tags" min-width="190">
+            <template #default="{ row }">
+              <div class="knowledge-tag-list">
+                <span v-for="tag in row.tags" :key="tag" class="knowledge-chip">{{ tag }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="Created" width="128">
+            <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
+          </el-table-column>
+        </el-table>
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          Add Knowledge Document
+          <ClipboardCheck :size="19" />
+        </h2>
+        <el-form label-position="top">
+          <div class="knowledge-form-grid">
+            <el-form-item label="Title">
+              <el-input v-model="knowledgeForm.title" maxlength="120" show-word-limit />
+            </el-form-item>
+            <el-form-item label="Category">
+              <el-input v-model="knowledgeForm.category" />
+            </el-form-item>
+            <el-form-item label="Source">
+              <el-input v-model="knowledgeForm.source" />
+            </el-form-item>
+            <el-form-item label="Readable Roles">
+              <el-select v-model="knowledgeForm.roles" multiple collapse-tags collapse-tags-tooltip>
+                <el-option label="ADMIN" value="ADMIN" />
+                <el-option label="STUDENT" value="STUDENT" />
+                <el-option label="COMPANY" value="COMPANY" />
+                <el-option label="ALL" value="ALL" />
+              </el-select>
+            </el-form-item>
+          </div>
+          <el-form-item label="Tags">
+            <el-input v-model="knowledgeForm.tags" placeholder="Java, resume, interview" />
+          </el-form-item>
+          <el-form-item label="Content">
+            <el-input v-model="knowledgeForm.content" type="textarea" :rows="5" maxlength="2000" show-word-limit />
+          </el-form-item>
+          <el-button type="primary" :loading="knowledgeCreating" @click="submitKnowledgeDocument">Create Document</el-button>
+        </el-form>
       </section>
     </div>
 
@@ -2017,6 +2264,14 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.knowledge-summary {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 14px;
+  min-width: 0;
+}
+
 .ai-breakdown {
   border: 1px solid #e4e7ec;
   border-radius: 8px;
@@ -2047,7 +2302,8 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
 }
 
 .ai-call-toolbar,
-.ai-search-toolbar {
+.ai-search-toolbar,
+.knowledge-toolbar {
   display: grid;
   gap: 10px;
   margin-bottom: 14px;
@@ -2060,6 +2316,70 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
 
 .ai-search-toolbar {
   grid-template-columns: minmax(220px, 1fr) 132px 112px auto;
+}
+
+.knowledge-toolbar {
+  grid-template-columns: minmax(220px, 1fr) 132px 112px auto;
+}
+
+.knowledge-form-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(140px, 0.65fr));
+  min-width: 0;
+}
+
+.knowledge-form-grid :deep(.el-select),
+.knowledge-form-grid :deep(.el-input) {
+  width: 100%;
+}
+
+.knowledge-table {
+  min-width: 0;
+}
+
+:deep(.knowledge-table .cell) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.knowledge-title,
+.knowledge-source {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.knowledge-title strong,
+.knowledge-source strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-title span,
+.knowledge-source span {
+  color: #667085;
+  font-size: 13px;
+}
+
+.knowledge-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.knowledge-chip {
+  background: #f2f4f7;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 3px 7px;
 }
 
 .ai-table {
@@ -2207,7 +2527,9 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
   .audit-export-grid,
   .ai-observability-grid,
   .ai-call-toolbar,
-  .ai-search-toolbar {
+  .ai-search-toolbar,
+  .knowledge-toolbar,
+  .knowledge-form-grid {
     grid-template-columns: 1fr;
   }
 

@@ -36,6 +36,10 @@ ai:
   knowledge:
     persistence:
       enabled: ${AI_KNOWLEDGE_PERSISTENCE_ENABLED:false}
+    seed:
+      enabled: ${AI_KNOWLEDGE_SEED_ENABLED:true}
+      locations: ${AI_KNOWLEDGE_SEED_LOCATIONS:classpath*:/knowledge/*.json}
+      corpus-version: ${AI_KNOWLEDGE_CORPUS_VERSION:v3.10-campus-rag-corpus}
 
 management:
   health:

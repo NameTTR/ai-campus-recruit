@@ -1,0 +1,134 @@
+[
+  {
+    "documentId": "KB-DEMO-001",
+    "title": "Campus recruitment Java backend interview guide",
+    "content": "A Java backend intern interview should connect Spring Boot controller-service-mapper layering, MyBatis Plus query wrappers, MySQL composite indexes, Redis cache-aside consistency, Spring Cloud Gateway routing, Nacos service discovery, RocketMQ asynchronous delivery events, and Docker based three VM deployment. Strong answers describe what was built, why the split between gateway, business services, and infrastructure services exists, how API responses use ApiResponse<T>, how JWT identity is trusted from the gateway, and how the candidate verified the work with unit tests, E2E screenshots, boundary checks, and stepped load smoke reports.",
+    "category": "interview",
+    "source": "internal-corpus:v3.10",
+    "tags": ["Java", "Spring Boot", "MyBatis Plus", "MySQL", "Redis", "RocketMQ", "Docker"],
+    "roles": ["STUDENT", "COMPANY", "ADMIN"],
+    "createdBy": "system",
+    "createdAt": "2026-06-10T09:00:00"
+  },
+  {
+    "documentId": "KB-DEMO-002",
+    "title": "Resume evidence checklist",
+    "content": "A strong campus resume should connect each claim to evidence. For this project, evidence includes module ownership, API behavior, database tables, Redis cache behavior, object storage status, screenshots, test commands, deployment reports, latency numbers, and failure handling. Prefer sentences such as: implemented DOCX resume parsing and AI diagnosis, added MinIO object storage with storageStatus, recorded boundary checks for RBAC and trusted identity, and verified distributed deployment on three virtual machines.",
+    "category": "resume",
+    "source": "internal-corpus:v3.10",
+    "tags": ["resume", "evidence", "metrics", "DOCX", "MinIO"],
+    "roles": ["STUDENT", "ADMIN"],
+    "createdBy": "system",
+    "createdAt": "2026-06-11T09:00:00"
+  },
+  {
+    "documentId": "KB-DEMO-003",
+    "title": "Company candidate screening playbook",
+    "content": "Screening should combine delivery status, parsed resume quality, skill overlap, project evidence, interview risk questions, and auditable AI recommendation records. A company user should check whether the candidate explains Java, Spring Boot, MySQL, Redis, RocketMQ, Docker, and distributed troubleshooting with concrete data. High risk signals include copied project descriptions, missing metrics, vague AI usage, no deployment proof, and no explanation of boundary cases.",
+    "category": "screening",
+    "source": "internal-corpus:v3.10",
+    "tags": ["screening", "AI", "audit", "company"],
+    "roles": ["COMPANY", "ADMIN"],
+    "createdBy": "system",
+    "createdAt": "2026-06-11T21:00:00"
+  },
+  {
+    "documentId": "KB-CAMPUS-004",
+    "title": "Three VM microservice deployment topology",
+    "content": "The recommended demonstration topology uses three virtual machines. VM1 runs Nacos, Spring Cloud Gateway, the Vue frontend, Prometheus, Grafana, Sentinel, and node-exporter. VM2 runs auth-service, user-service, resume-service, job-service, match-service, delivery-service, and node-exporter. VM3 runs MySQL, Redis, MinIO, RocketMQ nameserver and broker, ai-service, and node-exporter. The goal is to prove the system is not a single-process demo: traffic enters through VM1 gateway, business calls fan out to VM2 and VM3, AI and storage dependencies live on VM3, and monitoring collects targets from all machines.",
+    "category": "deployment",
+    "source": "internal-corpus:v3.10",
+    "tags": ["three-vm", "Nacos", "Gateway", "Prometheus", "Grafana", "Sentinel"],
+    "roles": ["STUDENT", "COMPANY", "ADMIN"],
+    "createdBy": "system",
+    "createdAt": "2026-06-12T09:10:00"
+  },
+  {
+    "documentId": "KB-CAMPUS-005",
+    "title": "RAG knowledge base operating rules",
+    "content": "RAG answers must be grounded in retrieved chunks. The service stores knowledge documents, splits content into overlapping chunks, creates a deterministic local hash-vector embedding, combines cosine similarity with lexical matches, filters by readable roles, and returns citations with documentId, chunkId, title, source, score, and snippet. When DashScope is configured and useAi=true, the model receives only the selected chunks. When no key is configured or useAi=false, the service returns a deterministic local cited answer so tests and load smoke do not consume external tokens.",
+    "category": "rag",
+    "source": "internal-corpus:v3.10",
+    "tags": ["RAG", "embedding", "citation", "DashScope", "fallback"],
+    "roles": ["STUDENT", "COMPANY", "ADMIN"],
+    "createdBy": "system",
+    "createdAt": "2026-06-12T09:20:00"
+  },
+  {
+    "documentId": "KB-CAMPUS-006",
+    "title": "MySQL schema and index discussion guide",
+    "content": "For MySQL discussion, explain primary keys, secondary indexes, composite index ordering, pagination, idempotent schema initialization, and why tables such as ai_candidate_screen_task, ai_candidate_screen_record, ai_planning_record, ai_knowledge_document, and ai_knowledge_chunk need query-specific indexes. For RAG persistence, ai_knowledge_document stores metadata and content, while ai_knowledge_chunk stores chunk text, role metadata, and serialized embeddings. A good answer mentions migration safety, utf8mb4, timestamp precision, and avoiding secrets in SQL or reports.",
+    "category": "database",
+    "source": "internal-corpus:v3.10",
+    "tags": ["MySQL", "index", "schema", "knowledge", "chunk"],
+    "roles": ["STUDENT", "ADMIN"],
+    "createdBy": "system",
+    "createdAt": "2026-06-12T09:30:00"
+  },
+  {
+    "documentId": "KB-CAMPUS-007",
+    "title": "Redis cache consistency and resume matching",
+    "content": "Redis should be introduced as a cache and operational dependency, not as a decoration. For resume, job, match, delivery, or AI screening records, explain the cache key prefix, TTL, read-through behavior, invalidation after writes, and fallback when Redis is unavailable. In interviews, connect Redis to repeat query acceleration and explain how stale reads are bounded by TTL. For load testing, check that gateway endpoints still respond under stepped concurrency and that cache usage does not bypass authorization.",
+    "category": "cache",
+    "source": "internal-corpus:v3.10",
+    "tags": ["Redis", "cache", "TTL", "consistency", "load-test"],
+    "roles": ["STUDENT", "COMPANY", "ADMIN"],
+    "createdBy": "system",
+    "createdAt": "2026-06-12T09:40:00"
+  },
+  {
+    "documentId": "KB-CAMPUS-008",
+    "title": "RocketMQ async screening event flow",
+    "content": "The delivery-to-screening asynchronous flow starts when a delivery event is published to RocketMQ. The AI service consumes the event, creates or deduplicates a candidate screening task, calls the screening service path, persists a task snapshot, and exposes task list and detail APIs. Verification should include a distributed AI flow report showing the delivery created, the RocketMQ task completed, and at least one completed screening count. Failure handling should preserve task status and allow retry only when a task is failed.",
+    "category": "messaging",
+    "source": "internal-corpus:v3.10",
+    "tags": ["RocketMQ", "async", "screening", "delivery", "retry"],
+    "roles": ["COMPANY", "ADMIN"],
+    "createdBy": "system",
+    "createdAt": "2026-06-12T09:50:00"
+  },
+  {
+    "documentId": "KB-CAMPUS-009",
+    "title": "Gateway RBAC and trusted identity boundaries",
+    "content": "The gateway verifies JWT tokens, rejects missing or malformed tokens, and overwrites client supplied X-User-Id, X-User-Role, and X-User-Permissions headers with trusted claims. Student users can access student workflows, company users can access company delivery and screening workflows, and admin users can access observability and knowledge document management. Boundary tests should include wrong password, missing token, malformed token, student-to-admin denial, company-to-student-coach denial, and body identity override.",
+    "category": "security",
+    "source": "internal-corpus:v3.10",
+    "tags": ["Gateway", "RBAC", "JWT", "trusted-identity", "boundary-test"],
+    "roles": ["STUDENT", "COMPANY", "ADMIN"],
+    "createdBy": "system",
+    "createdAt": "2026-06-12T10:00:00"
+  },
+  {
+    "documentId": "KB-CAMPUS-010",
+    "title": "Boundary and stepped load validation plan",
+    "content": "A credible validation plan covers functional boundaries and performance smoke. Boundary cases include auth failures, RBAC isolation, trusted identity override, DOCX resume extraction, invalid delivery status, unknown resume ids, blank AI input, long AI input, monitoring readiness, and backup restore guards. Stepped load smoke should run increasing concurrency such as 3, 10, 30, and 50 users for multiple iterations, record PASS, FAIL, SKIPPED, average latency, P95 latency, and avoid writing bearer tokens or demo passwords to reports.",
+    "category": "testing",
+    "source": "internal-corpus:v3.10",
+    "tags": ["boundary", "load-test", "p95", "report", "security"],
+    "roles": ["STUDENT", "COMPANY", "ADMIN"],
+    "createdBy": "system",
+    "createdAt": "2026-06-12T10:10:00"
+  },
+  {
+    "documentId": "KB-CAMPUS-011",
+    "title": "Frontend module navigation review checklist",
+    "content": "The frontend should not pile every module into one page. Use a left navigation sidebar to split student resume diagnosis, job matching, deliveries, interview practice, career planning, RAG knowledge, and AI feedback. Admin pages should separate dashboard, account management, AI observability, deployment topology, audit records, and knowledge base management. UI checks should confirm that text does not overlap, tables remain readable, buttons are clear, loading states are visible, and mobile layout keeps modules usable.",
+    "category": "frontend",
+    "source": "internal-corpus:v3.10",
+    "tags": ["Vue", "Element Plus", "navigation", "UI", "admin"],
+    "roles": ["STUDENT", "ADMIN"],
+    "createdBy": "system",
+    "createdAt": "2026-06-12T10:20:00"
+  },
+  {
+    "documentId": "KB-CAMPUS-012",
+    "title": "AI governance and secret handling rules",
+    "content": "AI credentials must be read from environment variables such as DASHSCOPE_API_KEY and never hardcoded in source, reports, or screenshots. The system should show whether DashScope is configured, which model is used, whether a response is mocked or real, and what fallback reason was used. RAG prompts should not reveal hidden prompts, API keys, bearer tokens, or full private documents. Reports may include provider, model, call success, latency, operation name, and generated time, but must not include tokens or secrets.",
+    "category": "ai-governance",
+    "source": "internal-corpus:v3.10",
+    "tags": ["DashScope", "secret", "observability", "fallback", "governance"],
+    "roles": ["STUDENT", "COMPANY", "ADMIN"],
+    "createdBy": "system",
+    "createdAt": "2026-06-12T10:30:00"
+  }
+]
