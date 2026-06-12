@@ -78,12 +78,17 @@ public class ResumeController {
 
     @GetMapping("/{id}")
     public ApiResponse<ResumeSummary> detail(@PathVariable("id") String id) {
-        return ApiResponse.ok(findResumeRecord(id).summary());
+        return resumeStore.findById(id)
+                .map(record -> ApiResponse.ok(record.summary()))
+                .orElseGet(() -> ApiResponse.fail("Resume not found"));
     }
 
     @PostMapping("/{id}/analyze")
     public ApiResponse<ResumeSummary> analyze(@PathVariable("id") String id) {
-        ResumeRecord currentRecord = findResumeRecord(id);
+        ResumeRecord currentRecord = resumeStore.findById(id).orElse(null);
+        if (currentRecord == null) {
+            return ApiResponse.fail("Resume not found");
+        }
         ResumeSummary current = currentRecord.summary();
         String resumeText = currentRecord.parsedText();
         String diagnosis = callAi(current, resumeText);
@@ -94,12 +99,6 @@ public class ResumeController {
                 current.sourceFormat(), current.parseStatus(), current.parsedTextLength());
         resumeStore.save(new ResumeRecord(analyzed, resumeText));
         return ApiResponse.ok(analyzed);
-    }
-
-    private ResumeRecord findResumeRecord(String id) {
-        return resumeStore.findById(id)
-                .or(() -> resumeStore.findById("R001"))
-                .orElseGet(ResumeController::defaultResumeRecord);
     }
 
     private static ResumeRecord defaultResumeRecord() {

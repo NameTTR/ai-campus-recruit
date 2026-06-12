@@ -100,6 +100,23 @@ class DeliveryControllerTest {
     }
 
     @Test
+    void updateStatusReturnsFailForUnknownDeliveryId() throws Exception {
+        mockMvc.perform(put("/api/deliveries/D-NOT-FOUND/status?status=INTERVIEW"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.message").value("Delivery not found"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void updateStatusReturnsApiResponseForInvalidStatus() throws Exception {
+        mockMvc.perform(put("/api/deliveries/D001/status?status=NOT_A_STATUS"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.data").value(false));
+    }
+
+    @Test
     void listMineReturnsRecords() throws Exception {
         mockMvc.perform(get("/api/deliveries/my"))
                 .andExpect(status().isOk())

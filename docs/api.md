@@ -309,6 +309,15 @@
 
 - `GET /api/ai/career/history?studentId=S001&limit=20`: list the student's AI planning history.
   - Returns: `ApiResponse<List<AiPlanningRecord>>`.
+
+## v3.7 Boundary Behavior
+
+- `GET /api/resumes/{id}` and `POST /api/resumes/{id}/analyze` return `ApiResponse.fail("Resume not found")` when the resume ID is unknown. They no longer fall back to the seeded demo resume.
+- `POST /api/resumes/upload` returns an `ApiResponse` error body for missing multipart file input or invalid upload parameters.
+- `PUT /api/deliveries/{id}/status` returns `ApiResponse.fail("Delivery not found")` when the delivery ID is unknown. It no longer updates the seeded demo delivery as a fallback.
+- Invalid delivery status values, malformed delivery JSON, and missing required delivery parameters return HTTP 400 with an `ApiResponse` error body.
+- `POST /api/ai/coach/advice`, `POST /api/ai/resume/rewrite`, and `/api/ai/career/*` are student-owned AI endpoints at the gateway. `STUDENT` and `ADMIN` can access them; `COMPANY` is rejected by RBAC.
+- Deployment boundary checks are automated by `scripts/check-boundary-cases.ps1`, which records authentication, RBAC, trusted identity, resume, delivery, AI, monitoring, and restore-safety results under `reports/deploy`.
   - Query parameters: `studentId` is required for direct service calls; `limit` is optional, defaults to `20`, and is normalized to the `1`-`100` range.
   - `AiPlanningRecord` fields: `recordId`, `studentId`, `operation`, `resumeId`, `targetRole`, `resumeRewrite`, `careerPlan`, `mocked`, and `createdAt`.
   - `operation` identifies the source workflow, currently resume rewrite or career plan. Exactly one of `resumeRewrite` and `careerPlan` is populated for each record.

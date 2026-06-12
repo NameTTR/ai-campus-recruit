@@ -101,9 +101,10 @@ public class DeliveryController {
 
     @PutMapping("/{id}/status")
     public ApiResponse<DeliveryRecord> updateStatus(@PathVariable("id") String id, @RequestParam("status") DeliveryStatus status) {
-        DeliveryRecord current = deliveryStore.findById(id)
-                .or(() -> deliveryStore.findById("D001"))
-                .orElseGet(DeliveryController::defaultRecord);
+        DeliveryRecord current = deliveryStore.findById(id).orElse(null);
+        if (current == null) {
+            return ApiResponse.fail("Delivery not found");
+        }
         DeliveryRecord updated = new DeliveryRecord(current.deliveryId(), current.studentId(), current.resumeId(),
                 current.jobId(), current.companyId(), current.resumeSourceFormat(), current.resumeParseStatus(),
                 current.resumeParsedTextLength(), status, current.createdAt());
@@ -116,11 +117,6 @@ public class DeliveryController {
         deliveryStore.findById(record.deliveryId())
                 .ifPresentOrElse(existing -> {
                 }, () -> deliveryStore.save(record));
-    }
-
-    private static DeliveryRecord defaultRecord() {
-        return new DeliveryRecord("D001", "S001", "R001", "J001", "C001",
-                "PDF", "SEEDED", 62, DeliveryStatus.SUBMITTED, LocalDateTime.now().minusDays(1));
     }
 
     private static DeliveryStatistics toStatistics(List<DeliveryRecord> records) {

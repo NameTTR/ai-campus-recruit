@@ -1,6 +1,7 @@
 package com.aicampus.resume.controller;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -73,6 +74,32 @@ class ResumeControllerTest {
                 .andExpect(jsonPath("$.data.score").value(86))
                 .andExpect(jsonPath("$.data.objectKey").value("resumes/R001/demo-resume.pdf"))
                 .andExpect(jsonPath("$.data.skills[4]").value("Docker"));
+    }
+
+    @Test
+    void detailReturnsFailForUnknownResumeId() throws Exception {
+        mockMvc.perform(get("/api/resumes/R-NOT-FOUND"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.message").value("Resume not found"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void analyzeReturnsFailForUnknownResumeId() throws Exception {
+        mockMvc.perform(post("/api/resumes/R-NOT-FOUND/analyze"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.message").value("Resume not found"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void uploadWithoutFileReturnsApiResponseBadRequest() throws Exception {
+        mockMvc.perform(multipart("/api/resumes/upload"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.data").value(false));
     }
 
     private static byte[] docxBytes(String text) throws Exception {

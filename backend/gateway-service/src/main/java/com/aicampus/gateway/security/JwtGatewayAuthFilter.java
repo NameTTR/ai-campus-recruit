@@ -166,6 +166,11 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
         if (path.startsWith("/api/ai/interview")) {
             return Permission.STUDENT_INTERVIEW_WRITE;
         }
+        if (path.startsWith("/api/ai/coach")
+                || path.startsWith("/api/ai/resume/rewrite")
+                || path.startsWith("/api/ai/career")) {
+            return Permission.STUDENT_INTERVIEW_WRITE;
+        }
         if (path.startsWith("/api/ai/status")) {
             return Permission.AUTH_SELF;
         }
