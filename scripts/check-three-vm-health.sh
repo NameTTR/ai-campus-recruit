@@ -180,6 +180,7 @@ VM2_HOST="$(required_value VM2_HOST)"
 VM3_HOST="$(required_value VM3_HOST)"
 FRONTEND_PORT="$(value_or_default FRONTEND_PORT 80)"
 GATEWAY_PORT="$(value_or_default GATEWAY_PORT 8080)"
+MILVUS_PORT="$(value_or_default MILVUS_PORT 19530)"
 GATEWAY_BASE_URL="http://${VM1_HOST}:${GATEWAY_PORT}"
 
 echo "Using env file: ${ENV_FILE}"
@@ -203,6 +204,7 @@ check_http "VM2 delivery-service" "http://${VM2_HOST}:8107/actuator/health"
 
 check_http "VM3 ai-service health" "http://${VM3_HOST}:8106/actuator/health"
 check_http "VM3 ai-service status" "http://${VM3_HOST}:8106/api/ai/status"
+check_http "VM3 ai RAG vector status" "http://${VM3_HOST}:8106/api/ai/knowledge/vector/status"
 check_tcp "VM3 mysql" "${VM3_HOST}" 3306
 check_tcp "VM3 redis" "${VM3_HOST}" 6379
 check_http "VM3 minio api" "http://${VM3_HOST}:9000/minio/health/ready"
@@ -210,6 +212,7 @@ check_tcp "VM3 minio console" "${VM3_HOST}" 9001
 check_tcp "VM3 rocketmq namesrv" "${VM3_HOST}" 9876
 check_tcp "VM3 rocketmq broker listen" "${VM3_HOST}" 10911
 check_tcp "VM3 rocketmq broker vip" "${VM3_HOST}" 10909
+check_tcp "VM3 milvus grpc/rest" "${VM3_HOST}" "${MILVUS_PORT}"
 
 if [[ "${FAILURES}" -gt 0 ]]; then
   echo "${FAILURES} health check(s) failed." >&2

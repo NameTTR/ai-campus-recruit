@@ -2,6 +2,8 @@ package com.aicampus.ai.controller;
 
 import com.aicampus.ai.service.AiCoachService;
 import com.aicampus.ai.service.KnowledgeBaseService;
+import com.aicampus.ai.service.knowledge.KnowledgeFileIngestionService;
+import com.aicampus.ai.service.knowledge.KnowledgeVectorIndex;
 import com.aicampus.ai.service.screening.CandidateScreenTaskService;
 import com.aicampus.common.api.ApiResponse;
 import com.aicampus.common.dto.AiAnalyzeRequest;
@@ -30,12 +32,15 @@ import com.aicampus.common.dto.KnowledgeAnswerResponse;
 import com.aicampus.common.dto.KnowledgeBaseStats;
 import com.aicampus.common.dto.KnowledgeDocument;
 import com.aicampus.common.dto.KnowledgeDocumentRequest;
+import com.aicampus.common.dto.KnowledgeFileIngestionJob;
 import com.aicampus.common.dto.KnowledgeSearchRequest;
+import com.aicampus.common.dto.KnowledgeVectorStatus;
 import com.aicampus.common.dto.ResumeRewriteRequest;
 import com.aicampus.common.dto.ResumeRewriteResponse;
 import com.aicampus.common.enums.CandidateScreenTaskSource;
 import io.swagger.v3.oas.annotations.Operation;
 import java.util.List;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,6 +50,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @CrossOrigin
 @RestController
@@ -58,14 +64,20 @@ public class AiController {
     private final AiCoachService aiCoachService;
     private final CandidateScreenTaskService candidateScreenTaskService;
     private final KnowledgeBaseService knowledgeBaseService;
+    private final KnowledgeFileIngestionService knowledgeFileIngestionService;
+    private final KnowledgeVectorIndex knowledgeVectorIndex;
 
     public AiController(
             AiCoachService aiCoachService,
             CandidateScreenTaskService candidateScreenTaskService,
-            KnowledgeBaseService knowledgeBaseService) {
+            KnowledgeBaseService knowledgeBaseService,
+            KnowledgeFileIngestionService knowledgeFileIngestionService,
+            KnowledgeVectorIndex knowledgeVectorIndex) {
         this.aiCoachService = aiCoachService;
         this.candidateScreenTaskService = candidateScreenTaskService;
         this.knowledgeBaseService = knowledgeBaseService;
+        this.knowledgeFileIngestionService = knowledgeFileIngestionService;
+        this.knowledgeVectorIndex = knowledgeVectorIndex;
     }
 
     @Operation(summary = "Get AI module provider status")
@@ -136,6 +148,40 @@ public class AiController {
     @GetMapping("/knowledge/stats")
     public ApiResponse<KnowledgeBaseStats> knowledgeStats() {
         return ApiResponse.ok(knowledgeBaseService.stats());
+    }
+
+    @Operation(summary = "Upload a RAG knowledge file and create an async ingestion job")
+    @PostMapping(value = "/knowledge/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<KnowledgeFileIngestionJob> uploadKnowledgeFile(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(required = false) String title,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String source,
+            @RequestParam(required = false) String tags,
+            @RequestParam(required = false) String roles,
+            @RequestHeader(value = X_USER_ID, required = false) String userId) {
+        return ApiResponse.ok(knowledgeFileIngestionService.submit(
+                file,
+                title,
+                category,
+                source,
+                tags,
+                roles,
+                valueOr(userId, "system")));
+    }
+
+    @Operation(summary = "List RAG file ingestion jobs")
+    @GetMapping("/knowledge/ingestions")
+    public ApiResponse<List<KnowledgeFileIngestionJob>> knowledgeIngestions(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Integer limit) {
+        return ApiResponse.ok(knowledgeFileIngestionService.list(status, limit));
+    }
+
+    @Operation(summary = "Get RAG vector index status")
+    @GetMapping("/knowledge/vector/status")
+    public ApiResponse<KnowledgeVectorStatus> knowledgeVectorStatus() {
+        return ApiResponse.ok(knowledgeVectorIndex.status());
     }
 
     @Operation(summary = "Search RAG knowledge base with local retrieval")

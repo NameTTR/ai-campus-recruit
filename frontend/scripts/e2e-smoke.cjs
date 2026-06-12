@@ -48,8 +48,12 @@ async function main() {
     await screenshot(client, '04-admin-overview.png')
 
     await navigate(client, `${baseUrl}/admin/ai`)
-    await assertText(client, ['RAG Documents', 'Knowledge Documents', 'Knowledge Store', 'Add Knowledge Document'])
+    await assertText(client, ['RAG Documents', 'Vector Index', 'Milvus / Vector Index', 'RAG File Upload', 'Ingestion Jobs', 'Knowledge Documents', 'Knowledge Store', 'Add Knowledge Document'])
     await screenshot(client, '04b-admin-ai-rag.png')
+    await scrollToText(client, 'RAG File Upload')
+    await screenshot(client, '04ba-admin-ai-rag-upload.png')
+    await scrollToText(client, 'Ingestion Jobs')
+    await screenshot(client, '04bb-admin-ai-ingestions.png')
     await scrollToText(client, 'Knowledge Documents')
     await screenshot(client, '04c-admin-ai-knowledge-documents.png')
     await scrollToText(client, 'Add Knowledge Document')

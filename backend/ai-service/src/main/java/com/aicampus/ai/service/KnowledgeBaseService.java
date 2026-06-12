@@ -3,6 +3,8 @@ package com.aicampus.ai.service;
 import com.aicampus.ai.service.knowledge.KnowledgeBaseStore;
 import com.aicampus.ai.service.knowledge.KnowledgeBaseProperties;
 import com.aicampus.ai.service.knowledge.KnowledgeChunkRecord;
+import com.aicampus.ai.service.knowledge.KnowledgeVectorIndex;
+import com.aicampus.ai.service.knowledge.KnowledgeVectorMatch;
 import com.aicampus.ai.service.knowledge.PersistentKnowledgeBaseStore;
 import com.aicampus.common.dto.AiSearchResponse;
 import com.aicampus.common.dto.AiSearchResult;
@@ -29,7 +31,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -51,6 +55,7 @@ public class KnowledgeBaseService {
     private final KnowledgeBaseProperties properties;
     private final ObjectMapper objectMapper;
     private final ResourcePatternResolver resourcePatternResolver;
+    private KnowledgeVectorIndex vectorIndex;
 
     public KnowledgeBaseService(
             KnowledgeBaseStore store,
@@ -65,6 +70,11 @@ public class KnowledgeBaseService {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.resourcePatternResolver = resourcePatternResolver;
+    }
+
+    @Autowired(required = false)
+    public void setVectorIndex(KnowledgeVectorIndex vectorIndex) {
+        this.vectorIndex = vectorIndex;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -193,8 +203,12 @@ public class KnowledgeBaseService {
                 normalizeRoles(request == null ? null : request.roles()),
                 valueOr(createdBy, "system"),
                 LocalDateTime.now());
-        saveWithChunks(document);
+        saveDocument(document);
         return document;
+    }
+
+    public List<KnowledgeChunkRecord> saveDocument(KnowledgeDocument document) {
+        return saveWithChunks(document);
     }
 
     public List<KnowledgeDocument> list(String keyword, String role, Integer limit) {
@@ -306,15 +320,55 @@ public class KnowledgeBaseService {
         String normalizedQuery = valueOr(query, "");
         List<String> tokens = tokens(normalizedQuery);
         List<Double> queryEmbedding = embed(normalizedQuery);
+        List<KnowledgeVectorMatch> vectorMatches = searchVectorIndex(queryEmbedding, role, Math.max(limit * 4, 20));
+        Map<String, Integer> vectorScores = vectorMatches.stream()
+                .collect(Collectors.toMap(
+                        KnowledgeVectorMatch::chunkId,
+                        KnowledgeVectorMatch::score,
+                        Math::max,
+                        java.util.LinkedHashMap::new));
+        Map<String, Integer> vectorRanks = vectorMatches.stream()
+                .map(KnowledgeVectorMatch::chunkId)
+                .distinct()
+                .collect(Collectors.toMap(
+                        Function.identity(),
+                        chunkId -> new ArrayList<>(vectorScores.keySet()).indexOf(chunkId),
+                        (left, right) -> left,
+                        java.util.LinkedHashMap::new));
         return store.listChunks().stream()
                 .filter(chunk -> canRead(chunk.roles(), role))
+                .filter(chunk -> vectorScores.isEmpty() || vectorScores.containsKey(chunk.chunkId()))
                 .map(chunk -> scoreChunk(chunk, normalizedQuery, tokens, queryEmbedding))
-                .filter(chunk -> normalizedQuery.isBlank() || (chunk.score() > 0 && matchesQuery(chunk.chunk(), normalizedQuery, tokens)))
-                .sorted(Comparator.comparing(ScoredChunk::score).reversed()
+                .map(chunk -> vectorScores.containsKey(chunk.chunk().chunkId())
+                        ? new ScoredChunk(
+                                chunk.chunk(),
+                                Math.max(chunk.score(), vectorScores.get(chunk.chunk().chunkId())),
+                                vectorHighlights(chunk.highlights(), vectorScores.get(chunk.chunk().chunkId())))
+                        : chunk)
+                .filter(chunk -> normalizedQuery.isBlank()
+                        || (chunk.score() > 0
+                        && (matchesQuery(chunk.chunk(), normalizedQuery, tokens)
+                        || vectorScores.containsKey(chunk.chunk().chunkId()))))
+                .sorted(Comparator
+                        .comparing((ScoredChunk chunk) ->
+                                vectorRanks.getOrDefault(chunk.chunk().chunkId(), Integer.MAX_VALUE))
+                        .thenComparing(Comparator.comparing(ScoredChunk::score).reversed())
                         .thenComparing(chunk -> chunk.chunk().title())
                         .thenComparing(chunk -> chunk.chunk().chunkIndex()))
                 .limit(limit)
                 .toList();
+    }
+
+    private List<KnowledgeVectorMatch> searchVectorIndex(List<Double> queryEmbedding, String role, int limit) {
+        if (vectorIndex == null || queryEmbedding == null || queryEmbedding.isEmpty()) {
+            return List.of();
+        }
+        try {
+            return vectorIndex.search(queryEmbedding, role, limit);
+        } catch (RuntimeException ex) {
+            log.warn("Knowledge vector search failed, falling back to local retrieval", ex);
+            return List.of();
+        }
     }
 
     private ScoredChunk scoreChunk(
@@ -410,8 +464,18 @@ public class KnowledgeBaseService {
                 || source.startsWith("internal-corpus:"));
     }
 
-    private void saveWithChunks(KnowledgeDocument document) {
-        store.save(document, chunks(document));
+    private List<KnowledgeChunkRecord> saveWithChunks(KnowledgeDocument document) {
+        List<KnowledgeChunkRecord> chunks = chunks(document);
+        store.save(document, chunks);
+        if (vectorIndex != null) {
+            try {
+                vectorIndex.index(chunks);
+            } catch (RuntimeException ex) {
+                log.warn("Knowledge vector indexing failed for {}, local retrieval remains available",
+                        document == null ? "" : document.documentId(), ex);
+            }
+        }
+        return chunks;
     }
 
     private List<KnowledgeChunkRecord> chunks(KnowledgeDocument document) {
@@ -534,6 +598,18 @@ public class KnowledgeBaseService {
         }
         if (highlights.isEmpty()) {
             highlights.add("Vector similarity: " + Math.round(Math.max(0, vectorSimilarity) * 100) + "%");
+        }
+        return highlights;
+    }
+
+    private List<String> vectorHighlights(List<String> localHighlights, int vectorScore) {
+        List<String> highlights = new ArrayList<>();
+        highlights.add("Milvus vector score: " + vectorScore);
+        if (localHighlights != null) {
+            localHighlights.stream()
+                    .filter(value -> value != null && !value.isBlank())
+                    .limit(2)
+                    .forEach(highlights::add);
         }
         return highlights;
     }

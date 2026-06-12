@@ -83,3 +83,29 @@ CREATE TABLE IF NOT EXISTS ai_knowledge_chunk (
     KEY idx_ai_knowledge_chunk_document_index (document_id, chunk_index),
     KEY idx_ai_knowledge_chunk_category_created (category, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_knowledge_ingestion_job (
+    job_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    document_id VARCHAR(64) NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_format VARCHAR(32) NOT NULL,
+    file_size BIGINT NOT NULL DEFAULT 0,
+    sha256 VARCHAR(64) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    category VARCHAR(64) NOT NULL,
+    source VARCHAR(128) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    message TEXT NOT NULL,
+    object_key VARCHAR(255) NULL,
+    storage_provider VARCHAR(64) NULL,
+    storage_status VARCHAR(64) NULL,
+    chunk_count INT NOT NULL DEFAULT 0,
+    vector_count INT NOT NULL DEFAULT 0,
+    error TEXT NULL,
+    created_by VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    KEY idx_ai_knowledge_ingestion_sha_status (sha256, status),
+    KEY idx_ai_knowledge_ingestion_status_created (status, created_at),
+    KEY idx_ai_knowledge_ingestion_document (document_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

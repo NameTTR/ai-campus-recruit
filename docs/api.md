@@ -411,3 +411,31 @@
   - `INTERVIEW_SCHEDULED`
   - `INTERVIEW_STATUS_CHANGED`
 - The publisher still records recent events at `GET /api/deliveries/events` with `publishStatus=DISABLED`, RocketMQ send status, or `FAILED`.
+# v3.11 RAG File Ingestion and Milvus Vector Index
+
+- `POST /api/ai/knowledge/files`
+  - Uploads a RAG source file as `multipart/form-data`.
+  - Form fields: `file` is required and supports `.txt`, `.md`, `.pdf`, `.doc`, `.docx`; `title`, `category`, `source`, `tags`, and `roles` are optional metadata.
+  - `tags` and `roles` are comma-separated strings.
+  - Returns: `ApiResponse<KnowledgeFileIngestionJob>`.
+  - Job status values: `UPLOADED`, `PARSING`, `INDEXING`, `READY`, `FAILED`, `DUPLICATE`.
+  - Duplicate files are detected by SHA-256. A repeated upload returns a new job with `status=DUPLICATE` and references the existing document/chunk counts.
+  - Original files are written to MinIO when `AI_KNOWLEDGE_OBJECT_STORAGE_ENABLED=true`; otherwise `storageProvider=local-demo` and `storageStatus=SKIPPED`.
+  - Invalid format, empty file, or oversized upload returns an `ApiResponse` error body and HTTP 400.
+
+- `GET /api/ai/knowledge/ingestions?status=READY&limit=20`
+  - Lists recent RAG ingestion jobs.
+  - Returns: `ApiResponse<List<KnowledgeFileIngestionJob>>`.
+  - `limit` is normalized to `1..200`.
+
+- `GET /api/ai/knowledge/vector/status`
+  - Returns the current vector index provider status.
+  - Returns: `ApiResponse<KnowledgeVectorStatus>`.
+  - Fields: `provider`, `enabled`, `available`, `endpoint`, `collection`, `dimension`, `indexedChunkCount`, `fallbackReason`, `checkedAt`.
+  - When Milvus is disabled or unreachable, search and answer endpoints continue to use local hash-vector retrieval.
+
+- `KnowledgeFileIngestionJob` fields:
+  - `jobId`, `documentId`, `fileName`, `fileFormat`, `fileSize`, `sha256`, `title`, `category`, `source`, `status`, `message`, `objectKey`, `storageProvider`, `storageStatus`, `chunkCount`, `vectorCount`, `error`, `createdBy`, `createdAt`, `updatedAt`.
+
+- Gateway permissions:
+  - Upload, ingestion list, vector status, document create/list, and stats require `admin:ai-observability:read` capability through the current admin role policy.

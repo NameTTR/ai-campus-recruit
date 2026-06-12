@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | VM1 | `192.168.56.11` | 入口与注册中心 | Nacos、`gateway-service`、前端 Nginx |
 | VM2 | `192.168.56.12` | 业务服务 | `auth-service`、`user-service`、`resume-service`、`job-service`、`match-service`、`delivery-service` |
-| VM3 | `192.168.56.13` | 数据、中间件与 AI | MySQL、Redis、MinIO、RocketMQ、`ai-service` |
+| VM3 | `192.168.56.13` | 数据、中间件与 AI | MySQL、Redis、MinIO、RocketMQ、Milvus、`ai-service` |
 
 当前三机部署以 Prometheus、Grafana、node-exporter 和 Sentinel Dashboard 作为 v3.6 监控基线。
 
@@ -36,6 +36,7 @@
 | VM3 | MinIO Console | `9001` | 运维机 | `http://<VM3_IP>:9001` |
 | VM3 | RocketMQ NameServer | `9876` | 内网 | 容器日志 |
 | VM3 | RocketMQ Broker | `10909`、`10911` | 内网 | 容器日志 |
+| VM3 | Milvus gRPC/REST | `19530` | `ai-service`、受限内网 | `GET /api/ai/knowledge/vector/status` |
 | VM1 | Prometheus | `9090` | 运维机或受限内网 | `http://<VM1_IP>:9090/-/ready` |
 | VM1 | Grafana | `3000` | 运维机或受限内网 | `http://<VM1_IP>:3000` |
 | VM1/VM2/VM3 | node-exporter | `9100` | Prometheus | `http://<VM_IP>:9100/metrics` |
@@ -44,7 +45,7 @@
 
 - VM1：对浏览器开放 `80`；对 VM2、VM3 开放 `8848`、`9848`；按需对运维机开放 `8080`。
 - VM2：只对 VM1 开放 `8101`、`8102`、`8103`、`8104`、`8105`、`8107`。
-- VM3：对 VM1、VM2 开放 `8106`；对 VM2 开放 MySQL `3306`、Redis `6379` 和 RocketMQ `9876`、`10909`、`10911`；按需对运维机开放 `9001`；MySQL、Redis、RocketMQ、MinIO API 优先限制在内网。
+- VM3：对 VM1、VM2 开放 `8106`；对 VM2 开放 MySQL `3306`、Redis `6379` 和 RocketMQ `9876`、`10909`、`10911`；Milvus `19530` 优先只给 VM3 本机 `ai-service` 或受限内网访问；按需对运维机开放 `9001`；MySQL、Redis、RocketMQ、MinIO API、Milvus 优先限制在内网。
 - 监控端口：三台 VM 的 node-exporter `9100` 只允许 VM1 Prometheus 访问；VM1 的 Prometheus `9090`、Grafana `3000` 和 Sentinel Dashboard `8858` 只允许运维机或受限内网访问，不对公网开放。
 
 ## 国内镜像源
@@ -148,6 +149,12 @@ SENTINEL_DASHBOARD_PASSWORD=replace-with-a-strong-sentinel-password
 | `AI_KNOWLEDGE_SEED_ENABLED` | 是否在 `ai-service` 启动时幂等导入内置 RAG 语料，默认 `true` |
 | `AI_KNOWLEDGE_SEED_LOCATIONS` | RAG 语料资源位置，默认 `classpath*:/knowledge/*.json`，可替换为其他 classpath pattern |
 | `AI_KNOWLEDGE_CORPUS_VERSION` | 当前 RAG 语料版本，`GET /api/ai/knowledge/stats` 会返回该值 |
+| `AI_KNOWLEDGE_OBJECT_STORAGE_ENABLED` | RAG 上传原文件是否写入 VM3 MinIO，v3.11 默认 `true` |
+| `AI_KNOWLEDGE_MINIO_BUCKET` | RAG 知识文件对象存储 bucket，默认 `knowledge` |
+| `AI_KNOWLEDGE_VECTOR_ENABLED` | RAG chunk 是否写入 Milvus 向量索引，v3.11 默认 `true` |
+| `MILVUS_ENDPOINT` | `ai-service` 访问 Milvus 的地址，默认 `http://milvus-standalone:19530` |
+| `MILVUS_COLLECTION` | Milvus collection 名称，默认 `campus_knowledge_chunks` |
+| `MILVUS_PORT` | VM3 对外暴露 Milvus gRPC/REST 端口，默认 `19530` |
 | `AI_SCREENING_CACHE_TTL` | AI 初筛历史 Redis 缓存 TTL |
 | `AI_SCREENING_ROCKETMQ_ENABLED` | AI 服务是否消费 RocketMQ 投递事件并创建异步初筛任务，三机部署默认 `true` |
 | `AI_SCREENING_ROCKETMQ_CONSUMER_GROUP` | AI 初筛 RocketMQ consumer group，默认 `ai-screening-consumer` |
@@ -173,7 +180,7 @@ SENTINEL_DASHBOARD_PASSWORD=replace-with-a-strong-sentinel-password
 - VM1 `gateway-service`：`AUTH_SERVICE_URI=http://${VM2_HOST}:8101`、`USER_SERVICE_URI=http://${VM2_HOST}:8102`、`RESUME_SERVICE_URI=http://${VM2_HOST}:8103`、`JOB_SERVICE_URI=http://${VM2_HOST}:8104`、`MATCH_SERVICE_URI=http://${VM2_HOST}:8105`、`DELIVERY_SERVICE_URI=http://${VM2_HOST}:8107`、`AI_SERVICE_URI=http://${VM3_HOST}:8106`、`JWT_SECRET=${JWT_SECRET}`、`JWT_ISSUER=${JWT_ISSUER}`、`GATEWAY_AUTH_ENABLED=${GATEWAY_AUTH_ENABLED}`、`SPRING_CLOUD_SENTINEL_TRANSPORT_DASHBOARD=sentinel-dashboard:8858`。
 - VM2 `user-service`：`DASHBOARD_REALTIME_ENABLED=${DASHBOARD_REALTIME_ENABLED}`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATASOURCE_USERNAME`、`SPRING_DATASOURCE_PASSWORD`。这些 datasource 变量只用于管理大屏聚合真实业务表；请通过 `deploy/three-vm.env` 或安全配置注入真实密码，不要提交真实值。
 - VM2 业务服务：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`；`auth-service` 额外使用 `JWT_SECRET=${JWT_SECRET}`、`JWT_ISSUER=${JWT_ISSUER}`；`resume-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`RESUME_OBJECT_STORAGE_ENABLED=true`、`MINIO_ENDPOINT=http://${VM3_HOST}:9000`、`MINIO_BUCKET=${MINIO_BUCKET}`、`RESUME_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`job-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`JOB_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`match-service` 额外使用 `MATCH_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`delivery-service` 额外使用 `DELIVERY_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`、`DELIVERY_EVENTS_ROCKETMQ_ENABLED=true`、`ROCKETMQ_NAME_SERVER=${VM3_HOST}:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
-- VM3 `ai-service`：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`、`DASHSCOPE_TEMPERATURE=${DASHSCOPE_TEMPERATURE}`、`AI_PLANNING_PERSISTENCE_ENABLED=${AI_PLANNING_PERSISTENCE_ENABLED}`、`AI_KNOWLEDGE_PERSISTENCE_ENABLED=${AI_KNOWLEDGE_PERSISTENCE_ENABLED}`、`AI_KNOWLEDGE_SEED_ENABLED=${AI_KNOWLEDGE_SEED_ENABLED}`、`AI_KNOWLEDGE_SEED_LOCATIONS=${AI_KNOWLEDGE_SEED_LOCATIONS}`、`AI_KNOWLEDGE_CORPUS_VERSION=${AI_KNOWLEDGE_CORPUS_VERSION}`、`SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=redis`、`AI_SCREENING_ROCKETMQ_ENABLED=${AI_SCREENING_ROCKETMQ_ENABLED}`、`ROCKETMQ_NAME_SERVER=rocketmq-namesrv:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
+- VM3 `ai-service`：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`、`DASHSCOPE_TEMPERATURE=${DASHSCOPE_TEMPERATURE}`、`AI_PLANNING_PERSISTENCE_ENABLED=${AI_PLANNING_PERSISTENCE_ENABLED}`、`AI_KNOWLEDGE_PERSISTENCE_ENABLED=${AI_KNOWLEDGE_PERSISTENCE_ENABLED}`、`AI_KNOWLEDGE_SEED_ENABLED=${AI_KNOWLEDGE_SEED_ENABLED}`、`AI_KNOWLEDGE_SEED_LOCATIONS=${AI_KNOWLEDGE_SEED_LOCATIONS}`、`AI_KNOWLEDGE_CORPUS_VERSION=${AI_KNOWLEDGE_CORPUS_VERSION}`、`AI_KNOWLEDGE_OBJECT_STORAGE_ENABLED=${AI_KNOWLEDGE_OBJECT_STORAGE_ENABLED}`、`AI_KNOWLEDGE_VECTOR_ENABLED=${AI_KNOWLEDGE_VECTOR_ENABLED}`、`MILVUS_ENDPOINT=${MILVUS_ENDPOINT}`、`SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=redis`、`AI_SCREENING_ROCKETMQ_ENABLED=${AI_SCREENING_ROCKETMQ_ENABLED}`、`ROCKETMQ_NAME_SERVER=rocketmq-namesrv:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
 
 ## 启动顺序
 
@@ -295,7 +302,7 @@ bash scripts/check-three-vm-health.sh --env-file deploy/three-vm.env --timeout 5
 
 - VM1：前端 `/`、前端 `/api/ai/status` 代理、Gateway `/actuator/health`、Gateway `/api/ai/status`、Nacos `/nacos/`、Nacos gRPC `9848`。
 - VM2：`auth-service`、`user-service`、`resume-service`、`job-service`、`match-service`、`delivery-service` 的 `/actuator/health`。
-- VM3：`ai-service` `/actuator/health` 和 `/api/ai/status`，MySQL `3306`、Redis `6379`、MinIO `/minio/health/ready` 和 Console `9001`、RocketMQ `9876`、`10911`、`10909`。
+- VM3：`ai-service` `/actuator/health`、`/api/ai/status` 和 `/api/ai/knowledge/vector/status`，MySQL `3306`、Redis `6379`、MinIO `/minio/health/ready` 和 Console `9001`、RocketMQ `9876`、`10911`、`10909`、Milvus `19530`。
 
 脚本返回非零 exit code 表示至少一个检查失败，适合部署后验收或后续接入 CI。
 

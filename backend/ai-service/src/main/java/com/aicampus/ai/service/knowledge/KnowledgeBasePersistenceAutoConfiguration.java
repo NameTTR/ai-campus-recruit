@@ -52,4 +52,13 @@ public class KnowledgeBasePersistenceAutoConfiguration {
         factoryBean.setSqlSessionFactory(sqlSessionFactory);
         return factoryBean;
     }
+
+    @Bean
+    @ConditionalOnMissingBean(KnowledgeIngestionJobMapper.class)
+    public MapperFactoryBean<KnowledgeIngestionJobMapper> knowledgeIngestionJobMapper(SqlSessionFactory sqlSessionFactory) {
+        MapperFactoryBean<KnowledgeIngestionJobMapper> factoryBean =
+                new MapperFactoryBean<>(KnowledgeIngestionJobMapper.class);
+        factoryBean.setSqlSessionFactory(sqlSessionFactory);
+        return factoryBean;
+    }
 }

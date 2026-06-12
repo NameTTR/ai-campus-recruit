@@ -439,6 +439,68 @@ export interface KnowledgeDocument extends KnowledgeDocumentRequest {
   createdAt: string
 }
 
+export type KnowledgeIngestionStatus = 'UPLOADED' | 'PARSING' | 'INDEXING' | 'READY' | 'FAILED' | 'DUPLICATE'
+
+export interface KnowledgeFileUploadRequest {
+  file: File
+  title: string
+  category: string
+  source: string
+  tags: string[]
+  roles: string[]
+}
+
+export interface KnowledgeIngestionQuery {
+  status?: KnowledgeIngestionStatus | ''
+  limit?: number
+}
+
+export interface KnowledgeIngestionJob {
+  jobId: string
+  fileName: string
+  title: string
+  category: string
+  source: string
+  status: KnowledgeIngestionStatus
+  message: string
+  documentId?: string | null
+  chunkCount: number
+  vectorCount: number
+  error?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface KnowledgeVectorStatus {
+  provider: string
+  configured: boolean
+  connected: boolean
+  collectionName: string
+  indexName: string
+  status: string
+  indexStatus?: string
+  metricType: string
+  dimension: number
+  documentCount: number
+  chunkCount: number
+  vectorCount: number
+  lastIngestedAt?: string | null
+  generatedAt: string
+  warnings: string[]
+}
+
+interface BackendKnowledgeVectorStatus {
+  provider: string
+  enabled: boolean
+  available: boolean
+  endpoint: string
+  collection: string
+  dimension: number
+  indexedChunkCount: number
+  fallbackReason?: string | null
+  checkedAt: string
+}
+
 export interface KnowledgeBaseStats {
   documentCount: number
   chunkCount: number
@@ -1219,6 +1281,54 @@ const fallbackKnowledgeDocuments: KnowledgeDocument[] = [
   }
 ]
 
+const fallbackKnowledgeIngestionJobs: KnowledgeIngestionJob[] = [
+  {
+    jobId: 'KBI-DEMO-003',
+    fileName: 'campus-rag-bulk-handbook.pdf',
+    title: 'Campus RAG bulk handbook',
+    category: 'rag',
+    source: 'admin-upload',
+    status: 'READY',
+    message: 'File parsed, chunked, and indexed into the local demo vector store.',
+    documentId: 'KB-DEMO-901',
+    chunkCount: 18,
+    vectorCount: 18,
+    error: null,
+    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    jobId: 'KBI-DEMO-002',
+    fileName: 'screening-playbook.docx',
+    title: 'Screening playbook batch import',
+    category: 'screening',
+    source: 'admin-upload',
+    status: 'INDEXING',
+    message: 'Embedding chunks and writing vectors.',
+    documentId: null,
+    chunkCount: 9,
+    vectorCount: 6,
+    error: null,
+    createdAt: new Date(Date.now() - 70 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 12 * 60 * 1000).toISOString()
+  },
+  {
+    jobId: 'KBI-DEMO-001',
+    fileName: 'legacy-faq.txt',
+    title: 'Legacy FAQ import',
+    category: 'faq',
+    source: 'legacy-import',
+    status: 'FAILED',
+    message: 'Unsupported encoding detected before chunking.',
+    documentId: null,
+    chunkCount: 0,
+    vectorCount: 0,
+    error: 'Unsupported encoding',
+    createdAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString()
+  }
+]
+
 function countKnowledgeValues(values: string[]) {
   return values.reduce<Record<string, number>>((counts, value) => {
     const key = value.trim() || 'unknown'
@@ -1239,6 +1349,51 @@ function fallbackKnowledgeBaseStats(): KnowledgeBaseStats {
     seedEnabled: true,
     persistentStore: false,
     generatedAt: new Date().toISOString()
+  }
+}
+
+function fallbackKnowledgeVectorStatus(): KnowledgeVectorStatus {
+  const completedJobs = fallbackKnowledgeIngestionJobs.filter((job) => job.status === 'READY')
+  return {
+    provider: 'milvus',
+    configured: false,
+    connected: false,
+    collectionName: 'campus_recruit_knowledge_demo',
+    indexName: 'idx_campus_knowledge_embedding',
+    status: 'DEMO',
+    indexStatus: 'LOCAL_FALLBACK',
+    metricType: 'COSINE',
+    dimension: 1536,
+    documentCount: fallbackKnowledgeDocuments.length + completedJobs.length,
+    chunkCount: fallbackKnowledgeBaseStats().chunkCount + completedJobs.reduce((sum, job) => sum + job.chunkCount, 0),
+    vectorCount: completedJobs.reduce((sum, job) => sum + job.vectorCount, 0),
+    lastIngestedAt: completedJobs[0]?.updatedAt || null,
+    generatedAt: new Date().toISOString(),
+    warnings: ['Milvus is not configured in the local frontend fallback.']
+  }
+}
+
+function normalizeKnowledgeVectorStatus(value: KnowledgeVectorStatus | BackendKnowledgeVectorStatus): KnowledgeVectorStatus {
+  if ('collectionName' in value) {
+    return value
+  }
+  const status = value.available ? 'READY' : value.enabled ? 'DEGRADED' : 'LOCAL_FALLBACK'
+  return {
+    provider: value.provider,
+    configured: value.enabled,
+    connected: value.available,
+    collectionName: value.collection,
+    indexName: `${value.collection}:embedding`,
+    status,
+    indexStatus: status,
+    metricType: 'COSINE',
+    dimension: value.dimension,
+    documentCount: 0,
+    chunkCount: value.indexedChunkCount,
+    vectorCount: value.indexedChunkCount,
+    lastIngestedAt: null,
+    generatedAt: value.checkedAt,
+    warnings: value.fallbackReason ? [value.fallbackReason] : []
   }
 }
 
@@ -1444,7 +1599,7 @@ const fallbackAdminAuditRecords: AdminAuditRecord[] = [
     studentId: 'S001',
     jobId: 'J001',
     service: 'ai-service',
-    status: 'COMPLETED',
+    status: 'READY',
     riskLevel: 'LOW',
     score: 82,
     summary: 'Interview answer feedback is stored without exposing raw prompt or credential data.',
@@ -2165,6 +2320,64 @@ export function createKnowledgeDocument(payload: KnowledgeDocumentRequest) {
     method: 'POST',
     body: JSON.stringify(payload)
   }, fallback)
+}
+
+export function uploadKnowledgeFile(payload: KnowledgeFileUploadRequest) {
+  const title = payload.title.trim() || payload.file.name
+  const category = payload.category.trim() || 'general'
+  const source = payload.source.trim() || 'admin-upload'
+  const tags = payload.tags.map((tag) => tag.trim()).filter(Boolean)
+  const roles = payload.roles.map((role) => role.trim()).filter(Boolean)
+  const formData = new FormData()
+  formData.set('file', payload.file)
+  formData.set('title', title)
+  formData.set('category', category)
+  formData.set('source', source)
+  formData.set('tags', tags.join(','))
+  formData.set('roles', roles.join(','))
+  const now = new Date().toISOString()
+  const fallback: KnowledgeIngestionJob = {
+    jobId: `KBI-DEMO-${Date.now().toString().slice(-6)}`,
+    fileName: payload.file.name,
+    title,
+    category,
+    source,
+    status: 'READY',
+    message: 'File accepted by local fallback ingestion.',
+    documentId: `KB-DEMO-FILE-${Date.now().toString().slice(-6)}`,
+    chunkCount: Math.max(1, Math.ceil(payload.file.size / 1200)),
+    vectorCount: Math.max(1, Math.ceil(payload.file.size / 1200)),
+    error: null,
+    createdAt: now,
+    updatedAt: now
+  }
+  return request<KnowledgeIngestionJob>('/api/ai/knowledge/files', {
+    method: 'POST',
+    body: formData
+  }, fallback)
+}
+
+export function listKnowledgeIngestions(query: KnowledgeIngestionQuery = {}) {
+  const params = new URLSearchParams()
+  const status = query.status?.trim().toUpperCase() as KnowledgeIngestionStatus | ''
+  const limit = query.limit ?? 10
+  if (status) {
+    params.set('status', status)
+  }
+  params.set('limit', String(limit))
+  const fallback = fallbackKnowledgeIngestionJobs
+    .filter((job) => !status || job.status === status)
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+    .slice(0, limit)
+  return request<KnowledgeIngestionJob[]>(`/api/ai/knowledge/ingestions?${params.toString()}`, {
+    method: 'GET'
+  }, fallback)
+}
+
+export function getKnowledgeVectorStatus() {
+  return request<KnowledgeVectorStatus | BackendKnowledgeVectorStatus>('/api/ai/knowledge/vector/status', {
+    method: 'GET'
+  }, fallbackKnowledgeVectorStatus()).then(normalizeKnowledgeVectorStatus)
 }
 
 export function getKnowledgeBaseStats() {

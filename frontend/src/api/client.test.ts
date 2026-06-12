@@ -9,6 +9,7 @@ import {
   exportAdminAudit,
   getAuthSession,
   getKnowledgeBaseStats,
+  getKnowledgeVectorStatus,
   generateCareerPlan,
   generateCoachAdvice,
   generateInterviewQuestions,
@@ -30,6 +31,7 @@ import {
   listAccounts,
   listCandidateScreenRecords,
   listCandidateScreenTasks,
+  listKnowledgeIngestions,
   listMyCandidateScreenRecords,
   listMyInterviewSchedules,
   listMyNotifications,
@@ -48,6 +50,7 @@ import {
   submitInterviewFeedback,
   retryCandidateScreenTask,
   rewriteResume,
+  uploadKnowledgeFile,
   updateInterviewScheduleStatus,
   updateAccountStatus
 } from './client'
@@ -1196,6 +1199,139 @@ describe('api fallback behavior', () => {
     expect(fetch).toHaveBeenCalledWith('/api/ai/knowledge/documents', expect.any(Object))
     const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
     expect(JSON.parse(String(requestInit.body))).toEqual(payload)
+  })
+
+  it('uploads rag file through fallback ingestion when gateway is offline', async () => {
+    const file = new File(['RAG handbook content'], 'bulk-handbook.pdf', { type: 'application/pdf' })
+
+    const result = await uploadKnowledgeFile({
+      file,
+      title: '',
+      category: 'rag',
+      source: 'admin-upload',
+      tags: ['bulk', 'RAG'],
+      roles: ['ADMIN']
+    })
+
+    expect(result.fileName).toBe('bulk-handbook.pdf')
+    expect(result.title).toBe('bulk-handbook.pdf')
+    expect(result.status).toBe('READY')
+    expect(result.chunkCount).toBeGreaterThan(0)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls rag file upload endpoint with multipart form data when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          jobId: 'KBI-900',
+          fileName: 'bulk-handbook.pdf',
+          title: 'Bulk Handbook',
+          category: 'rag',
+          source: 'admin-upload',
+          status: 'UPLOADED',
+          message: 'queued',
+          documentId: null,
+          chunkCount: 0,
+          vectorCount: 0,
+          error: null,
+          createdAt: '2026-06-12T00:00:00Z',
+          updatedAt: '2026-06-12T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const file = new File(['RAG handbook content'], 'bulk-handbook.pdf', { type: 'application/pdf' })
+    const result = await uploadKnowledgeFile({
+      file,
+      title: ' Bulk Handbook ',
+      category: ' rag ',
+      source: ' admin-upload ',
+      tags: ['bulk', 'RAG'],
+      roles: ['ADMIN', 'STUDENT']
+    })
+
+    expect(result.jobId).toBe('KBI-900')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/knowledge/files', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    const headers = new Headers(requestInit.headers)
+    const formData = requestInit.body as FormData
+    expect(headers.get('Content-Type')).toBeNull()
+    expect(formData.get('file')).toBe(file)
+    expect(formData.get('title')).toBe('Bulk Handbook')
+    expect(formData.get('category')).toBe('rag')
+    expect(formData.get('source')).toBe('admin-upload')
+    expect(formData.get('tags')).toBe('bulk,RAG')
+    expect(formData.get('roles')).toBe('ADMIN,STUDENT')
+  })
+
+  it('returns rag ingestion job fallback with status filtering', async () => {
+    const result = await listKnowledgeIngestions({ status: 'FAILED', limit: 5 })
+
+    expect(result).toHaveLength(1)
+    expect(result[0].status).toBe('FAILED')
+    expect(result[0].message).toBeTruthy()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls rag ingestion list endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: []
+      })
+    } as Response)
+
+    const result = await listKnowledgeIngestions({ status: 'INDEXING', limit: 10 })
+
+    expect(result).toEqual([])
+    expect(fetch).toHaveBeenCalledWith('/api/ai/knowledge/ingestions?status=INDEXING&limit=10', expect.any(Object))
+  })
+
+  it('returns vector index status fallback when gateway is offline', async () => {
+    const result = await getKnowledgeVectorStatus()
+
+    expect(result.provider).toBe('milvus')
+    expect(result.indexName).toBeTruthy()
+    expect(result.vectorCount).toBeGreaterThan(0)
+    expect(result.warnings.length).toBeGreaterThan(0)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls vector index status endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          provider: 'milvus-rest',
+          enabled: true,
+          available: true,
+          endpoint: 'http://127.0.0.1:19530',
+          collection: 'campus_knowledge',
+          dimension: 96,
+          indexedChunkCount: 48,
+          fallbackReason: null,
+          checkedAt: '2026-06-12T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await getKnowledgeVectorStatus()
+
+    expect(result.connected).toBe(true)
+    expect(result.vectorCount).toBe(48)
+    expect(result.collectionName).toBe('campus_knowledge')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/knowledge/vector/status', expect.any(Object))
   })
 
   it('calls rag knowledge search endpoint when ai proxy is configured', async () => {

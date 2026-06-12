@@ -33,12 +33,15 @@ import {
   getDashboard,
   getCurrentPermissions,
   getKnowledgeBaseStats,
+  getKnowledgeVectorStatus,
   getSystemStatus,
   createKnowledgeDocument,
   listAiCallRecords,
   listAccounts,
+  listKnowledgeIngestions,
   listKnowledgeDocuments,
   searchAiKnowledge,
+  uploadKnowledgeFile,
   updateAccountStatus,
   type AccountStatus,
   type AdminAuditEntityType,
@@ -56,6 +59,9 @@ import {
   type DeliveryStatus,
   type KnowledgeBaseStats,
   type KnowledgeDocument,
+  type KnowledgeIngestionJob,
+  type KnowledgeIngestionStatus,
+  type KnowledgeVectorStatus,
   type Role,
   type SystemServiceStatus,
   type SystemStatus
@@ -71,6 +77,8 @@ const aiCallRecords = ref<AiCallRecord[]>([])
 const aiSearchResponse = ref<AiSearchResponse>()
 const knowledgeStats = ref<KnowledgeBaseStats>()
 const knowledgeDocuments = ref<KnowledgeDocument[]>([])
+const knowledgeIngestionJobs = ref<KnowledgeIngestionJob[]>([])
+const knowledgeVectorStatus = ref<KnowledgeVectorStatus>()
 const auditOverview = ref<AdminAuditOverview>()
 const auditExport = ref<AdminAuditExportResult>()
 const accounts = ref<AccountSummary[]>([])
@@ -80,6 +88,8 @@ const aiLoading = ref(false)
 const aiSearchLoading = ref(false)
 const knowledgeLoading = ref(false)
 const knowledgeCreating = ref(false)
+const knowledgeUploadLoading = ref(false)
+const knowledgeIngestionLoading = ref(false)
 const auditLoading = ref(false)
 const auditExportLoading = ref(false)
 const accountsLoading = ref(false)
@@ -97,6 +107,19 @@ const knowledgeFilters = reactive({
   keyword: '',
   role: 'ADMIN',
   limit: 20
+})
+const knowledgeIngestionFilters = reactive({
+  status: '' as KnowledgeIngestionStatus | '',
+  limit: 10
+})
+const knowledgeFileInput = ref<HTMLInputElement>()
+const knowledgeFile = ref<File | null>(null)
+const knowledgeFileForm = reactive({
+  title: '',
+  category: 'rag',
+  source: 'admin-upload',
+  tags: '',
+  roles: ['ADMIN'] as string[]
 })
 const knowledgeForm = reactive({
   title: '',
@@ -186,6 +209,9 @@ const aiSearchResults = computed(() => aiSearchResponse.value?.results || [])
 const knowledgeTopCategories = computed(() => topCountRows(knowledgeStats.value?.categoryCounts))
 const knowledgeTopSources = computed(() => topCountRows(knowledgeStats.value?.sourceCounts))
 const knowledgeDocumentRows = computed(() => knowledgeDocuments.value)
+const knowledgeIngestionRows = computed(() => knowledgeIngestionJobs.value)
+const vectorIndexStatus = computed(() => knowledgeVectorStatus.value?.indexStatus || knowledgeVectorStatus.value?.status || 'UNKNOWN')
+const vectorWarnings = computed(() => knowledgeVectorStatus.value?.warnings || [])
 const auditMetrics = computed(() => auditOverview.value?.metrics || [])
 const auditRows = computed(() => auditOverview.value?.records || [])
 const auditWarnings = computed(() => auditOverview.value?.warnings || [])
@@ -207,7 +233,22 @@ function topCountRows(counts?: Record<string, number>) {
 }
 
 onMounted(async () => {
-  const [dashboard, status, topology, guide, accountList, permissions, aiSummary, aiCalls, aiSearch, kbStats, knowledgeDocs, audit] = await Promise.all([
+  const [
+    dashboard,
+    status,
+    topology,
+    guide,
+    accountList,
+    permissions,
+    aiSummary,
+    aiCalls,
+    aiSearch,
+    kbStats,
+    knowledgeDocs,
+    ingestionJobs,
+    vectorStatus,
+    audit
+  ] = await Promise.all([
     getDashboard(),
     getSystemStatus(),
     getDeploymentTopology(),
@@ -219,6 +260,8 @@ onMounted(async () => {
     searchAiKnowledge(aiSearchForm),
     getKnowledgeBaseStats(),
     listKnowledgeDocuments(knowledgeFilters.keyword, knowledgeFilters.role, knowledgeFilters.limit),
+    listKnowledgeIngestions(knowledgeIngestionFilters),
+    getKnowledgeVectorStatus(),
     getAdminAuditOverview(auditFilters)
   ])
   stats.value = dashboard
@@ -232,6 +275,8 @@ onMounted(async () => {
   aiSearchResponse.value = aiSearch
   knowledgeStats.value = kbStats
   knowledgeDocuments.value = knowledgeDocs
+  knowledgeIngestionJobs.value = ingestionJobs
+  knowledgeVectorStatus.value = vectorStatus
   auditOverview.value = audit
 })
 
@@ -306,19 +351,48 @@ async function runAiSearch() {
 
 async function refreshKnowledgeDocuments() {
   knowledgeLoading.value = true
+  knowledgeIngestionLoading.value = true
   try {
-    const [stats, documents] = await Promise.all([
+    const [stats, documents, ingestionJobs, vectorStatus] = await Promise.all([
       getKnowledgeBaseStats(),
       listKnowledgeDocuments(
         knowledgeFilters.keyword,
         knowledgeFilters.role,
         knowledgeFilters.limit
-      )
+      ),
+      listKnowledgeIngestions(knowledgeIngestionFilters),
+      getKnowledgeVectorStatus()
     ])
     knowledgeStats.value = stats
     knowledgeDocuments.value = documents
+    knowledgeIngestionJobs.value = ingestionJobs
+    knowledgeVectorStatus.value = vectorStatus
   } finally {
     knowledgeLoading.value = false
+    knowledgeIngestionLoading.value = false
+  }
+}
+
+async function refreshKnowledgeIngestions() {
+  knowledgeIngestionLoading.value = true
+  try {
+    const [jobs, vectorStatus] = await Promise.all([
+      listKnowledgeIngestions(knowledgeIngestionFilters),
+      getKnowledgeVectorStatus()
+    ])
+    knowledgeIngestionJobs.value = jobs
+    knowledgeVectorStatus.value = vectorStatus
+  } finally {
+    knowledgeIngestionLoading.value = false
+  }
+}
+
+function handleKnowledgeFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] || null
+  knowledgeFile.value = file
+  if (file && !knowledgeFileForm.title.trim()) {
+    knowledgeFileForm.title = file.name.replace(/\.[^.]+$/, '')
   }
 }
 
@@ -327,6 +401,52 @@ function parseKnowledgeTags(value: string) {
     .split(/[,;\n]/)
     .map((tag) => tag.trim())
     .filter(Boolean)
+}
+
+async function submitKnowledgeFile() {
+  const file = knowledgeFile.value
+  const roles = knowledgeFileForm.roles.map((role) => role.trim()).filter(Boolean)
+  if (!file) {
+    ElMessage.warning('Please select a RAG file')
+    return
+  }
+  if (!roles.length) {
+    ElMessage.warning('Please select at least one readable role')
+    return
+  }
+
+  knowledgeUploadLoading.value = true
+  try {
+    const job = await uploadKnowledgeFile({
+      file,
+      title: knowledgeFileForm.title.trim() || file.name,
+      category: knowledgeFileForm.category.trim() || 'rag',
+      source: knowledgeFileForm.source.trim() || 'admin-upload',
+      tags: parseKnowledgeTags(knowledgeFileForm.tags),
+      roles
+    })
+    knowledgeIngestionJobs.value = [
+      job,
+      ...knowledgeIngestionJobs.value.filter((item) => item.jobId !== job.jobId)
+    ].slice(0, knowledgeIngestionFilters.limit)
+    const [stats, documents, vectorStatus] = await Promise.all([
+      getKnowledgeBaseStats(),
+      listKnowledgeDocuments(knowledgeFilters.keyword, knowledgeFilters.role, knowledgeFilters.limit),
+      getKnowledgeVectorStatus()
+    ])
+    knowledgeStats.value = stats
+    knowledgeDocuments.value = documents
+    knowledgeVectorStatus.value = vectorStatus
+    knowledgeFile.value = null
+    knowledgeFileForm.title = ''
+    knowledgeFileForm.tags = ''
+    if (knowledgeFileInput.value) {
+      knowledgeFileInput.value.value = ''
+    }
+    ElMessage.success('RAG file ingestion job created')
+  } finally {
+    knowledgeUploadLoading.value = false
+  }
 }
 
 function knowledgeDocumentMatchesFilters(document: KnowledgeDocument) {
@@ -436,13 +556,13 @@ async function resetAccountPassword() {
 
 function systemTagType(status: string): 'success' | 'warning' | 'info' | 'danger' {
   const normalized = status.toUpperCase()
-  if (['UP', 'ONLINE', 'CONFIGURED', 'ENABLED'].includes(normalized)) {
+  if (['UP', 'ONLINE', 'CONFIGURED', 'ENABLED', 'READY', 'COMPLETED', 'CONNECTED'].includes(normalized)) {
     return 'success'
   }
   if (['DOWN', 'FAILED', 'ERROR'].includes(normalized)) {
     return 'danger'
   }
-  if (['DISABLED', 'OPTIONAL', 'UNKNOWN'].includes(normalized)) {
+  if (['BUILDING', 'DEMO', 'DISABLED', 'INDEXING', 'OPTIONAL', 'PARSING', 'PENDING', 'RUNNING', 'UPLOADED', 'UNKNOWN'].includes(normalized)) {
     return 'warning'
   }
   return 'info'
@@ -473,6 +593,23 @@ function servicePort(row: SystemServiceStatus) {
     return `${row.port} / ${row.defaultPort}`
   }
   return String(row.port)
+}
+
+function ingestionStatusType(status: KnowledgeIngestionStatus | string): 'success' | 'warning' | 'info' | 'danger' {
+  const normalized = status.toUpperCase()
+  if (['COMPLETED', 'SUCCESS', 'READY'].includes(normalized)) {
+    return 'success'
+  }
+  if (['DUPLICATE'].includes(normalized)) {
+    return 'info'
+  }
+  if (['FAILED', 'ERROR'].includes(normalized)) {
+    return 'danger'
+  }
+  if (['INDEXING', 'PARSING', 'PROCESSING', 'RUNNING', 'BUILDING'].includes(normalized)) {
+    return 'warning'
+  }
+  return 'info'
 }
 
 function stepTagType(nodeId: string): 'success' | 'warning' | 'info' {
@@ -838,6 +975,21 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
           <span>Knowledge Store</span>
           <strong>{{ knowledgeStats?.persistentStore ? 'MySQL' : 'Memory' }}</strong>
         </div>
+        <div class="metric ai-metric">
+          <Database :size="22" />
+          <span>Vector Index</span>
+          <strong>{{ vectorIndexStatus }}</strong>
+        </div>
+        <div class="metric ai-metric">
+          <ServerCog :size="22" />
+          <span>Milvus</span>
+          <strong>{{ knowledgeVectorStatus?.connected ? 'Connected' : 'Offline' }}</strong>
+        </div>
+        <div class="metric ai-metric">
+          <HardDrive :size="22" />
+          <span>Vectors</span>
+          <strong>{{ knowledgeVectorStatus?.vectorCount || 0 }}</strong>
+        </div>
       </div>
 
       <section class="panel module-panel">
@@ -950,6 +1102,167 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
           </article>
         </div>
         <el-empty v-else description="No search results yet" />
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          Milvus / Vector Index
+          <span class="panel-title-actions">
+            <span class="generated-at">{{ formatDateTime(knowledgeVectorStatus?.generatedAt) }}</span>
+            <el-button circle size="small" :loading="knowledgeIngestionLoading" @click="refreshKnowledgeIngestions">
+              <RefreshCw :size="15" />
+            </el-button>
+            <Database :size="19" />
+          </span>
+        </h2>
+        <div class="vector-status-grid">
+          <div class="vector-status-card">
+            <span>Provider</span>
+            <strong>{{ knowledgeVectorStatus?.provider || 'unknown' }}</strong>
+          </div>
+          <div class="vector-status-card">
+            <span>Connection</span>
+            <el-tag :type="knowledgeVectorStatus?.connected ? 'success' : 'warning'">
+              {{ knowledgeVectorStatus?.connected ? 'CONNECTED' : 'OFFLINE' }}
+            </el-tag>
+          </div>
+          <div class="vector-status-card">
+            <span>Index Status</span>
+            <el-tag :type="systemTagType(vectorIndexStatus)">{{ vectorIndexStatus }}</el-tag>
+          </div>
+          <div class="vector-status-card">
+            <span>Collection</span>
+            <strong>{{ knowledgeVectorStatus?.collectionName || '-' }}</strong>
+          </div>
+          <div class="vector-status-card">
+            <span>Index</span>
+            <strong>{{ knowledgeVectorStatus?.indexName || '-' }}</strong>
+          </div>
+          <div class="vector-status-card">
+            <span>Metric / Dimension</span>
+            <strong>{{ knowledgeVectorStatus?.metricType || '-' }} / {{ knowledgeVectorStatus?.dimension || 0 }}</strong>
+          </div>
+          <div class="vector-status-card">
+            <span>Chunks</span>
+            <strong>{{ knowledgeVectorStatus?.chunkCount || 0 }}</strong>
+          </div>
+          <div class="vector-status-card">
+            <span>Last Ingested</span>
+            <strong>{{ formatDateTime(knowledgeVectorStatus?.lastIngestedAt || undefined) }}</strong>
+          </div>
+        </div>
+        <div v-if="vectorWarnings.length" class="warning-list vector-warning-list">
+          <el-alert
+            v-for="warning in vectorWarnings"
+            :key="warning"
+            :title="warning"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+        </div>
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          RAG File Upload
+          <ClipboardCheck :size="19" />
+        </h2>
+        <el-form label-position="top">
+          <div class="knowledge-form-grid">
+            <el-form-item label="Title">
+              <el-input v-model="knowledgeFileForm.title" maxlength="160" show-word-limit />
+            </el-form-item>
+            <el-form-item label="Category">
+              <el-input v-model="knowledgeFileForm.category" />
+            </el-form-item>
+            <el-form-item label="Source">
+              <el-input v-model="knowledgeFileForm.source" />
+            </el-form-item>
+            <el-form-item label="Readable Roles">
+              <el-select v-model="knowledgeFileForm.roles" multiple collapse-tags collapse-tags-tooltip>
+                <el-option label="ADMIN" value="ADMIN" />
+                <el-option label="STUDENT" value="STUDENT" />
+                <el-option label="COMPANY" value="COMPANY" />
+                <el-option label="ALL" value="ALL" />
+              </el-select>
+            </el-form-item>
+          </div>
+          <el-form-item label="Tags">
+            <el-input v-model="knowledgeFileForm.tags" placeholder="bulk, RAG, handbook" />
+          </el-form-item>
+          <div class="knowledge-upload-row">
+            <input
+              ref="knowledgeFileInput"
+              class="knowledge-file-input"
+              type="file"
+              accept=".pdf,.doc,.docx,.txt,.md"
+              @change="handleKnowledgeFileChange"
+            >
+            <el-button type="primary" :loading="knowledgeUploadLoading" @click="submitKnowledgeFile">Upload File</el-button>
+          </div>
+        </el-form>
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title">
+          Ingestion Jobs
+          <span class="panel-title-actions">
+            <el-button circle size="small" :loading="knowledgeIngestionLoading" @click="refreshKnowledgeIngestions">
+              <RefreshCw :size="15" />
+            </el-button>
+            <Timer :size="19" />
+          </span>
+        </h2>
+        <div class="knowledge-ingestion-toolbar">
+          <el-select v-model="knowledgeIngestionFilters.status" clearable placeholder="status">
+            <el-option label="UPLOADED" value="UPLOADED" />
+            <el-option label="PARSING" value="PARSING" />
+            <el-option label="INDEXING" value="INDEXING" />
+            <el-option label="READY" value="READY" />
+            <el-option label="DUPLICATE" value="DUPLICATE" />
+            <el-option label="FAILED" value="FAILED" />
+          </el-select>
+          <el-select v-model="knowledgeIngestionFilters.limit" placeholder="limit">
+            <el-option label="10" :value="10" />
+            <el-option label="20" :value="20" />
+            <el-option label="50" :value="50" />
+          </el-select>
+          <el-button :loading="knowledgeIngestionLoading" @click="refreshKnowledgeIngestions">Apply</el-button>
+        </div>
+        <el-table v-loading="knowledgeIngestionLoading" class="knowledge-table" :data="knowledgeIngestionRows" style="width: 100%">
+          <el-table-column label="Job" min-width="230">
+            <template #default="{ row }">
+              <div class="knowledge-title">
+                <strong>{{ row.title }}</strong>
+                <span>{{ row.jobId }} / {{ row.fileName }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="Source" min-width="140">
+            <template #default="{ row }">
+              <div class="knowledge-source">
+                <strong>{{ row.source }}</strong>
+                <span>{{ row.category }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="Status" width="118">
+            <template #default="{ row }">
+              <el-tag :type="ingestionStatusType(row.status)">{{ row.status }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="Chunks" width="94">
+            <template #default="{ row }">{{ row.chunkCount }}</template>
+          </el-table-column>
+          <el-table-column label="Vectors" width="94">
+            <template #default="{ row }">{{ row.vectorCount }}</template>
+          </el-table-column>
+          <el-table-column label="Updated" width="128">
+            <template #default="{ row }">{{ formatDateTime(row.updatedAt) }}</template>
+          </el-table-column>
+          <el-table-column prop="message" label="Message" min-width="220" />
+        </el-table>
       </section>
 
       <section class="panel module-panel">
@@ -2334,6 +2647,70 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
   width: 100%;
 }
 
+.knowledge-ingestion-toolbar {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 150px 112px max-content;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+
+.knowledge-ingestion-toolbar :deep(.el-select) {
+  width: 100%;
+}
+
+.knowledge-ingestion-toolbar .el-button {
+  width: 88px;
+}
+
+.knowledge-upload-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  min-width: 0;
+}
+
+.knowledge-file-input {
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  color: #344054;
+  min-width: 0;
+  padding: 8px;
+  width: 100%;
+}
+
+.vector-status-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.vector-status-card {
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.vector-status-card span {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.vector-status-card strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.vector-warning-list {
+  margin-top: 12px;
+}
+
 .knowledge-table {
   min-width: 0;
 }
@@ -2529,7 +2906,10 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
   .ai-call-toolbar,
   .ai-search-toolbar,
   .knowledge-toolbar,
-  .knowledge-form-grid {
+  .knowledge-form-grid,
+  .knowledge-ingestion-toolbar,
+  .knowledge-upload-row,
+  .vector-status-grid {
     grid-template-columns: 1fr;
   }
 

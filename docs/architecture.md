@@ -37,3 +37,11 @@
 - VM1：前端、Gateway、Nacos、Sentinel。
 - VM2：业务微服务。
 - VM3：MySQL、Redis、RocketMQ、MinIO、AI 服务、监控组件。
+# v3.11 RAG Ingestion and Vector Architecture
+
+- VM3 now also hosts Milvus for RAG chunk vector search. The compose file keeps the business MinIO and the Milvus internal MinIO separate to avoid port and bucket coupling.
+- `ai-service` uploads original knowledge files to MinIO when `AI_KNOWLEDGE_OBJECT_STORAGE_ENABLED=true`.
+- `ai-service` tracks ingestion jobs in MySQL table `ai_knowledge_ingestion_job` when knowledge persistence is enabled.
+- `ai-service` extracts text from `.txt`, `.md`, `.pdf`, `.doc`, and `.docx`, saves normalized documents/chunks, then upserts chunk vectors into Milvus when `AI_KNOWLEDGE_VECTOR_ENABLED=true`.
+- RAG search asks Milvus first and automatically falls back to local hash-vector retrieval if Milvus is disabled, unavailable, or empty.
+- New VM3 middleware: MySQL, Redis, RocketMQ, business MinIO, Milvus etcd, Milvus internal MinIO, Milvus standalone, and `ai-service`.

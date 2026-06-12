@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -14,11 +15,13 @@ import com.aicampus.ai.service.DashScopeClient;
 import com.aicampus.common.dto.CandidateScreenRequest;
 import com.aicampus.common.dto.CandidateScreenResult;
 import com.jayway.jsonpath.JsonPath;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest(classes = AiServiceApplication.class, properties = {
@@ -284,6 +287,109 @@ class AiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.results.length()").value(greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.data.results[0].title").value("Long RAG chunking guide"));
+    }
+
+    @Test
+    void knowledgeFileUploadCreatesAsyncIngestionAndSearchableDocument() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "bulk-kb-upload.txt",
+                "text/plain",
+                "bulk-upload-keyword explains Milvus backed RAG ingestion for campus recruitment.".getBytes(StandardCharsets.UTF_8));
+
+        String response = mockMvc.perform(multipart("/api/ai/knowledge/files")
+                        .file(file)
+                        .param("title", "Bulk upload RAG guide")
+                        .param("category", "rag")
+                        .param("source", "admin-upload")
+                        .param("tags", "bulk,upload")
+                        .param("roles", "ADMIN,STUDENT")
+                        .header("X-User-Id", "A-RAG-UPLOAD"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.jobId").isNotEmpty())
+                .andExpect(jsonPath("$.data.fileName").value("bulk-kb-upload.txt"))
+                .andExpect(jsonPath("$.data.status").value("UPLOADED"))
+                .andExpect(jsonPath("$.data.storageStatus").value("SKIPPED"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        String jobId = JsonPath.read(response, "$.data.jobId");
+        waitUntilKnowledgeJobStatus(jobId, "READY");
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "bulk-upload-keyword Milvus",
+                                  "role": "STUDENT",
+                                  "limit": 3
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.results.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.results[0].title").value("Bulk upload RAG guide"));
+    }
+
+    @Test
+    void duplicateKnowledgeFileUploadReusesExistingIngestionJob() throws Exception {
+        byte[] content = "duplicate-rag-upload-keyword validates sha256 deduplication.".getBytes(StandardCharsets.UTF_8);
+        MockMultipartFile firstFile = new MockMultipartFile("file", "dedup-a.txt", "text/plain", content);
+        String firstResponse = mockMvc.perform(multipart("/api/ai/knowledge/files")
+                        .file(firstFile)
+                        .param("title", "Dedup RAG upload")
+                        .param("roles", "ADMIN")
+                        .header("X-User-Id", "A-RAG-DEDUP"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String firstJobId = JsonPath.read(firstResponse, "$.data.jobId");
+        waitUntilKnowledgeJobStatus(firstJobId, "READY");
+
+        MockMultipartFile duplicateFile = new MockMultipartFile("file", "dedup-b.txt", "text/plain", content);
+        mockMvc.perform(multipart("/api/ai/knowledge/files")
+                        .file(duplicateFile)
+                        .param("title", "Dedup RAG upload duplicate")
+                        .param("roles", "ADMIN")
+                        .header("X-User-Id", "A-RAG-DEDUP"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.status").value("DUPLICATE"))
+                .andExpect(jsonPath("$.data.message").value(org.hamcrest.Matchers.containsString(firstJobId)))
+                .andExpect(jsonPath("$.data.chunkCount").value(greaterThanOrEqualTo(1)));
+    }
+
+    @Test
+    void knowledgeFileUploadRejectsUnsupportedFormat() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "malware.exe",
+                "application/octet-stream",
+                "not a knowledge file".getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(multipart("/api/ai/knowledge/files")
+                        .file(file)
+                        .param("title", "Invalid upload"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Unsupported knowledge file format")));
+    }
+
+    @Test
+    void knowledgeVectorStatusFallsBackWhenMilvusIsDisabled() throws Exception {
+        mockMvc.perform(get("/api/ai/knowledge/vector/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.provider").value("milvus-rest"))
+                .andExpect(jsonPath("$.data.enabled").value(false))
+                .andExpect(jsonPath("$.data.available").value(false))
+                .andExpect(jsonPath("$.data.collection").value("campus_knowledge_chunks"))
+                .andExpect(jsonPath("$.data.dimension").value(96))
+                .andExpect(jsonPath("$.data.fallbackReason").value(org.hamcrest.Matchers.containsString("disabled")));
     }
 
     @Test
@@ -940,6 +1046,23 @@ class AiControllerTest {
             }
             Thread.sleep(50);
         }
+    }
+
+    private void waitUntilKnowledgeJobStatus(String jobId, String status) throws Exception {
+        long deadline = System.currentTimeMillis() + 3000;
+        while (System.currentTimeMillis() < deadline) {
+            String content = mockMvc.perform(get("/api/ai/knowledge/ingestions")
+                            .param("limit", "50"))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+            if (content.contains("\"jobId\":\"" + jobId + "\"") && content.contains("\"status\":\"" + status + "\"")) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        throw new AssertionError("Knowledge ingestion job " + jobId + " did not reach " + status);
     }
 
     private static final class StubDashScopeClient extends DashScopeClient {

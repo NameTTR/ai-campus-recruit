@@ -709,6 +709,7 @@ $vm2Host = if ([string]::IsNullOrWhiteSpace($Vm2Ip)) { Get-RequiredValue -Values
 $vm3Host = if ([string]::IsNullOrWhiteSpace($Vm3Ip)) { Get-RequiredValue -Values $envValues -Key "VM3_HOST" } else { $Vm3Ip }
 $frontendPort = Get-ValueOrDefault -Values $envValues -Key "FRONTEND_PORT" -DefaultValue "80"
 $gatewayPort = Get-ValueOrDefault -Values $envValues -Key "GATEWAY_PORT" -DefaultValue "8080"
+$milvusPort = Get-ValueOrDefault -Values $envValues -Key "MILVUS_PORT" -DefaultValue "19530"
 $sentinelDashboardPort = Get-ValueOrDefault -Values $envValues -Key "SENTINEL_DASHBOARD_PORT" -DefaultValue "8858"
 $gatewayBaseUrl = "http://${vm1Host}:${gatewayPort}"
 
@@ -723,6 +724,7 @@ $composeEnvironment["VM2_HOST"] = $vm2Host
 $composeEnvironment["VM3_HOST"] = $vm3Host
 $composeEnvironment["FRONTEND_PORT"] = $frontendPort
 $composeEnvironment["GATEWAY_PORT"] = $gatewayPort
+$composeEnvironment["MILVUS_PORT"] = $milvusPort
 $composeEnvironment["SENTINEL_DASHBOARD_PORT"] = $sentinelDashboardPort
 
 Write-Host "Using env file: $EnvFile"
@@ -795,6 +797,7 @@ foreach ($service in $businessServices) {
 
 Test-HttpEndpoint -Name "VM3 ai-service health" -Url "http://${vm3Host}:8106/actuator/health"
 Test-HttpEndpoint -Name "VM3 ai-service status" -Url "http://${vm3Host}:8106/api/ai/status"
+Test-HttpEndpoint -Name "VM3 ai RAG vector status" -Url "http://${vm3Host}:8106/api/ai/knowledge/vector/status"
 Test-TcpPort -Name "VM3 mysql" -HostName $vm3Host -Port 3306
 Test-TcpPort -Name "VM3 redis" -HostName $vm3Host -Port 6379
 Test-HttpEndpoint -Name "VM3 minio api" -Url "http://${vm3Host}:9000/minio/health/ready"
@@ -802,6 +805,7 @@ Test-TcpPort -Name "VM3 minio console" -HostName $vm3Host -Port 9001
 Test-TcpPort -Name "VM3 rocketmq namesrv" -HostName $vm3Host -Port 9876
 Test-TcpPort -Name "VM3 rocketmq broker listen" -HostName $vm3Host -Port 10911
 Test-TcpPort -Name "VM3 rocketmq broker vip" -HostName $vm3Host -Port 10909
+Test-TcpPort -Name "VM3 milvus grpc/rest" -HostName $vm3Host -Port ([int]$milvusPort)
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $reportPath = Join-Path $ReportDirectory ("three-vm-smoke-{0}.md" -f $timestamp)

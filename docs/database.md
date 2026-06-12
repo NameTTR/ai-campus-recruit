@@ -151,3 +151,34 @@ CREATE TABLE IF NOT EXISTS ai_candidate_screen_record (
 ```
 
 `strengths`、`risks`、`interview_questions`、`next_actions` 使用 JSON 字符串保存，服务层通过 MyBatis-Plus 类型处理器转换为字符串数组。
+# v3.11 RAG Knowledge Ingestion Job Table
+
+```sql
+CREATE TABLE IF NOT EXISTS ai_knowledge_ingestion_job (
+    job_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    document_id VARCHAR(64) NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_format VARCHAR(32) NOT NULL,
+    file_size BIGINT NOT NULL DEFAULT 0,
+    sha256 VARCHAR(64) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    category VARCHAR(64) NOT NULL,
+    source VARCHAR(128) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    message TEXT NOT NULL,
+    object_key VARCHAR(255) NULL,
+    storage_provider VARCHAR(64) NULL,
+    storage_status VARCHAR(64) NULL,
+    chunk_count INT NOT NULL DEFAULT 0,
+    vector_count INT NOT NULL DEFAULT 0,
+    error TEXT NULL,
+    created_by VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    KEY idx_ai_knowledge_ingestion_sha_status (sha256, status),
+    KEY idx_ai_knowledge_ingestion_status_created (status, created_at),
+    KEY idx_ai_knowledge_ingestion_document (document_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+`ai_knowledge_ingestion_job` records file upload, object storage, async parsing, deduplication, and vector indexing state. The actual RAG document and chunk payloads stay in `ai_knowledge_document` and `ai_knowledge_chunk`; Milvus stores chunk vectors outside MySQL and can be rebuilt from those chunk rows.

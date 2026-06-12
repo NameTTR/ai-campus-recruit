@@ -40,6 +40,35 @@ public class KnowledgeBaseConfiguration {
     }
 
     @Bean
+    public KnowledgeIngestionJobStore knowledgeIngestionJobStore(
+            KnowledgeBaseProperties properties,
+            ObjectProvider<DataSource> dataSourceProvider,
+            ObjectProvider<KnowledgeIngestionJobMapper> mapperProvider) {
+        int maxJobs = properties.getIngestion().getMaxJobs();
+        if (!properties.getPersistence().isEnabled()) {
+            return new InMemoryKnowledgeIngestionJobStore(maxJobs);
+        }
+
+        DataSource dataSource = dataSourceProvider.getIfAvailable();
+        KnowledgeIngestionJobMapper mapper = mapperProvider.getIfAvailable();
+        if (dataSource == null || mapper == null) {
+            log.warn("Knowledge ingestion persistence is enabled but no datasource or mapper is available, falling back to in-memory store");
+            return new InMemoryKnowledgeIngestionJobStore(maxJobs);
+        }
+
+        return new PersistentKnowledgeIngestionJobStore(mapper, maxJobs);
+    }
+
+    @Bean
+    public KnowledgeVectorIndex knowledgeVectorIndex(KnowledgeBaseProperties properties) {
+        KnowledgeBaseProperties.Vector vector = properties.getVector();
+        if (vector.isEnabled() && "milvus-rest".equalsIgnoreCase(vector.getProvider())) {
+            return new MilvusKnowledgeVectorIndex(vector);
+        }
+        return new NoopKnowledgeVectorIndex(properties);
+    }
+
+    @Bean
     @ConditionalOnProperty(prefix = "ai.knowledge.persistence", name = "enabled", havingValue = "true")
     public ApplicationRunner knowledgeSchemaInitializer(ObjectProvider<DataSource> dataSourceProvider) {
         return args -> {
