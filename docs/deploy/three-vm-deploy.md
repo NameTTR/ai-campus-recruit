@@ -12,7 +12,7 @@
 | VM2 | `192.168.56.12` | 业务服务 | `auth-service`、`user-service`、`resume-service`、`job-service`、`match-service`、`delivery-service` |
 | VM3 | `192.168.56.13` | 数据、中间件与 AI | MySQL、Redis、MinIO、RocketMQ、`ai-service` |
 
-当前三机部署以 Prometheus、Grafana 和 node-exporter 作为 v3.6 监控基线；Sentinel Dashboard 暂未纳入三机 Compose。
+当前三机部署以 Prometheus、Grafana、node-exporter 和 Sentinel Dashboard 作为 v3.6 监控基线。
 
 ## 端口
 
@@ -22,6 +22,7 @@
 | VM1 | `gateway-service` | `8080` | 前端、运维调试 | `/actuator/health` |
 | VM1 | Nacos HTTP | `8848` | VM2、VM3、运维机 | `/nacos/` |
 | VM1 | Nacos gRPC | `9848` | VM2、VM3 | 服务注册发现 |
+| VM1 | Sentinel Dashboard | `8858` | 运维机或受限内网 | `http://<VM1_IP>:8858/` |
 | VM2 | `auth-service` | `8101` | VM1 Gateway | `/actuator/health`、`/swagger-ui.html`、`/v3/api-docs` |
 | VM2 | `user-service` | `8102` | VM1 Gateway | `/actuator/health`、`/swagger-ui.html`、`/v3/api-docs` |
 | VM2 | `resume-service` | `8103` | VM1 Gateway | `/actuator/health`、`/swagger-ui.html`、`/v3/api-docs` |
@@ -44,7 +45,7 @@
 - VM1：对浏览器开放 `80`；对 VM2、VM3 开放 `8848`、`9848`；按需对运维机开放 `8080`。
 - VM2：只对 VM1 开放 `8101`、`8102`、`8103`、`8104`、`8105`、`8107`。
 - VM3：对 VM1、VM2 开放 `8106`；对 VM2 开放 MySQL `3306`、Redis `6379` 和 RocketMQ `9876`、`10909`、`10911`；按需对运维机开放 `9001`；MySQL、Redis、RocketMQ、MinIO API 优先限制在内网。
-- 监控端口：三台 VM 的 node-exporter `9100` 只允许 VM1 Prometheus 访问；VM1 的 Prometheus `9090` 和 Grafana `3000` 只允许运维机或受限内网访问，不对公网开放。
+- 监控端口：三台 VM 的 node-exporter `9100` 只允许 VM1 Prometheus 访问；VM1 的 Prometheus `9090`、Grafana `3000` 和 Sentinel Dashboard `8858` 只允许运维机或受限内网访问，不对公网开放。
 
 ## 国内镜像源
 
@@ -112,6 +113,9 @@ DASHBOARD_REALTIME_ENABLED=true
 
 FRONTEND_PORT=80
 GATEWAY_PORT=8080
+SENTINEL_DASHBOARD_PORT=8858
+SENTINEL_DASHBOARD_USER=sentinel
+SENTINEL_DASHBOARD_PASSWORD=replace-with-a-strong-sentinel-password
 ```
 
 关键变量说明：
@@ -152,10 +156,13 @@ GATEWAY_PORT=8080
 | `DASHBOARD_REALTIME_ENABLED` | `user-service` 管理大屏是否读取 VM3 MySQL 聚合真实表；为 `false` 或 datasource 不可用时返回稳定 fallback |
 | `FRONTEND_PORT` | VM1 前端暴露端口 |
 | `GATEWAY_PORT` | VM1 Gateway 暴露端口 |
+| `SENTINEL_DASHBOARD_PORT` | VM1 Sentinel Dashboard 暴露端口 |
+| `SENTINEL_DASHBOARD_USER` | Sentinel Dashboard 登录用户名 |
+| `SENTINEL_DASHBOARD_PASSWORD` | Sentinel Dashboard 登录密码，不要提交真实值 |
 
 服务内实际使用的关键环境变量：
 
-- VM1 `gateway-service`：`AUTH_SERVICE_URI=http://${VM2_HOST}:8101`、`USER_SERVICE_URI=http://${VM2_HOST}:8102`、`RESUME_SERVICE_URI=http://${VM2_HOST}:8103`、`JOB_SERVICE_URI=http://${VM2_HOST}:8104`、`MATCH_SERVICE_URI=http://${VM2_HOST}:8105`、`DELIVERY_SERVICE_URI=http://${VM2_HOST}:8107`、`AI_SERVICE_URI=http://${VM3_HOST}:8106`、`JWT_SECRET=${JWT_SECRET}`、`JWT_ISSUER=${JWT_ISSUER}`、`GATEWAY_AUTH_ENABLED=${GATEWAY_AUTH_ENABLED}`。
+- VM1 `gateway-service`：`AUTH_SERVICE_URI=http://${VM2_HOST}:8101`、`USER_SERVICE_URI=http://${VM2_HOST}:8102`、`RESUME_SERVICE_URI=http://${VM2_HOST}:8103`、`JOB_SERVICE_URI=http://${VM2_HOST}:8104`、`MATCH_SERVICE_URI=http://${VM2_HOST}:8105`、`DELIVERY_SERVICE_URI=http://${VM2_HOST}:8107`、`AI_SERVICE_URI=http://${VM3_HOST}:8106`、`JWT_SECRET=${JWT_SECRET}`、`JWT_ISSUER=${JWT_ISSUER}`、`GATEWAY_AUTH_ENABLED=${GATEWAY_AUTH_ENABLED}`、`SPRING_CLOUD_SENTINEL_TRANSPORT_DASHBOARD=sentinel-dashboard:8858`。
 - VM2 `user-service`：`DASHBOARD_REALTIME_ENABLED=${DASHBOARD_REALTIME_ENABLED}`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATASOURCE_USERNAME`、`SPRING_DATASOURCE_PASSWORD`。这些 datasource 变量只用于管理大屏聚合真实业务表；请通过 `deploy/three-vm.env` 或安全配置注入真实密码，不要提交真实值。
 - VM2 业务服务：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`；`auth-service` 额外使用 `JWT_SECRET=${JWT_SECRET}`、`JWT_ISSUER=${JWT_ISSUER}`；`resume-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`RESUME_OBJECT_STORAGE_ENABLED=true`、`MINIO_ENDPOINT=http://${VM3_HOST}:9000`、`MINIO_BUCKET=${MINIO_BUCKET}`、`RESUME_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`job-service` 额外使用 `AI_SERVICE_URI=http://${VM3_HOST}:8106`、`JOB_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`match-service` 额外使用 `MATCH_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`；`delivery-service` 额外使用 `DELIVERY_PERSISTENCE_ENABLED=true`、`SPRING_DATASOURCE_URL=jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=${VM3_HOST}`、`DELIVERY_EVENTS_ROCKETMQ_ENABLED=true`、`ROCKETMQ_NAME_SERVER=${VM3_HOST}:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
 - VM3 `ai-service`：`NACOS_ENABLED=true`、`NACOS_SERVER_ADDR=${VM1_HOST}:8848`、`DASHSCOPE_TEMPERATURE=${DASHSCOPE_TEMPERATURE}`、`AI_PLANNING_PERSISTENCE_ENABLED=${AI_PLANNING_PERSISTENCE_ENABLED}`、`SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/${MYSQL_DATABASE}`、`SPRING_DATA_REDIS_HOST=redis`、`AI_SCREENING_ROCKETMQ_ENABLED=${AI_SCREENING_ROCKETMQ_ENABLED}`、`ROCKETMQ_NAME_SERVER=rocketmq-namesrv:9876`、`DELIVERY_EVENTS_TOPIC=${DELIVERY_EVENTS_TOPIC}`。
@@ -536,13 +543,14 @@ npm run test:e2e
 
 ## 基础监控与日志
 
-v3.6 在轻量运维基线基础上补齐 Prometheus、Grafana 和 node-exporter 三机监控说明。Prometheus 和 Grafana 部署在 VM1，三台 VM 均暴露 node-exporter `9100` 给 Prometheus 抓取；监控配置由脚本渲染，避免手工维护 VM IP。
+v3.6 在轻量运维基线基础上补齐 Prometheus、Grafana、node-exporter 和 Sentinel Dashboard 三机监控说明。Prometheus、Grafana 和 Sentinel Dashboard 部署在 VM1，三台 VM 均暴露 node-exporter `9100` 给 Prometheus 抓取；Gateway 通过 Spring Cloud Alibaba Sentinel 连接 VM1 Dashboard。
 
 ### Prometheus/Grafana 访问方式
 
 ```text
 Prometheus: http://<VM1_IP>:9090
 Grafana:    http://<VM1_IP>:3000
+Sentinel:   http://<VM1_IP>:8858
 VM1 node-exporter: http://<VM1_IP>:9100/metrics
 VM2 node-exporter: http://<VM2_IP>:9100/metrics
 VM3 node-exporter: http://<VM3_IP>:9100/metrics
@@ -565,6 +573,7 @@ docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml u
 ```bash
 curl -f http://<VM1_IP>:9090/-/ready
 curl -f http://<VM1_IP>:3000/login
+curl -f http://<VM1_IP>:8858/
 curl -f http://<VM1_IP>:9100/metrics
 curl -f http://<VM2_IP>:9100/metrics
 curl -f http://<VM3_IP>:9100/metrics
@@ -626,8 +635,8 @@ v3.6 安全基线要求：
 
 - `JWT_SECRET`、`MYSQL_ROOT_PASSWORD`、`MINIO_ROOT_PASSWORD`、`DASHSCOPE_API_KEY` 等 secret 只来自环境变量或安全配置，不提交到 Git。
 - Gateway 生产/答辩环境保持 `GATEWAY_AUTH_ENABLED=true`，业务 API 默认需要 Bearer Token。
-- MySQL、Redis、RocketMQ、MinIO S3 API、node-exporter 只开放给必要 VM 或 Prometheus，Prometheus/Grafana 只开放给运维机或受限内网。
-- Grafana 首次部署后修改默认密码；Prometheus/Grafana 不对公网开放。
+- MySQL、Redis、RocketMQ、MinIO S3 API、node-exporter 只开放给必要 VM 或 Prometheus，Prometheus/Grafana/Sentinel 只开放给运维机或受限内网。
+- Grafana 和 Sentinel Dashboard 首次部署后修改默认密码；Prometheus/Grafana/Sentinel 不对公网开放。
 - 备份文件放在受控目录，按需加密或迁移到受限存储，恢复后及时删除临时明文文件。
 
 安全检查脚本：

@@ -25,6 +25,25 @@ services:
     networks:
       - recruit-vm1-net
 
+  sentinel-dashboard:
+    image: registry.cn-hangzhou.aliyuncs.com/xfg-studio/sentinel-dashboard:1.8.7
+    container_name: recruit-vm1-sentinel-dashboard
+    entrypoint:
+      - java
+      - "-Djava.security.egd=file:/dev/./urandom"
+      - "-Dserver.port=8858"
+      - "-Dcsp.sentinel.api.port=8719"
+      - "-Dcsp.sentinel.dashboard.server=sentinel-dashboard:8858"
+      - "-Dproject.name=sentinel-dashboard"
+      - "-Dsentinel.dashboard.auth.username=${SENTINEL_DASHBOARD_USER:-sentinel}"
+      - "-Dsentinel.dashboard.auth.password=${SENTINEL_DASHBOARD_PASSWORD:-replace-with-a-strong-sentinel-password}"
+      - "-jar"
+      - "app.jar"
+    ports:
+      - "${SENTINEL_DASHBOARD_PORT:-8858}:8858"
+    networks:
+      - recruit-vm1-net
+
   gateway-service:
     build:
       context: ../backend
@@ -46,10 +65,14 @@ services:
       JWT_ISSUER: ${JWT_ISSUER:-ai-campus-recruit}
       JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-86400}
       GATEWAY_AUTH_ENABLED: ${GATEWAY_AUTH_ENABLED:-true}
+      SPRING_CLOUD_SENTINEL_TRANSPORT_DASHBOARD: sentinel-dashboard:8858
+      SPRING_CLOUD_SENTINEL_TRANSPORT_PORT: 8719
+      SPRING_CLOUD_SENTINEL_EAGER: "true"
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
       MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
     depends_on:
       - nacos
+      - sentinel-dashboard
     ports:
       - "${GATEWAY_PORT:-8080}:8080"
     networks:

@@ -709,6 +709,7 @@ $vm2Host = if ([string]::IsNullOrWhiteSpace($Vm2Ip)) { Get-RequiredValue -Values
 $vm3Host = if ([string]::IsNullOrWhiteSpace($Vm3Ip)) { Get-RequiredValue -Values $envValues -Key "VM3_HOST" } else { $Vm3Ip }
 $frontendPort = Get-ValueOrDefault -Values $envValues -Key "FRONTEND_PORT" -DefaultValue "80"
 $gatewayPort = Get-ValueOrDefault -Values $envValues -Key "GATEWAY_PORT" -DefaultValue "8080"
+$sentinelDashboardPort = Get-ValueOrDefault -Values $envValues -Key "SENTINEL_DASHBOARD_PORT" -DefaultValue "8858"
 $gatewayBaseUrl = "http://${vm1Host}:${gatewayPort}"
 
 $composeEnvironment = @{}
@@ -722,6 +723,7 @@ $composeEnvironment["VM2_HOST"] = $vm2Host
 $composeEnvironment["VM3_HOST"] = $vm3Host
 $composeEnvironment["FRONTEND_PORT"] = $frontendPort
 $composeEnvironment["GATEWAY_PORT"] = $gatewayPort
+$composeEnvironment["SENTINEL_DASHBOARD_PORT"] = $sentinelDashboardPort
 
 Write-Host "Using env file: $EnvFile"
 Write-Host "Checking VM1=$vm1Host VM2=$vm2Host VM3=$vm3Host"
@@ -776,6 +778,7 @@ Test-HttpEndpoint -Name "VM1 frontend api proxy" -Url "http://${vm1Host}:${front
 Test-HttpEndpoint -Name "VM1 gateway ai route" -Url "http://${vm1Host}:${gatewayPort}/api/ai/status" -BearerToken $studentToken -RequiresToken $true
 Test-HttpEndpoint -Name "VM1 nacos console" -Url "http://${vm1Host}:8848/nacos/"
 Test-TcpPort -Name "VM1 nacos grpc" -HostName $vm1Host -Port 9848
+Test-HttpEndpoint -Name "VM1 sentinel dashboard" -Url "http://${vm1Host}:${sentinelDashboardPort}/"
 
 $businessServices = @(
     @{ Name = "VM2 auth-service"; Port = 8101 },

@@ -100,6 +100,7 @@ Add-DefaultSecretCheck -Values $values -Key "JWT_SECRET" -UnsafeValues @("replac
 Add-DefaultSecretCheck -Values $values -Key "MYSQL_ROOT_PASSWORD" -UnsafeValues @("root123456", "password", "123456") -MinLength 10
 Add-DefaultSecretCheck -Values $values -Key "MINIO_ROOT_PASSWORD" -UnsafeValues @("minioadmin", "password", "123456") -MinLength 10
 Add-DefaultSecretCheck -Values $values -Key "GRAFANA_ADMIN_PASSWORD" -UnsafeValues @("admin", "admin123456", "replace-with-a-strong-grafana-password") -MinLength 10
+Add-DefaultSecretCheck -Values $values -Key "SENTINEL_DASHBOARD_PASSWORD" -UnsafeValues @("sentinel", "sentinel123456", "replace-with-a-strong-sentinel-password") -MinLength 10
 
 if (($values.GATEWAY_AUTH_ENABLED -as [string]).ToLowerInvariant() -eq "true") {
     Add-Result -Status "PASS" -Name "gateway auth" -Detail "enabled"
@@ -133,7 +134,7 @@ foreach ($header in @("X-Frame-Options", "X-Content-Type-Options", "Referrer-Pol
 $composeText = Get-Content -LiteralPath (Join-Path $Root "deploy\docker-compose.vm1.yml") -Raw
 $composeText += Get-Content -LiteralPath (Join-Path $Root "deploy\docker-compose.vm2.yml") -Raw
 $composeText += Get-Content -LiteralPath (Join-Path $Root "deploy\docker-compose.vm3.yml") -Raw
-foreach ($expected in @("MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE", "node-exporter", "prometheus", "grafana")) {
+foreach ($expected in @("MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE", "node-exporter", "prometheus", "grafana", "sentinel-dashboard")) {
     if ($composeText.Contains($expected)) {
         Add-Result -Status "PASS" -Name "compose $expected" -Detail "present"
     } else {
