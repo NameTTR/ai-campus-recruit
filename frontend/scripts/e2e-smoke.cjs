@@ -28,6 +28,9 @@ async function main() {
     await clickButton(client, '生成规划')
     await assertText(client, ['AI 求职规划', '优化摘要', '准备度', '生成历史'])
     await screenshot(client, '02-student-plan.png')
+    await clickButton(client, '生成顾问建议')
+    await assertText(client, ['优先行动', '风险提醒', '学习路径', '面试训练'])
+    await screenshot(client, '02b-student-coach-advice.png')
 
     await navigate(client, `${baseUrl}/student/jobs`)
     await clickButton(client, '匹配')

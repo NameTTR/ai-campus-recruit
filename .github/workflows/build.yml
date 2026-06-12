@@ -3,25 +3,67 @@ name: build
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   backend:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Build backend
-        run: cd backend && mvn -s settings.xml.example clean package
+          cache: maven
+      - name: Test backend
+        run: mvn -B -s settings.xml.example test
+      - name: Package backend
+        run: mvn -B -s settings.xml.example package -DskipTests
+
   frontend:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+      - name: Install frontend dependencies
+        run: npm ci --registry=https://registry.npmmirror.com
+      - name: Unit test frontend
+        run: npm run test:unit -- --run
       - name: Build frontend
-        run: cd frontend && npm ci && npm run build
+        run: npm run build
+      - name: E2E smoke frontend
+        env:
+          E2E_BROWSER: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e
 
+  deployment-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render monitoring config
+        shell: pwsh
+        run: ./scripts/render-monitoring-config.ps1 -EnvFile ./deploy/three-vm.env.example -Vm1Ip 192.168.56.11 -Vm2Ip 192.168.56.12 -Vm3Ip 192.168.56.13
+      - name: Security baseline on example env
+        shell: pwsh
+        run: ./scripts/check-security-hardening.ps1 -EnvFile ./deploy/three-vm.env.example -AllowExampleDefaults
+      - name: Validate three-VM Compose files
+        run: |
+          docker compose --env-file deploy/three-vm.env.example -f deploy/docker-compose.vm1.yml config --quiet
+          docker compose --env-file deploy/three-vm.env.example -f deploy/docker-compose.vm2.yml config --quiet
+          docker compose --env-file deploy/three-vm.env.example -f deploy/docker-compose.vm3.yml config --quiet
+      - name: Docker build smoke
+        run: |
+          docker build -f backend/Dockerfile --build-arg SERVICE=ai-service backend
+          docker build -f frontend/Dockerfile frontend

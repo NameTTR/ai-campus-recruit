@@ -102,6 +102,8 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
     depends_on:
       - mysql
       - redis
@@ -109,5 +111,19 @@ services:
       - rocketmq-broker
     ports:
       - "8106:8106"
+    networks:
+      - recruit-vm3-net
+
+  node-exporter:
+    image: docker.m.daocloud.io/prom/node-exporter:v1.8.2
+    container_name: recruit-vm3-node-exporter
+    command:
+      - "--path.rootfs=/host"
+    pid: host
+    restart: unless-stopped
+    volumes:
+      - "/:/host:ro,rslave"
+    ports:
+      - "${NODE_EXPORTER_PORT:-9100}:9100"
     networks:
       - recruit-vm3-net

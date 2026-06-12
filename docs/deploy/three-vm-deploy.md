@@ -12,7 +12,7 @@
 | VM2 | `192.168.56.12` | 业务服务 | `auth-service`、`user-service`、`resume-service`、`job-service`、`match-service`、`delivery-service` |
 | VM3 | `192.168.56.13` | 数据、中间件与 AI | MySQL、Redis、MinIO、RocketMQ、`ai-service` |
 
-当前 v0.9 Compose 未包含 Sentinel Dashboard、Prometheus、Grafana。监控组件后续单独部署。
+当前三机部署以 Prometheus、Grafana 和 node-exporter 作为 v3.6 监控基线；Sentinel Dashboard 暂未纳入三机 Compose。
 
 ## 端口
 
@@ -35,12 +35,16 @@
 | VM3 | MinIO Console | `9001` | 运维机 | `http://<VM3_IP>:9001` |
 | VM3 | RocketMQ NameServer | `9876` | 内网 | 容器日志 |
 | VM3 | RocketMQ Broker | `10909`、`10911` | 内网 | 容器日志 |
+| VM1 | Prometheus | `9090` | 运维机或受限内网 | `http://<VM1_IP>:9090/-/ready` |
+| VM1 | Grafana | `3000` | 运维机或受限内网 | `http://<VM1_IP>:3000` |
+| VM1/VM2/VM3 | node-exporter | `9100` | Prometheus | `http://<VM_IP>:9100/metrics` |
 
 最小防火墙策略：
 
 - VM1：对浏览器开放 `80`；对 VM2、VM3 开放 `8848`、`9848`；按需对运维机开放 `8080`。
 - VM2：只对 VM1 开放 `8101`、`8102`、`8103`、`8104`、`8105`、`8107`。
 - VM3：对 VM1、VM2 开放 `8106`；对 VM2 开放 MySQL `3306`、Redis `6379` 和 RocketMQ `9876`、`10909`、`10911`；按需对运维机开放 `9001`；MySQL、Redis、RocketMQ、MinIO API 优先限制在内网。
+- 监控端口：三台 VM 的 node-exporter `9100` 只允许 VM1 Prometheus 访问；VM1 的 Prometheus `9090` 和 Grafana `3000` 只允许运维机或受限内网访问，不对公网开放。
 
 ## 国内镜像源
 
@@ -532,7 +536,41 @@ npm run test:e2e
 
 ## 基础监控与日志
 
-v1.0 先建立轻量运维基线，暂不强制安装 Prometheus、Grafana 或集中日志平台。
+v3.6 在轻量运维基线基础上补齐 Prometheus、Grafana 和 node-exporter 三机监控说明。Prometheus 和 Grafana 部署在 VM1，三台 VM 均暴露 node-exporter `9100` 给 Prometheus 抓取；监控配置由脚本渲染，避免手工维护 VM IP。
+
+### Prometheus/Grafana 访问方式
+
+```text
+Prometheus: http://<VM1_IP>:9090
+Grafana:    http://<VM1_IP>:3000
+VM1 node-exporter: http://<VM1_IP>:9100/metrics
+VM2 node-exporter: http://<VM2_IP>:9100/metrics
+VM3 node-exporter: http://<VM3_IP>:9100/metrics
+```
+
+部署或 VM IP 变化后，在 Windows 宿主机执行：
+
+```powershell
+.\scripts\render-monitoring-config.ps1 -EnvFile .\deploy\three-vm.env
+```
+
+该脚本读取 `VM1_HOST`、`VM2_HOST`、`VM3_HOST` 并渲染 Prometheus scrape 配置，目标包括 VM1/VM2/VM3 node-exporter、Gateway、VM2 业务服务和 VM3 AI 服务。渲染后按 compose 文件重新启动监控组件：
+
+```bash
+docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml up -d prometheus grafana node-exporter
+```
+
+验收建议：
+
+```bash
+curl -f http://<VM1_IP>:9090/-/ready
+curl -f http://<VM1_IP>:3000/login
+curl -f http://<VM1_IP>:9100/metrics
+curl -f http://<VM2_IP>:9100/metrics
+curl -f http://<VM3_IP>:9100/metrics
+```
+
+Grafana 首次登录后应修改默认管理员密码；内置数据源已指向 VM1 Compose 网络内的 `http://prometheus:9090`。
 
 容器状态：
 
@@ -556,6 +594,60 @@ docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm3.yml l
 2. 再在对应 VM 执行 `docker compose ps` 确认容器是否运行。
 3. 最后使用 `docker compose logs --tail 100 <service>` 查看服务日志。
 4. 如果 Gateway 或前端代理失败，优先检查 VM1 到 VM2/VM3 的网络、防火墙和服务端口。
+
+## 备份与恢复
+
+v3.6 提供三机数据备份恢复脚本，覆盖 VM3 MySQL 逻辑备份、Redis `/data` 和 MinIO `/data` 业务对象。备份文件写入本地 `backups/three-vm/ai-campus-three-vm-<timestamp>.tar.gz`，不要把备份目录提交到仓库。
+
+创建备份：
+
+```powershell
+.\scripts\backup-three-vm-data.ps1 -EnvFile .\deploy\three-vm.env -SshUser namettr -IdentityFile C:\Users\G5080\.ssh\id_ed25519 -OutputDir .\backups\three-vm
+```
+
+恢复备份：
+
+```powershell
+.\scripts\restore-three-vm-data.ps1 -EnvFile .\deploy\three-vm.env -SshUser namettr -IdentityFile C:\Users\G5080\.ssh\id_ed25519 -BackupDir .\backups\three-vm -Force
+```
+
+恢复前确认目标环境可以被覆盖，且 `deploy/three-vm.env` 中的数据库、MinIO、Redis 连接信息与目标 VM 一致。恢复完成后运行：
+
+```powershell
+.\scripts\check-three-vm-health.ps1 -EnvFile .\deploy\three-vm.env -TimeoutSeconds 5
+.\scripts\check-api-smoke.ps1 -BaseUrl http://<VM1_IP>:8080
+```
+
+重点抽查登录、岗位列表、投递列表、AI 筛选历史、AI 求职顾问 `POST /api/ai/coach/advice` 和简历对象是否仍可访问。
+
+## 安全加固
+
+v3.6 安全基线要求：
+
+- `JWT_SECRET`、`MYSQL_ROOT_PASSWORD`、`MINIO_ROOT_PASSWORD`、`DASHSCOPE_API_KEY` 等 secret 只来自环境变量或安全配置，不提交到 Git。
+- Gateway 生产/答辩环境保持 `GATEWAY_AUTH_ENABLED=true`，业务 API 默认需要 Bearer Token。
+- MySQL、Redis、RocketMQ、MinIO S3 API、node-exporter 只开放给必要 VM 或 Prometheus，Prometheus/Grafana 只开放给运维机或受限内网。
+- Grafana 首次部署后修改默认密码；Prometheus/Grafana 不对公网开放。
+- 备份文件放在受控目录，按需加密或迁移到受限存储，恢复后及时删除临时明文文件。
+
+安全检查脚本：
+
+```powershell
+.\scripts\check-security-hardening.ps1 -EnvFile .\deploy\three-vm.env
+```
+
+检查范围包括敏感变量占位/缺失、Gateway 鉴权开关、监控端口暴露建议、备份目录风险、常见默认密码和部署文件中是否出现疑似 secret。脚本发现高风险项时应返回非零 exit code，适合发布前手工验收和 CI/CD 扩展。
+
+## GitHub Actions CI/CD 验证范围
+
+GitHub Actions 作为合并前 CI/CD 质量门禁，当前验证范围包括：
+
+- 后端 Maven 编译和单元测试，覆盖新增 AI 求职顾问、鉴权上下文、持久化和管理端相关服务。
+- 前端依赖安装、类型/构建检查和测试脚本，确保学生端 AI 求职顾问入口与既有页面不回归。
+- Docker Compose 配置校验，覆盖 `deploy/docker-compose.vm1.yml`、`deploy/docker-compose.vm2.yml`、`deploy/docker-compose.vm3.yml`。
+- 文档和脚本 smoke，确保 `render-monitoring-config.ps1`、`backup-three-vm-data.ps1`、`restore-three-vm-data.ps1`、`check-security-hardening.ps1` 可被发现并纳入发布验收说明。
+
+CI/CD 不应打印真实 secret；需要云厂商或 AI Key 的任务使用 GitHub Actions Secrets 注入，并在缺失时降级为 mock 或跳过外部调用。
 
 ## 常见问题
 

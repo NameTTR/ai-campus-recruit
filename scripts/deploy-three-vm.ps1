@@ -267,7 +267,7 @@ try {
             Invoke-Scp -HostName $vm.Host -Name "$($vm.Name) upload project archive" -LocalPath $archivePath -RemoteFile "/tmp/ai-campus-recruit.tar.gz"
             Invoke-Scp -HostName $vm.Host -Name "$($vm.Name) upload deployment env" -LocalPath $normalizedEnvPath -RemoteFile "/tmp/ai-campus-three-vm.env"
             Invoke-Ssh -HostName $vm.Host -Name "$($vm.Name) extract project" -RemoteCommand `
-                "set -e; rm -rf '$RemotePath'; mkdir -p '$RemotePath'; tar -xzf /tmp/ai-campus-recruit.tar.gz -C '$RemotePath'; mkdir -p '$RemotePath/deploy'; install -m 600 /tmp/ai-campus-three-vm.env '$RemotePath/deploy/three-vm.env'"
+                "set -e; rm -rf '$RemotePath'; mkdir -p '$RemotePath'; tar -xzf /tmp/ai-campus-recruit.tar.gz -C '$RemotePath'; mkdir -p '$RemotePath/deploy'; install -m 600 /tmp/ai-campus-three-vm.env '$RemotePath/deploy/three-vm.env'; if [ -f '$RemotePath/deploy/monitoring/prometheus.yml.template' ]; then sed -e 's#__VM1_HOST__#$Vm1Ip#g' -e 's#__VM2_HOST__#$Vm2Ip#g' -e 's#__VM3_HOST__#$Vm3Ip#g' '$RemotePath/deploy/monitoring/prometheus.yml.template' > '$RemotePath/deploy/monitoring/prometheus.yml'; fi"
         }
 
         if (-not $KeepExisting) {

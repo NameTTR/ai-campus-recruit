@@ -7,6 +7,7 @@ import {
   exportAdminAudit,
   getAuthSession,
   generateCareerPlan,
+  generateCoachAdvice,
   generateInterviewQuestions,
   getAdminAuditOverview,
   getAiObservabilitySummary,
@@ -458,6 +459,62 @@ describe('api fallback behavior', () => {
     expect(result.mocked).toBe(false)
     expect(result.readinessScore).toBe(88)
     expect(fetch).toHaveBeenCalledWith('/api/ai/career/plan', expect.any(Object))
+  })
+
+  it('returns coach advice fallback when ai proxy is not configured', async () => {
+    const result = await generateCoachAdvice({
+      studentId: 'S013',
+      targetRole: 'Java backend intern',
+      skills: ['Java', 'Redis'],
+      recentDeliveries: ['D001 submitted'],
+      interviewWeaknesses: ['needs stronger Redis examples'],
+      careerGoal: 'Win an internship offer',
+      weeks: 6
+    })
+
+    expect(result.studentId).toBe('S013')
+    expect(result.targetRole).toBe('Java backend intern')
+    expect(result.mocked).toBe(true)
+    expect(result.priorityActions.length).toBeGreaterThan(0)
+    expect(result.interviewDrills.length).toBeGreaterThan(0)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls coach advice endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          studentId: 'S014',
+          targetRole: 'Java backend intern',
+          readinessScore: 86,
+          headline: 'Focus on quantified backend evidence.',
+          priorityActions: ['Polish project evidence'],
+          riskWarnings: ['Missing metrics'],
+          learningPath: ['Review Redis'],
+          interviewDrills: ['Explain RocketMQ workflow'],
+          searchKeywords: ['Java backend'],
+          mocked: false
+        }
+      })
+    } as Response)
+
+    const result = await generateCoachAdvice({
+      studentId: 'S014',
+      targetRole: 'Java backend intern',
+      skills: ['Java'],
+      recentDeliveries: [],
+      interviewWeaknesses: [],
+      careerGoal: 'offer',
+      weeks: 6
+    })
+
+    expect(result.mocked).toBe(false)
+    expect(result.readinessScore).toBe(86)
+    expect(fetch).toHaveBeenCalledWith('/api/ai/coach/advice', expect.any(Object))
   })
 
   it('returns ai planning history fallback when ai proxy is not configured', async () => {

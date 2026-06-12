@@ -2,6 +2,8 @@ package com.aicampus.ai.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.aicampus.common.dto.AiCoachAdviceRequest;
+import com.aicampus.common.dto.AiCoachAdviceResponse;
 import com.aicampus.common.dto.AiPlanningRecord;
 import com.aicampus.common.dto.CareerPlanRequest;
 import com.aicampus.common.dto.CareerPlanResponse;
@@ -73,6 +75,26 @@ class AiCoachServiceTest {
         assertThat(response.readinessScore()).isBetween(0, 100);
         assertThat(response.milestones()).hasSize(3);
         assertThat(response.interviewFocus()).contains("MySQL 索引、事务和慢 SQL 分析");
+    }
+
+    @Test
+    void coachAdviceFallsBackToActionableRoadmapWithoutApiKey() {
+        AiCoachService service = new AiCoachService(new DashScopeClient("", "qwen-plus", "http://localhost"));
+
+        AiCoachAdviceResponse response = service.coachAdvice(new AiCoachAdviceRequest(
+                "S001",
+                "Java Backend Intern",
+                List.of("Java", "Spring Boot", "Redis"),
+                List.of("D001 submitted"),
+                List.of("Redis examples are shallow"),
+                "Win a backend internship offer",
+                6));
+
+        assertThat(response.mocked()).isTrue();
+        assertThat(response.studentId()).isEqualTo("S001");
+        assertThat(response.targetRole()).isEqualTo("Java Backend Intern");
+        assertThat(response.priorityActions()).hasSizeGreaterThanOrEqualTo(3);
+        assertThat(response.interviewDrills()).anyMatch(item -> item.contains("RocketMQ"));
     }
 
     @Test

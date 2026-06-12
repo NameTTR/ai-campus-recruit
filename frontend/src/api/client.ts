@@ -274,6 +274,29 @@ export interface CareerPlanResponse {
   mocked: boolean
 }
 
+export interface AiCoachAdviceRequest {
+  studentId: string
+  targetRole: string
+  skills: string[]
+  recentDeliveries: string[]
+  interviewWeaknesses: string[]
+  careerGoal: string
+  weeks: number
+}
+
+export interface AiCoachAdviceResponse {
+  studentId: string
+  targetRole: string
+  readinessScore: number
+  headline: string
+  priorityActions: string[]
+  riskWarnings: string[]
+  learningPath: string[]
+  interviewDrills: string[]
+  searchKeywords: string[]
+  mocked: boolean
+}
+
 export interface AiPlanningRecord {
   recordId: string
   studentId: string
@@ -908,6 +931,40 @@ const fallbackCareerPlanResponse: CareerPlanResponse = {
   mocked: true
 }
 
+const fallbackAiCoachAdviceResponse: AiCoachAdviceResponse = {
+  studentId: 'S001',
+  targetRole: 'Java 后端实习生',
+  readinessScore: 82,
+  headline: '当前能力接近目标岗位，下一步要用量化证据和面试表达提高转化率。',
+  priorityActions: [
+    '把核心项目补充为 STAR 结构，并写清接口、数据表、缓存和消息队列职责。',
+    '补充 3 个可验证证据：GitHub 链接、部署截图、接口压测或测试报告。',
+    '围绕 MySQL、Redis、RocketMQ、Spring Cloud Alibaba 完成一轮专项模拟面试。',
+    '优先投递要求 Java/Spring Boot/MySQL/Redis 的校招岗位。'
+  ],
+  riskWarnings: [
+    '如果简历没有量化结果，HR 可能无法判断项目真实深度。',
+    '如果面试只停留在组件名，技术追问时容易暴露排障经验不足。',
+    '投递后需要跟踪状态，避免只投递不复盘。'
+  ],
+  learningPath: [
+    '第 1 周：完善简历证据和项目架构图。',
+    '第 2 周：复盘 Java 集合、并发基础和 JVM 排查。',
+    '第 3 周：专项练习 MySQL 索引、事务和慢 SQL。',
+    '第 4 周：专项练习 Redis 缓存一致性、穿透、击穿和雪崩。',
+    '第 5 周：复盘 Gateway、Nacos、RocketMQ 的三机部署链路。',
+    '第 6 周：完成两次限时模拟面试并修正弱项回答。'
+  ],
+  interviewDrills: [
+    '说明一次慢接口排查：日志、指标、SQL 执行计划、缓存命中率。',
+    '解释为什么投递后异步触发 AI 初筛要用 RocketMQ。',
+    '比较 Gateway 路由和服务直连在三机部署中的取舍。',
+    '讲清楚一个数据库表设计和索引优化理由。'
+  ],
+  searchKeywords: ['Java 后端实习', 'Spring Boot 校招', 'MySQL Redis', 'RocketMQ 微服务', '校园招聘 Java'],
+  mocked: true
+}
+
 const fallbackAiPlanningRecords: AiPlanningRecord[] = [
   {
     recordId: 'AIP-DEMO-PLAN-001',
@@ -938,7 +995,7 @@ const fallbackAiModuleStatus: AiModuleStatus = {
   model: 'qwen-plus',
   configured: false,
   baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  capabilities: ['resume-analysis', 'resume-rewrite', 'career-planning', 'planning-history', 'job-analysis', 'match-analysis', 'candidate-screening', 'interview-question-generation', 'interview-feedback', 'observability', 'intelligent-search'],
+  capabilities: ['resume-analysis', 'resume-rewrite', 'career-planning', 'planning-history', 'coach-advice', 'job-analysis', 'match-analysis', 'candidate-screening', 'interview-question-generation', 'interview-feedback', 'observability', 'intelligent-search'],
   fallbackReason: 'AI service is offline or DASHSCOPE_API_KEY is not configured'
 }
 
@@ -1713,6 +1770,17 @@ export function generateCareerPlan(payload: CareerPlanRequest) {
     ...fallbackCareerPlanResponse,
     studentId: payload.studentId || fallbackCareerPlanResponse.studentId,
     targetRole: payload.targetRole || fallbackCareerPlanResponse.targetRole
+  })
+}
+
+export function generateCoachAdvice(payload: AiCoachAdviceRequest) {
+  return request<AiCoachAdviceResponse>('/api/ai/coach/advice', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, {
+    ...fallbackAiCoachAdviceResponse,
+    studentId: payload.studentId || fallbackAiCoachAdviceResponse.studentId,
+    targetRole: payload.targetRole || fallbackAiCoachAdviceResponse.targetRole
   })
 }
 

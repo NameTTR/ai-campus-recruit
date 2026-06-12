@@ -1,0 +1,35 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "vm-node-exporters"
+    static_configs:
+      - targets:
+          - "__VM1_HOST__:9100"
+          - "__VM2_HOST__:9100"
+          - "__VM3_HOST__:9100"
+
+  - job_name: "vm1-edge-services"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - "__VM1_HOST__:8080"
+
+  - job_name: "vm2-business-services"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - "__VM2_HOST__:8101"
+          - "__VM2_HOST__:8102"
+          - "__VM2_HOST__:8103"
+          - "__VM2_HOST__:8104"
+          - "__VM2_HOST__:8105"
+          - "__VM2_HOST__:8107"
+
+  - job_name: "vm3-ai-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - "__VM3_HOST__:8106"
+

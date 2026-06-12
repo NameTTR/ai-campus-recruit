@@ -6,6 +6,8 @@ import com.aicampus.common.api.ApiResponse;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.AiCallRecord;
+import com.aicampus.common.dto.AiCoachAdviceRequest;
+import com.aicampus.common.dto.AiCoachAdviceResponse;
 import com.aicampus.common.dto.AiModuleStatus;
 import com.aicampus.common.dto.AiObservabilitySummary;
 import com.aicampus.common.dto.AiPlanningRecord;
@@ -98,6 +100,15 @@ public class AiController {
     @PostMapping("/search")
     public ApiResponse<AiSearchResponse> search(@RequestBody AiSearchRequest request) {
         return ApiResponse.ok(aiCoachService.search(request));
+    }
+
+    @Operation(summary = "Generate AI career coach advice")
+    @PostMapping("/coach/advice")
+    public ApiResponse<AiCoachAdviceResponse> coachAdvice(
+            @RequestBody AiCoachAdviceRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(aiCoachService.coachAdvice(resolveStudentRequest(request, userId, userRole)));
     }
 
     @Operation(summary = "Get AI call observability summary")
@@ -301,6 +312,24 @@ public class AiController {
                 request.interests(),
                 request.resumeSummary(),
                 request.timeframeWeeks());
+    }
+
+    private AiCoachAdviceRequest resolveStudentRequest(AiCoachAdviceRequest request, String userId, String userRole) {
+        String studentId = resolveStudentId(request == null ? null : request.studentId(), userId, userRole);
+        if (request == null) {
+            return new AiCoachAdviceRequest(studentId, null, null, null, null, null, null);
+        }
+        if (sameText(studentId, request.studentId())) {
+            return request;
+        }
+        return new AiCoachAdviceRequest(
+                studentId,
+                request.targetRole(),
+                request.skills(),
+                request.recentDeliveries(),
+                request.interviewWeaknesses(),
+                request.careerGoal(),
+                request.weeks());
     }
 
     private String resolveCompanyId(String requestCompanyId, String userId, String userRole) {

@@ -7,6 +7,7 @@ import {
   analyzeResume,
   createDelivery,
   currentStudentId,
+  generateCoachAdvice,
   generateCareerPlan,
   generateInterviewQuestions,
   getAiStatus,
@@ -22,6 +23,7 @@ import {
   submitInterviewFeedback,
   uploadResume,
   type AiModuleStatus,
+  type AiCoachAdviceResponse,
   type AiPlanningRecord,
   type CandidateScreenRecord,
   type CareerPlanResponse,
@@ -58,9 +60,11 @@ const candidateScreenRecords = ref<CandidateScreenRecord[]>([])
 const lifecycleLoading = ref(false)
 const resumeRewrite = ref<ResumeRewriteResponse>()
 const careerPlan = ref<CareerPlanResponse>()
+const coachAdvice = ref<AiCoachAdviceResponse>()
 const planningHistory = ref<AiPlanningRecord[]>([])
 const resumeRewriteLoading = ref(false)
 const careerPlanLoading = ref(false)
+const coachAdviceLoading = ref(false)
 const planningHistoryLoading = ref(false)
 
 const capabilityLabels: Record<string, string> = {
@@ -223,6 +227,24 @@ async function runCareerPlan() {
     ElMessage.success('求职规划已生成')
   } finally {
     careerPlanLoading.value = false
+  }
+}
+
+async function runCoachAdvice() {
+  coachAdviceLoading.value = true
+  try {
+    coachAdvice.value = await generateCoachAdvice({
+      studentId: activeStudentId.value,
+      targetRole: planTargetRole.value,
+      skills: planSkills.value,
+      recentDeliveries: deliveries.value.slice(0, 5).map((delivery) => `${delivery.jobId} ${delivery.status}`),
+      interviewWeaknesses: interviewRecords.value.slice(0, 3).flatMap((record) => record.suggestions || []),
+      careerGoal: `获得${planTargetRole.value}相关实习 offer`,
+      weeks: 6
+    })
+    ElMessage.success('AI 求职顾问建议已生成')
+  } finally {
+    coachAdviceLoading.value = false
   }
 }
 
@@ -515,6 +537,62 @@ function formatTime(value: string) {
           <span>技能标签</span>
           <div class="tag-row">
             <el-tag v-for="skill in planSkills" :key="skill" size="small">{{ skill }}</el-tag>
+          </div>
+        </div>
+      </div>
+
+      <div class="coach-advice-panel">
+        <div class="plan-block-head">
+          <div>
+            <h3>AI 求职顾问</h3>
+            <span>结合投递、面试和技能证据生成下一步行动</span>
+          </div>
+          <el-button type="primary" :loading="coachAdviceLoading" @click="runCoachAdvice">
+            <Sparkles :size="17" />
+            生成顾问建议
+          </el-button>
+        </div>
+
+        <el-skeleton v-if="coachAdviceLoading && !coachAdvice" :rows="4" animated />
+        <el-empty v-else-if="!coachAdvice" class="compact-empty" description="暂无顾问建议" />
+        <div v-else class="coach-advice-result">
+          <div class="readiness-row">
+            <div class="readiness-score">{{ coachAdvice.readinessScore }}</div>
+            <div>
+              <strong>{{ coachAdvice.mocked ? '演示顾问' : '真实 AI 顾问' }}</strong>
+              <p>{{ coachAdvice.headline }}</p>
+            </div>
+          </div>
+          <div class="plan-two-columns">
+            <div>
+              <strong class="subheading">优先行动</strong>
+              <ul class="plain-list dense">
+                <li v-for="action in coachAdvice.priorityActions" :key="action">{{ action }}</li>
+              </ul>
+            </div>
+            <div>
+              <strong class="subheading">风险提醒</strong>
+              <ul class="plain-list dense">
+                <li v-for="risk in coachAdvice.riskWarnings" :key="risk">{{ risk }}</li>
+              </ul>
+            </div>
+          </div>
+          <div class="plan-two-columns">
+            <div>
+              <strong class="subheading">学习路径</strong>
+              <ul class="plain-list dense">
+                <li v-for="step in coachAdvice.learningPath" :key="step">{{ step }}</li>
+              </ul>
+            </div>
+            <div>
+              <strong class="subheading">面试训练</strong>
+              <ul class="plain-list dense">
+                <li v-for="drill in coachAdvice.interviewDrills" :key="drill">{{ drill }}</li>
+              </ul>
+            </div>
+          </div>
+          <div class="tag-row">
+            <el-tag v-for="keyword in coachAdvice.searchKeywords" :key="keyword" type="success">{{ keyword }}</el-tag>
           </div>
         </div>
       </div>
@@ -1336,6 +1414,17 @@ function formatTime(value: string) {
   overflow-wrap: anywhere;
 }
 
+.coach-advice-panel {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 18px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #d8e7e3;
+  border-radius: 8px;
+  background: #f7fbfa;
+}
+
 .plan-grid {
   display: grid;
   gap: 18px;
@@ -1383,6 +1472,7 @@ function formatTime(value: string) {
 }
 
 .rewrite-result,
+.coach-advice-result,
 .career-result {
   display: grid;
   gap: 16px;

@@ -7,6 +7,8 @@ import com.aicampus.ai.service.planning.InMemoryAiPlanningRecordStore;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.AiCallRecord;
+import com.aicampus.common.dto.AiCoachAdviceRequest;
+import com.aicampus.common.dto.AiCoachAdviceResponse;
 import com.aicampus.common.dto.AiModuleStatus;
 import com.aicampus.common.dto.AiObservabilitySummary;
 import com.aicampus.common.dto.AiPlanningRecord;
@@ -217,6 +219,27 @@ public class AiCoachService {
             response = mockCareerPlan(request);
             recordDashScopeCall("career-plan", false, true, startedAt, prompt, response.summary(), ex.getMessage());
             saveCareerPlanRecord(response);
+            return response;
+        }
+    }
+
+    public AiCoachAdviceResponse coachAdvice(AiCoachAdviceRequest request) {
+        long startedAt = System.nanoTime();
+        String prompt = buildCoachAdvicePrompt(request);
+        AiCoachAdviceResponse response;
+        if (!dashScopeClient.isConfigured()) {
+            response = mockCoachAdvice(request);
+            recordDashScopeCall("coach-advice", true, true, startedAt, prompt, response.headline(), dashScopeClient.status().fallbackReason());
+            return response;
+        }
+        try {
+            String content = dashScopeClient.complete(SYSTEM_PROMPT, prompt, true);
+            response = parseCoachAdviceResponse(content, request);
+            recordDashScopeCall("coach-advice", true, false, startedAt, prompt, content, null);
+            return response;
+        } catch (RuntimeException ex) {
+            response = mockCoachAdvice(request);
+            recordDashScopeCall("coach-advice", false, true, startedAt, prompt, response.headline(), ex.getMessage());
             return response;
         }
     }
@@ -654,6 +677,39 @@ public class AiCoachService {
                 valueOr(request == null ? null : request.resumeSummary(), "具备 Java 后端基础和校园项目经验。"));
     }
 
+    private String buildCoachAdvicePrompt(AiCoachAdviceRequest request) {
+        return """
+                You are an AI career coach for a campus recruitment platform.
+                Return only a JSON object, with no markdown.
+                Required JSON fields:
+                - studentId: string
+                - targetRole: string
+                - readinessScore: integer from 0 to 100
+                - headline: one concise sentence
+                - priorityActions: string array, 3 to 6 items
+                - riskWarnings: string array, 2 to 4 items
+                - learningPath: string array, 4 to 8 items
+                - interviewDrills: string array, 3 to 6 items
+                - searchKeywords: string array, 4 to 8 items
+                - mocked: false
+
+                Student: %s
+                Target role: %s
+                Skills: %s
+                Recent deliveries: %s
+                Interview weaknesses: %s
+                Career goal: %s
+                Coaching horizon: %d weeks
+                """.formatted(
+                studentId(request),
+                targetRole(request),
+                String.join(", ", safeList(request == null ? null : request.skills(), DEFAULT_SKILLS)),
+                String.join("; ", safeList(request == null ? null : request.recentDeliveries(), List.of("No recent delivery data"))),
+                String.join("; ", safeList(request == null ? null : request.interviewWeaknesses(), List.of("Need more quantified project evidence"))),
+                valueOr(request == null ? null : request.careerGoal(), "Win a Java backend internship offer"),
+                coachWeeks(request));
+    }
+
     private String buildInterviewQuestionPrompt(InterviewQuestionRequest request) {
         return """
                 请为校园招聘候选人生成 3 道模拟面试题。
@@ -843,6 +899,26 @@ public class AiCoachService {
                 false);
     }
 
+    private AiCoachAdviceResponse parseCoachAdviceResponse(String content, AiCoachAdviceRequest request) {
+        JsonNode root = readJson(content);
+        if (!root.isObject()) {
+            throw new IllegalArgumentException("Coach advice response is not a JSON object");
+        }
+        JsonNode result = root.has("result") && root.get("result").isObject() ? root.get("result") : root;
+        AiCoachAdviceResponse fallback = mockCoachAdvice(request);
+        return new AiCoachAdviceResponse(
+                textOr(result.get("studentId"), fallback.studentId()),
+                textOr(result.get("targetRole"), fallback.targetRole()),
+                readScore(result.get("readinessScore"), fallback.readinessScore()),
+                textOr(result.get("headline"), fallback.headline()),
+                readStringList(result.get("priorityActions"), fallback.priorityActions()),
+                readStringList(result.get("riskWarnings"), fallback.riskWarnings()),
+                readStringList(result.get("learningPath"), fallback.learningPath()),
+                readStringList(result.get("interviewDrills"), fallback.interviewDrills()),
+                readStringList(result.get("searchKeywords"), fallback.searchKeywords()),
+                false);
+    }
+
     private JsonNode readJson(String content) {
         try {
             return objectMapper.readTree(extractJson(content));
@@ -977,6 +1053,45 @@ public class AiCoachService {
                 true);
     }
 
+    private AiCoachAdviceResponse mockCoachAdvice(AiCoachAdviceRequest request) {
+        List<String> skills = safeList(request == null ? null : request.skills(), DEFAULT_SKILLS);
+        String role = targetRole(request);
+        int score = Math.min(92, Math.max(58, 54 + skills.size() * 6));
+        return new AiCoachAdviceResponse(
+                studentId(request),
+                role,
+                score,
+                "Current profile is close to " + role + ", but offer probability depends on quantified project proof and interview depth.",
+                List.of(
+                        "Rewrite the top project with traffic, latency, data volume, and personal responsibility.",
+                        "Run one full mock interview focused on Java, MySQL, Redis, and deployment tradeoffs.",
+                        "Submit to 3 roles that explicitly match " + String.join(", ", skills.subList(0, Math.min(3, skills.size()))) + ".",
+                        "Prepare a one-page evidence sheet linking resume claims to code, screenshots, and test reports."),
+                List.of(
+                        "Resume claims may look generic if metrics and ownership are missing.",
+                        "Interview answers may stop at tool names unless tradeoffs and failure handling are explained.",
+                        "Recent delivery conversion should be monitored; stale applications need follow-up or replacement."),
+                List.of(
+                        "Week 1: polish resume evidence and project architecture diagram.",
+                        "Week 2: review Java collections, concurrency basics, and JVM troubleshooting.",
+                        "Week 3: practice MySQL index, transaction, and slow-query scenarios.",
+                        "Week 4: practice Redis cache consistency, penetration, breakdown, and hot-key cases.",
+                        "Week 5: rehearse Spring Cloud Alibaba, Gateway, Nacos, and RocketMQ deployment flow.",
+                        "Week 6: complete two timed mock interviews and revise weak answers."),
+                List.of(
+                        "Explain one slow API investigation from logs, metrics, SQL plan, and cache hit rate.",
+                        "Describe why RocketMQ is used in the delivery-to-screening workflow.",
+                        "Compare direct service calls and Gateway routing in the three-VM deployment.",
+                        "Defend one database schema choice and one index optimization."),
+                List.of(
+                        role,
+                        "Spring Boot internship",
+                        "MySQL Redis backend",
+                        "RocketMQ microservice",
+                        "campus recruitment Java"),
+                true);
+    }
+
     private List<InterviewQuestion> mockInterviewQuestions(InterviewQuestionRequest request) {
         String role = targetRole(request);
         List<String> skills = safeList(request == null ? null : request.skills(), DEFAULT_SKILLS);
@@ -1101,11 +1216,19 @@ public class AiCoachService {
         return valueOr(request == null ? null : request.targetRole(), "Java 后端实习生");
     }
 
+    private static String targetRole(AiCoachAdviceRequest request) {
+        return valueOr(request == null ? null : request.targetRole(), "Java Backend Intern");
+    }
+
     private static String studentId(ResumeRewriteRequest request) {
         return valueOr(request == null ? null : request.studentId(), "S001");
     }
 
     private static String studentId(CareerPlanRequest request) {
+        return valueOr(request == null ? null : request.studentId(), "S001");
+    }
+
+    private static String studentId(AiCoachAdviceRequest request) {
         return valueOr(request == null ? null : request.studentId(), "S001");
     }
 
@@ -1116,6 +1239,11 @@ public class AiCoachService {
     private static int timeframeWeeks(CareerPlanRequest request) {
         int weeks = request == null || request.timeframeWeeks() == null ? 8 : request.timeframeWeeks();
         return Math.max(4, Math.min(24, weeks));
+    }
+
+    private static int coachWeeks(AiCoachAdviceRequest request) {
+        int weeks = request == null || request.weeks() == null ? 6 : request.weeks();
+        return Math.max(2, Math.min(24, weeks));
     }
 
     private static String targetRole(CandidateScreenRequest request) {

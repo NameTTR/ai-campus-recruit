@@ -23,6 +23,8 @@ logs/
 .env
 deploy/three-vm.env
 uploads/
+backups/
+reports/security/
 
 # OS
 Thumbs.db

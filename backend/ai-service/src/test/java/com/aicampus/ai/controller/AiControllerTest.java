@@ -81,6 +81,37 @@ class AiControllerTest {
     }
 
     @Test
+    void coachAdviceUsesStudentHeaderAndRecordsObservability() throws Exception {
+        mockMvc.perform(post("/api/ai/coach/advice")
+                        .header("X-User-Id", "S-COACH-HTTP-001")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "studentId": "S-BODY-IGNORED",
+                                  "targetRole": "Java Backend Intern",
+                                  "skills": ["Java", "Spring Boot", "MySQL", "Redis"],
+                                  "recentDeliveries": ["D001 submitted", "D002 interview"],
+                                  "interviewWeaknesses": ["needs stronger Redis examples"],
+                                  "careerGoal": "Win a backend internship offer",
+                                  "weeks": 6
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.studentId").value("S-COACH-HTTP-001"))
+                .andExpect(jsonPath("$.data.targetRole").value("Java Backend Intern"))
+                .andExpect(jsonPath("$.data.priorityActions.length()").value(greaterThanOrEqualTo(3)))
+                .andExpect(jsonPath("$.data.learningPath.length()").value(greaterThanOrEqualTo(4)))
+                .andExpect(jsonPath("$.data.mocked").value(true));
+
+        mockMvc.perform(get("/api/ai/observability/calls")
+                        .param("limit", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[*].operation", hasItem("coach-advice")));
+    }
+
+    @Test
     void observabilitySummaryTracksMockedAiFallbacks() throws Exception {
         mockMvc.perform(post("/api/ai/analyze")
                         .contentType(MediaType.APPLICATION_JSON)

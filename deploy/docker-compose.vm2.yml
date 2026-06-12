@@ -18,6 +18,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_ISSUER: ${JWT_ISSUER:-ai-campus-recruit}
       JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-86400}
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
     ports:
       - "8101:8101"
     networks:
@@ -37,6 +39,8 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
     ports:
       - "8102:8102"
     networks:
@@ -65,6 +69,8 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-resumes}
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
     ports:
       - "8103:8103"
     networks:
@@ -88,6 +94,8 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
       SPRING_DATA_REDIS_HOST: ${VM3_HOST}
       SPRING_DATA_REDIS_PORT: 6379
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
     ports:
       - "8104:8104"
     networks:
@@ -110,6 +118,8 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
       SPRING_DATA_REDIS_HOST: ${VM3_HOST}
       SPRING_DATA_REDIS_PORT: 6379
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
     ports:
       - "8105:8105"
     networks:
@@ -135,7 +145,23 @@ services:
       DELIVERY_EVENTS_ROCKETMQ_ENABLED: ${DELIVERY_EVENTS_ROCKETMQ_ENABLED:-true}
       ROCKETMQ_NAME_SERVER: ${VM3_HOST}:9876
       DELIVERY_EVENTS_TOPIC: ${DELIVERY_EVENTS_TOPIC:-delivery-events}
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
     ports:
       - "8107:8107"
+    networks:
+      - recruit-vm2-net
+
+  node-exporter:
+    image: docker.m.daocloud.io/prom/node-exporter:v1.8.2
+    container_name: recruit-vm2-node-exporter
+    command:
+      - "--path.rootfs=/host"
+    pid: host
+    restart: unless-stopped
+    volumes:
+      - "/:/host:ro,rslave"
+    ports:
+      - "${NODE_EXPORTER_PORT:-9100}:9100"
     networks:
       - recruit-vm2-net

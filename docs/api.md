@@ -55,6 +55,7 @@
 
 - `GET /api/ai/status`：查看 AI 模块配置与能力状态。
   - 返回：`AiModuleStatus`，包含 `provider`、`model`、`configured`、`baseUrl`、`capabilities`、`fallbackReason`。
+  - `capabilities` 包含 `resume-analysis`、`job-analysis`、`match-analysis`、`resume-rewrite`、`career-planning`、`planning-history`、`coach-advice`、`interview-question-generation`、`interview-feedback`、`candidate-screening`、`observability`、`intelligent-search`；调用方可据此决定是否展示对应入口。
   - 不返回任何 API Key；`configured=false` 时表示会进入离线演示降级。
 - `POST /api/ai/analyze`：通用 AI 分析接口，供简历诊断、岗位分析和匹配分析复用。
   - 请求体：`taskType`、`content`、`context`。
@@ -70,6 +71,24 @@
   - `milestones` 每项包含 `title`、`timeframe`、`goals`。
   - Gateway 已注入 `X-User-Role=STUDENT` 和 `X-User-Id` 时，下游服务必须以注入的学生身份为准，覆盖请求体中的 `studentId`。
   - 未配置 `DASHSCOPE_API_KEY` 或模型调用失败时返回确定性的演示规划，且 `mocked=true`；响应不得返回 API Key、原始提示词、完整简历正文或其他敏感信息。
+- `POST /api/ai/coach/advice`：面向学生的 AI 求职顾问接口，基于当前求职目标、技能、投递状态和近期面试反馈生成下一步求职建议。
+  - 认证：受 Gateway JWT 保护，请求头必须包含 `Authorization: Bearer <token>`；仅 `STUDENT` 和 `ADMIN` 可访问。Gateway 已注入 `X-User-Role=STUDENT` 和 `X-User-Id` 时，`ai-service` 必须以注入的学生身份为准，忽略请求体中冲突的 `studentId`。
+  - 请求体：`studentId`、`targetRole`、`skills`、`recentDeliveries`、`interviewWeaknesses`、`careerGoal`、`weeks`。
+  - 示例请求：
+    ```json
+    {
+      "studentId": "S001",
+      "targetRole": "Java 后端实习生",
+      "skills": ["Java", "Spring Boot", "MySQL"],
+      "recentDeliveries": ["J001 SUBMITTED", "J002 INTERVIEW"],
+      "interviewWeaknesses": ["项目深挖回答不够结构化", "缺少量化指标"],
+      "careerGoal": "获得 Java 后端实习 offer",
+      "weeks": 6
+    }
+    ```
+  - 返回：`AiCoachAdviceResponse`，包含 `studentId`、`targetRole`、`readinessScore`、`headline`、`priorityActions`、`riskWarnings`、`learningPath`、`interviewDrills`、`searchKeywords`、`mocked`。
+  - 所有响应使用 `ApiResponse<AiCoachAdviceResponse>`；未配置 `DASHSCOPE_API_KEY` 或模型调用失败时返回确定性的演示建议，且 `mocked=true`。
+  - 响应不得返回 API Key、原始提示词、完整简历正文、JWT、密码或其他敏感信息。
 - `POST /api/ai/candidates/screen`：基于投递、简历摘要、项目经历和岗位要求生成候选人初筛结果。
   - 请求体：`deliveryId`、`companyId`、`studentId`、`resumeId`、`jobId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`、`targetRole`、`skills`、`projects`、`jobRequirements`、`resumeSummary`、`jobDescription`。
   - 返回：`CandidateScreenResult`，包含 `deliveryId`、`studentId`、`jobId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`、`score`、`recommendation`、`strengths`、`risks`、`interviewQuestions`、`nextActions`、`mocked`。
@@ -162,6 +181,7 @@
   - `GET /api/deliveries/my`
   - `POST /api/ai/resume/rewrite`
   - `POST /api/ai/career/plan`
+  - `POST /api/ai/coach/advice`
   - `POST /api/ai/interview/questions`
   - `POST /api/ai/interview/feedback`
   - `GET /api/ai/interview/records`
