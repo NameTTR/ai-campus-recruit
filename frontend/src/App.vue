@@ -69,7 +69,7 @@ const navGroups = {
       { path: '/admin/overview', label: '数据概览', icon: GraduationCap },
       { path: '/admin/status', label: '投递状态', icon: BarChart3 },
       { path: '/admin/accounts', label: '用户权限', icon: ShieldCheck },
-      { path: '/admin/ai', label: 'AI 观测搜索', icon: Bot },
+      { path: '/admin/ai', label: 'AI 与 RAG 运维', icon: Bot },
       { path: '/admin/audit', label: '审计数据中心', icon: Database },
       { path: '/admin/system', label: '系统状态', icon: ServerCog },
       { path: '/admin/deploy', label: '部署向导', icon: Rocket },

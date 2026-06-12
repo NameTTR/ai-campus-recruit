@@ -114,6 +114,7 @@ const knowledgeIngestionFilters = reactive({
 })
 const knowledgeFileInput = ref<HTMLInputElement>()
 const knowledgeFile = ref<File | null>(null)
+const lastKnowledgeUploadJob = ref<KnowledgeIngestionJob>()
 const knowledgeFileForm = reactive({
   title: '',
   category: 'rag',
@@ -407,11 +408,11 @@ async function submitKnowledgeFile() {
   const file = knowledgeFile.value
   const roles = knowledgeFileForm.roles.map((role) => role.trim()).filter(Boolean)
   if (!file) {
-    ElMessage.warning('Please select a RAG file')
+    ElMessage.warning('请先选择要上传到 RAG 知识库的文件，支持 TXT、MD、PDF、DOC、DOCX')
     return
   }
   if (!roles.length) {
-    ElMessage.warning('Please select at least one readable role')
+    ElMessage.warning('请至少选择一个可读取该文档的角色')
     return
   }
 
@@ -429,6 +430,7 @@ async function submitKnowledgeFile() {
       job,
       ...knowledgeIngestionJobs.value.filter((item) => item.jobId !== job.jobId)
     ].slice(0, knowledgeIngestionFilters.limit)
+    lastKnowledgeUploadJob.value = job
     const [stats, documents, vectorStatus] = await Promise.all([
       getKnowledgeBaseStats(),
       listKnowledgeDocuments(knowledgeFilters.keyword, knowledgeFilters.role, knowledgeFilters.limit),
@@ -443,7 +445,7 @@ async function submitKnowledgeFile() {
     if (knowledgeFileInput.value) {
       knowledgeFileInput.value.value = ''
     }
-    ElMessage.success('RAG file ingestion job created')
+    ElMessage.success(`RAG 导入任务已创建：${job.jobId}（${job.status}）`)
   } finally {
     knowledgeUploadLoading.value = false
   }
@@ -1165,21 +1167,24 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
 
       <section class="panel module-panel">
         <h2 class="panel-title">
-          RAG File Upload
+          RAG 知识库文档上传（TXT/MD/PDF/DOC/DOCX）
           <ClipboardCheck :size="19" />
         </h2>
+        <p class="knowledge-upload-hint">
+          在这里上传文档喂给 RAG 知识库，支持 TXT、MD、PDF、DOC、DOCX。上传后系统会创建导入任务，解析并写入向量索引。
+        </p>
         <el-form label-position="top">
           <div class="knowledge-form-grid">
-            <el-form-item label="Title">
-              <el-input v-model="knowledgeFileForm.title" maxlength="160" show-word-limit />
+            <el-form-item label="文档标题">
+              <el-input v-model="knowledgeFileForm.title" maxlength="160" show-word-limit placeholder="不填时自动使用文件名" />
             </el-form-item>
-            <el-form-item label="Category">
-              <el-input v-model="knowledgeFileForm.category" />
+            <el-form-item label="知识分类">
+              <el-input v-model="knowledgeFileForm.category" placeholder="例如：校招政策、面试题库" />
             </el-form-item>
-            <el-form-item label="Source">
-              <el-input v-model="knowledgeFileForm.source" />
+            <el-form-item label="来源标识">
+              <el-input v-model="knowledgeFileForm.source" placeholder="例如：admin-upload、career-office" />
             </el-form-item>
-            <el-form-item label="Readable Roles">
+            <el-form-item label="可读取角色">
               <el-select v-model="knowledgeFileForm.roles" multiple collapse-tags collapse-tags-tooltip>
                 <el-option label="ADMIN" value="ADMIN" />
                 <el-option label="STUDENT" value="STUDENT" />
@@ -1188,19 +1193,35 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
               </el-select>
             </el-form-item>
           </div>
-          <el-form-item label="Tags">
-            <el-input v-model="knowledgeFileForm.tags" placeholder="bulk, RAG, handbook" />
+          <el-form-item label="标签">
+            <el-input v-model="knowledgeFileForm.tags" placeholder="多个标签用逗号、分号或换行分隔，例如：校招,RAG,手册" />
           </el-form-item>
           <div class="knowledge-upload-row">
-            <input
-              ref="knowledgeFileInput"
-              class="knowledge-file-input"
-              type="file"
-              accept=".pdf,.doc,.docx,.txt,.md"
-              @change="handleKnowledgeFileChange"
-            >
-            <el-button type="primary" :loading="knowledgeUploadLoading" @click="submitKnowledgeFile">Upload File</el-button>
+            <label class="knowledge-file-picker">
+              <span>选择 TXT / MD / PDF / DOC / DOCX 文档</span>
+              <input
+                ref="knowledgeFileInput"
+                class="knowledge-file-input"
+                type="file"
+                accept=".pdf,.doc,.docx,.txt,.md"
+                @change="handleKnowledgeFileChange"
+              >
+            </label>
+            <el-button type="primary" :loading="knowledgeUploadLoading" @click="submitKnowledgeFile">上传到 RAG 知识库</el-button>
           </div>
+          <div class="knowledge-upload-meta">
+            <span>当前文件：{{ knowledgeFile?.name || '未选择文件' }}</span>
+            <span>支持格式：TXT、MD、PDF、DOC、DOCX</span>
+          </div>
+          <el-alert
+            v-if="lastKnowledgeUploadJob"
+            class="knowledge-upload-result"
+            type="success"
+            :closable="false"
+            show-icon
+            :title="`导入任务已创建：${lastKnowledgeUploadJob.jobId}`"
+            :description="`当前状态：${lastKnowledgeUploadJob.status}；可在下方导入任务列表继续刷新查看解析和入库进度。`"
+          />
         </el-form>
       </section>
 
@@ -2671,6 +2692,28 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
   min-width: 0;
 }
 
+.knowledge-upload-hint,
+.knowledge-upload-meta {
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 14px;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-file-picker {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.knowledge-file-picker span {
+  color: #344054;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .knowledge-file-input {
   border: 1px solid #d0d5dd;
   border-radius: 6px;
@@ -2678,6 +2721,22 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
   min-width: 0;
   padding: 8px;
   width: 100%;
+}
+
+.knowledge-upload-row .el-button {
+  min-height: 38px;
+  white-space: normal;
+}
+
+.knowledge-upload-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 10px 0 0;
+}
+
+.knowledge-upload-result {
+  margin-top: 12px;
 }
 
 .vector-status-grid {
