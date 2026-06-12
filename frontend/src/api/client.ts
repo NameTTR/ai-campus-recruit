@@ -450,6 +450,20 @@ export interface KnowledgeFileUploadRequest {
   roles: string[]
 }
 
+export type KnowledgeFileUploadPhase = 'idle' | 'uploading' | 'processing' | 'completed' | 'failed'
+
+export interface KnowledgeFileUploadProgress {
+  phase: KnowledgeFileUploadPhase
+  percent: number
+  loaded?: number
+  total?: number
+  message: string
+}
+
+export interface KnowledgeFileUploadOptions {
+  onProgress?: (progress: KnowledgeFileUploadProgress) => void
+}
+
 export interface KnowledgeIngestionQuery {
   status?: KnowledgeIngestionStatus | ''
   limit?: number
@@ -2322,12 +2336,13 @@ export function createKnowledgeDocument(payload: KnowledgeDocumentRequest) {
   }, fallback)
 }
 
-export function uploadKnowledgeFile(payload: KnowledgeFileUploadRequest) {
+export function uploadKnowledgeFile(payload: KnowledgeFileUploadRequest, options: KnowledgeFileUploadOptions = {}) {
   const title = payload.title.trim() || payload.file.name
   const category = payload.category.trim() || 'general'
   const source = payload.source.trim() || 'admin-upload'
   const tags = payload.tags.map((tag) => tag.trim()).filter(Boolean)
   const roles = payload.roles.map((role) => role.trim()).filter(Boolean)
+  const fileSize = payload.file.size
   const formData = new FormData()
   formData.set('file', payload.file)
   formData.set('title', title)
@@ -2351,10 +2366,127 @@ export function uploadKnowledgeFile(payload: KnowledgeFileUploadRequest) {
     createdAt: now,
     updatedAt: now
   }
+  if (!shouldUseApi('/api/ai/knowledge/files')) {
+    options.onProgress?.({
+      phase: 'completed',
+      percent: 100,
+      loaded: payload.file.size,
+      total: payload.file.size,
+      message: '本地演示模式已创建 RAG 导入任务。'
+    })
+    return Promise.resolve(fallback)
+  }
+  if (options.onProgress) {
+    return uploadKnowledgeFileWithProgress(formData, fallback, options, fileSize)
+  }
   return request<KnowledgeIngestionJob>('/api/ai/knowledge/files', {
     method: 'POST',
     body: formData
   }, fallback)
+}
+
+function uploadKnowledgeFileWithProgress(
+  formData: FormData,
+  fallback: KnowledgeIngestionJob,
+  options: KnowledgeFileUploadOptions,
+  fileSize: number
+) {
+  return new Promise<KnowledgeIngestionJob>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', resolveRequestPath('/api/ai/knowledge/files'))
+    requestHeaders({ method: 'POST', body: formData }).forEach((value, key) => {
+      xhr.setRequestHeader(key, value)
+    })
+    xhr.timeout = 10 * 60 * 1000
+
+    options.onProgress?.({
+      phase: 'uploading',
+      percent: 0,
+      loaded: 0,
+      total: fileSize,
+      message: '正在上传文件到 RAG 知识库。'
+    })
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) {
+        options.onProgress?.({
+          phase: 'uploading',
+          percent: 15,
+          message: '正在上传文件，浏览器暂时无法计算总大小。'
+        })
+        return
+      }
+      const percent = Math.min(90, Math.max(1, Math.round((event.loaded / event.total) * 90)))
+      options.onProgress?.({
+        phase: 'uploading',
+        percent,
+        loaded: event.loaded,
+        total: event.total,
+        message: '正在上传文件到 RAG 知识库。'
+      })
+    }
+
+    xhr.upload.onload = () => {
+      options.onProgress?.({
+        phase: 'processing',
+        percent: 92,
+        loaded: fileSize,
+        total: fileSize,
+        message: '文件已上传，服务器正在创建解析和向量入库任务。'
+      })
+    }
+
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        options.onProgress?.({
+          phase: 'failed',
+          percent: 100,
+          message: `RAG 文件上传失败：HTTP ${xhr.status}`
+        })
+        reject(new Error(`HTTP ${xhr.status}`))
+        return
+      }
+      try {
+        const payload = JSON.parse(xhr.responseText || '{}') as ApiResponse<KnowledgeIngestionJob>
+        const job = payload.data || fallback
+        options.onProgress?.({
+          phase: 'completed',
+          percent: 100,
+          loaded: fileSize,
+          total: fileSize,
+          message: `导入任务已创建：${job.jobId}（${job.status}）`
+        })
+        resolve(job)
+      } catch (error) {
+        options.onProgress?.({
+          phase: 'failed',
+          percent: 100,
+          message: 'RAG 文件上传响应解析失败。'
+        })
+        reject(error instanceof Error ? error : new Error('RAG 文件上传响应解析失败'))
+      }
+    }
+
+    xhr.onerror = () => {
+      options.onProgress?.({
+        phase: 'failed',
+        percent: 100,
+        message: 'RAG 文件上传网络失败，请确认后端服务和网关已启动。'
+      })
+      reject(new Error('RAG 文件上传网络失败'))
+    }
+
+    xhr.ontimeout = () => {
+      options.onProgress?.({
+        phase: 'failed',
+        percent: 100,
+        message: 'RAG 文件上传超时，大文件可稍后刷新导入任务列表确认是否已进入后台处理。'
+      })
+      reject(new Error('RAG 文件上传超时'))
+    }
+
+    xhr.send(formData)
+  })
 }
 
 export function listKnowledgeIngestions(query: KnowledgeIngestionQuery = {}) {

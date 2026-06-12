@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import {
   AlertTriangle,
@@ -59,6 +59,8 @@ import {
   type DeliveryStatus,
   type KnowledgeBaseStats,
   type KnowledgeDocument,
+  type KnowledgeFileUploadPhase,
+  type KnowledgeFileUploadProgress,
   type KnowledgeIngestionJob,
   type KnowledgeIngestionStatus,
   type KnowledgeVectorStatus,
@@ -68,6 +70,7 @@ import {
 } from '../api/client'
 
 const route = useRoute()
+const router = useRouter()
 const stats = ref<DashboardStats>()
 const systemStatus = ref<SystemStatus>()
 const deploymentTopology = ref<DeploymentTopology>()
@@ -115,6 +118,11 @@ const knowledgeIngestionFilters = reactive({
 const knowledgeFileInput = ref<HTMLInputElement>()
 const knowledgeFile = ref<File | null>(null)
 const lastKnowledgeUploadJob = ref<KnowledgeIngestionJob>()
+const knowledgeUploadProgress = ref<KnowledgeFileUploadProgress>({
+  phase: 'idle',
+  percent: 0,
+  message: '等待选择文档'
+})
 const knowledgeFileForm = reactive({
   title: '',
   category: 'rag',
@@ -194,6 +202,48 @@ const dashboardRiskAlerts = computed(() => stats.value?.riskAlerts || [])
 const maxTrendDelivery = computed(() => Math.max(1, ...trendRows.value.map((row) => row.deliveryCount)))
 const maxSkillDemandScore = computed(() => Math.max(1, ...skillDemandRows.value.map((row) => row.demandScore)))
 const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'overview')
+const adminSubTabs = {
+  ai: [
+    { key: 'overview', label: '总览' },
+    { key: 'observability', label: 'AI 调用' },
+    { key: 'search', label: '智能搜索' },
+    { key: 'rag-upload', label: 'RAG 上传' },
+    { key: 'ingestions', label: '导入任务' },
+    { key: 'documents', label: '知识文档' },
+    { key: 'vector', label: '向量索引' },
+    { key: 'create', label: '手工新增' }
+  ],
+  audit: [
+    { key: 'query', label: '查询导出' },
+    { key: 'records', label: '审计记录' },
+    { key: 'alerts', label: '风险提示' }
+  ],
+  accounts: [
+    { key: 'permissions', label: '当前权限' },
+    { key: 'list', label: '账号列表' },
+    { key: 'create', label: '创建账号' },
+    { key: 'password', label: '密码重置' }
+  ],
+  system: [
+    { key: 'topology', label: '部署拓扑' },
+    { key: 'services', label: '服务状态' },
+    { key: 'storage', label: '存储缓存' },
+    { key: 'infra', label: '基础设施' },
+    { key: 'warnings', label: '运维提示' }
+  ],
+  deploy: [
+    { key: 'steps', label: '启动顺序' },
+    { key: 'checks', label: '验收命令' },
+    { key: 'warnings', label: '向导提示' }
+  ]
+} as const
+type AdminSubModule = keyof typeof adminSubTabs
+const activeSubTabs = computed(() => adminSubTabs[activeModule.value as AdminSubModule] || [])
+const activeSubTab = computed(() => {
+  const tabs = activeSubTabs.value
+  const requested = typeof route.query.tab === 'string' ? route.query.tab : ''
+  return tabs.some((tab) => tab.key === requested) ? requested : tabs[0]?.key || ''
+})
 const serviceRows = computed(() => systemStatus.value?.services || [])
 const persistenceRows = computed(() => systemStatus.value?.persistence || [])
 const infrastructureRows = computed(() => systemStatus.value?.infrastructure || [])
@@ -231,6 +281,16 @@ function topCountRows(counts?: Record<string, number>) {
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .slice(0, 5)
     .map(([name, count]) => ({ name, count }))
+}
+
+function selectSubTab(tab: string | number) {
+  router.replace({
+    path: route.path,
+    query: {
+      ...route.query,
+      tab: String(tab)
+    }
+  })
 }
 
 onMounted(async () => {
@@ -335,7 +395,7 @@ async function refreshAiObservability() {
 async function runAiSearch() {
   const query = aiSearchForm.query.trim()
   if (!query) {
-    ElMessage.warning('Please enter a search query')
+    ElMessage.warning('请输入搜索关键词')
     return
   }
   aiSearchLoading.value = true
@@ -392,6 +452,13 @@ function handleKnowledgeFileChange(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0] || null
   knowledgeFile.value = file
+  knowledgeUploadProgress.value = {
+    phase: 'idle',
+    percent: 0,
+    loaded: 0,
+    total: file?.size || 0,
+    message: file ? '文件已选择，等待上传。' : '等待选择文档'
+  }
   if (file && !knowledgeFileForm.title.trim()) {
     knowledgeFileForm.title = file.name.replace(/\.[^.]+$/, '')
   }
@@ -417,6 +484,13 @@ async function submitKnowledgeFile() {
   }
 
   knowledgeUploadLoading.value = true
+  knowledgeUploadProgress.value = {
+    phase: 'uploading',
+    percent: 0,
+    loaded: 0,
+    total: file.size,
+    message: '准备上传文件到 RAG 知识库。'
+  }
   try {
     const job = await uploadKnowledgeFile({
       file,
@@ -425,6 +499,10 @@ async function submitKnowledgeFile() {
       source: knowledgeFileForm.source.trim() || 'admin-upload',
       tags: parseKnowledgeTags(knowledgeFileForm.tags),
       roles
+    }, {
+      onProgress(progress) {
+        knowledgeUploadProgress.value = progress
+      }
     })
     knowledgeIngestionJobs.value = [
       job,
@@ -446,6 +524,16 @@ async function submitKnowledgeFile() {
       knowledgeFileInput.value.value = ''
     }
     ElMessage.success(`RAG 导入任务已创建：${job.jobId}（${job.status}）`)
+    selectSubTab('ingestions')
+  } catch (error) {
+    knowledgeUploadProgress.value = {
+      phase: 'failed',
+      percent: 100,
+      loaded: knowledgeUploadProgress.value.loaded,
+      total: knowledgeUploadProgress.value.total || file.size,
+      message: error instanceof Error ? error.message : 'RAG 文件上传失败'
+    }
+    ElMessage.error(knowledgeUploadProgress.value.message)
   } finally {
     knowledgeUploadLoading.value = false
   }
@@ -471,11 +559,11 @@ async function submitKnowledgeDocument() {
   const content = knowledgeForm.content.trim()
   const roles = knowledgeForm.roles.map((role) => role.trim()).filter(Boolean)
   if (!title || !content) {
-    ElMessage.warning('Please enter a knowledge document title and content')
+    ElMessage.warning('请输入知识文档标题和内容')
     return
   }
   if (!roles.length) {
-    ElMessage.warning('Please select at least one readable role')
+    ElMessage.warning('请至少选择一个可读取该文档的角色')
     return
   }
 
@@ -499,7 +587,7 @@ async function submitKnowledgeDocument() {
     knowledgeForm.title = ''
     knowledgeForm.content = ''
     knowledgeForm.tags = ''
-    ElMessage.success('Knowledge document created')
+    ElMessage.success('知识文档已创建')
   } finally {
     knowledgeCreating.value = false
   }
@@ -588,6 +676,59 @@ function formatDateTime(value?: string) {
     hour: '2-digit',
     minute: '2-digit'
   }).format(date)
+}
+
+function formatFileSize(value?: number) {
+  if (!value || value <= 0) {
+    return '0 B'
+  }
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = value
+  let unitIndex = 0
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex += 1
+  }
+  return `${size >= 10 || unitIndex === 0 ? Math.round(size) : size.toFixed(1)} ${units[unitIndex]}`
+}
+
+function uploadPhaseLabel(phase: KnowledgeFileUploadPhase) {
+  const labels: Record<KnowledgeFileUploadPhase, string> = {
+    idle: '等待上传',
+    uploading: '上传中',
+    processing: '创建导入任务',
+    completed: '已提交',
+    failed: '失败'
+  }
+  return labels[phase]
+}
+
+function uploadProgressStatus(phase: KnowledgeFileUploadPhase): 'success' | 'exception' | 'warning' | undefined {
+  if (phase === 'completed') {
+    return 'success'
+  }
+  if (phase === 'failed') {
+    return 'exception'
+  }
+  if (phase === 'processing') {
+    return 'warning'
+  }
+  return undefined
+}
+
+function fallbackText(value: string | undefined | null, fallback = '未知') {
+  const text = value?.trim()
+  if (!text || text === 'unknown') {
+    return fallback
+  }
+  if (text === 'frontend-demo') {
+    return '前端演示'
+  }
+  return text
+}
+
+function knowledgeStoreLabel(value?: boolean) {
+  return value ? 'MySQL' : '内存'
 }
 
 function servicePort(row: SystemServiceStatus) {
@@ -807,7 +948,19 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
     </section>
 
     <div v-if="activeModule === 'accounts'" class="module-stack">
-      <section class="panel module-panel">
+      <div class="sub-nav" aria-label="账号二级导航">
+        <button
+          v-for="tab in activeSubTabs"
+          :key="tab.key"
+          type="button"
+          :class="{ active: activeSubTab === tab.key }"
+          @click="selectSubTab(tab.key)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
+      <section v-if="activeSubTab === 'permissions'" class="panel module-panel">
         <h2 class="panel-title">
           当前权限
           <ShieldCheck :size="19" />
@@ -825,7 +978,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </div>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'list'" class="panel module-panel">
         <h2 class="panel-title">
           用户账号
           <span class="panel-title-actions">
@@ -886,8 +1039,8 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </el-table>
       </section>
 
-      <div class="account-grid">
-        <section class="panel module-panel">
+      <div v-if="activeSubTab === 'create' || activeSubTab === 'password'" class="account-grid">
+        <section v-if="activeSubTab === 'create'" class="panel module-panel">
           <h2 class="panel-title">
             创建账号
             <ShieldCheck :size="19" />
@@ -924,7 +1077,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
           </el-form>
         </section>
 
-        <section class="panel module-panel">
+        <section v-if="activeSubTab === 'password'" class="panel module-panel">
           <h2 class="panel-title">
             密码重置
             <LockKeyhole :size="19" />
@@ -943,60 +1096,72 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
     </div>
 
     <div v-if="activeModule === 'ai'" class="module-stack">
-      <div class="grid three">
+      <div class="sub-nav" aria-label="AI 与 RAG 二级导航">
+        <button
+          v-for="tab in activeSubTabs"
+          :key="tab.key"
+          type="button"
+          :class="{ active: activeSubTab === tab.key }"
+          @click="selectSubTab(tab.key)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
+      <div v-if="activeSubTab === 'overview'" class="grid three">
         <div class="metric ai-metric">
           <Bot :size="22" />
-          <span>AI Calls</span>
+          <span>AI 调用次数</span>
           <strong>{{ aiObservabilitySummary?.totalCalls || 0 }}</strong>
         </div>
         <div class="metric ai-metric">
           <CheckCircle2 :size="22" />
-          <span>Success Rate</span>
+          <span>调用成功率</span>
           <strong>{{ aiObservabilitySummary?.successRate || 0 }}%</strong>
         </div>
         <div class="metric ai-metric">
           <Timer :size="22" />
-          <span>Avg Latency</span>
+          <span>平均耗时</span>
           <strong>{{ aiObservabilitySummary?.averageLatencyMs || 0 }} ms</strong>
         </div>
       </div>
 
-      <div class="grid three">
+      <div v-if="activeSubTab === 'overview'" class="grid three">
         <div class="metric ai-metric">
           <Database :size="22" />
-          <span>RAG Documents</span>
+          <span>RAG 文档数</span>
           <strong>{{ knowledgeStats?.documentCount || 0 }}</strong>
         </div>
         <div class="metric ai-metric">
           <HardDrive :size="22" />
-          <span>RAG Chunks</span>
+          <span>RAG 知识块</span>
           <strong>{{ knowledgeStats?.chunkCount || 0 }}</strong>
         </div>
         <div class="metric ai-metric">
           <ShieldCheck :size="22" />
-          <span>Knowledge Store</span>
-          <strong>{{ knowledgeStats?.persistentStore ? 'MySQL' : 'Memory' }}</strong>
+          <span>知识库存储</span>
+          <strong>{{ knowledgeStoreLabel(knowledgeStats?.persistentStore) }}</strong>
         </div>
         <div class="metric ai-metric">
           <Database :size="22" />
-          <span>Vector Index</span>
+          <span>向量索引</span>
           <strong>{{ vectorIndexStatus }}</strong>
         </div>
         <div class="metric ai-metric">
           <ServerCog :size="22" />
           <span>Milvus</span>
-          <strong>{{ knowledgeVectorStatus?.connected ? 'Connected' : 'Offline' }}</strong>
+          <strong>{{ knowledgeVectorStatus?.connected ? '已连接' : '离线' }}</strong>
         </div>
         <div class="metric ai-metric">
           <HardDrive :size="22" />
-          <span>Vectors</span>
+          <span>向量数量</span>
           <strong>{{ knowledgeVectorStatus?.vectorCount || 0 }}</strong>
         </div>
       </div>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'observability'" class="panel module-panel">
         <h2 class="panel-title">
-          AI Observability
+          AI 调用概览
           <span class="panel-title-actions">
             <span class="generated-at">{{ formatDateTime(aiObservabilitySummary?.generatedAt) }}</span>
             <el-button circle size="small" :loading="aiLoading" @click="refreshAiObservability">
@@ -1008,14 +1173,14 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
 
         <div class="ai-observability-grid">
           <div class="ai-breakdown">
-            <h3>Providers</h3>
+            <h3>供应商</h3>
             <div v-for="row in aiProviderRows" :key="row.name" class="ai-breakdown-row">
               <span>{{ row.name }}</span>
               <strong>{{ row.count }}</strong>
             </div>
           </div>
           <div class="ai-breakdown">
-            <h3>Tasks</h3>
+            <h3>任务类型</h3>
             <div v-for="row in aiTaskRows" :key="row.name" class="ai-breakdown-row">
               <span>{{ row.name }}</span>
               <strong>{{ row.count }}</strong>
@@ -1024,65 +1189,65 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </div>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'observability'" class="panel module-panel">
         <h2 class="panel-title">
-          AI Call Records
+          AI 调用记录
           <Bot :size="19" />
         </h2>
         <div class="ai-call-toolbar">
-          <el-input v-model="aiCallFilters.provider" clearable placeholder="provider" />
-          <el-select v-model="aiCallFilters.success" clearable placeholder="success">
-            <el-option label="success" value="true" />
-            <el-option label="failed" value="false" />
+          <el-input v-model="aiCallFilters.provider" clearable placeholder="供应商" />
+          <el-select v-model="aiCallFilters.success" clearable placeholder="结果">
+            <el-option label="成功" value="true" />
+            <el-option label="失败" value="false" />
           </el-select>
-          <el-select v-model="aiCallFilters.limit" placeholder="limit">
+          <el-select v-model="aiCallFilters.limit" placeholder="数量">
             <el-option label="10" :value="10" />
             <el-option label="20" :value="20" />
             <el-option label="50" :value="50" />
           </el-select>
-          <el-button :loading="aiLoading" @click="refreshAiObservability">Apply</el-button>
+          <el-button :loading="aiLoading" @click="refreshAiObservability">应用</el-button>
         </div>
 
         <el-table v-loading="aiLoading" class="ai-table" :data="aiCallRecords" style="width: 100%">
-          <el-table-column prop="callId" label="Call ID" min-width="128" />
-          <el-table-column prop="provider" label="Provider" width="116" />
-          <el-table-column prop="model" label="Model" min-width="126" />
-          <el-table-column prop="operation" label="Task" min-width="156" />
-          <el-table-column label="Status" width="104">
+          <el-table-column prop="callId" label="调用 ID" min-width="128" />
+          <el-table-column prop="provider" label="供应商" width="116" />
+          <el-table-column prop="model" label="模型" min-width="126" />
+          <el-table-column prop="operation" label="任务" min-width="156" />
+          <el-table-column label="状态" width="104">
             <template #default="{ row }">
               <span class="ai-status-badge" :class="row.mocked ? 'mocked' : row.success ? 'ok' : 'failed'">
-                {{ row.mocked ? 'MOCK' : row.success ? 'OK' : 'FAILED' }}
+                {{ row.mocked ? '演示' : row.success ? '成功' : '失败' }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="Latency" width="104">
+          <el-table-column label="耗时" width="104">
             <template #default="{ row }">{{ row.durationMs }} ms</template>
           </el-table-column>
-          <el-table-column label="Created" width="128">
+          <el-table-column label="创建时间" width="128">
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
           </el-table-column>
-          <el-table-column prop="fallbackReason" label="Fallback" min-width="180" />
+          <el-table-column prop="fallbackReason" label="降级原因" min-width="180" />
         </el-table>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'search'" class="panel module-panel">
         <h2 class="panel-title">
-          Intelligent Search
+          智能搜索
           <Search :size="19" />
         </h2>
         <div class="ai-search-toolbar">
-          <el-input v-model="aiSearchForm.query" clearable placeholder="Search students, jobs, deliveries" @keyup.enter="runAiSearch" />
-          <el-select v-model="aiSearchForm.role" placeholder="role">
+          <el-input v-model="aiSearchForm.query" clearable placeholder="搜索学生、岗位、投递记录" @keyup.enter="runAiSearch" />
+          <el-select v-model="aiSearchForm.role" placeholder="角色">
             <el-option label="ADMIN" value="ADMIN" />
             <el-option label="STUDENT" value="STUDENT" />
             <el-option label="COMPANY" value="COMPANY" />
           </el-select>
-          <el-select v-model="aiSearchForm.limit" placeholder="limit">
+          <el-select v-model="aiSearchForm.limit" placeholder="数量">
             <el-option label="5" :value="5" />
             <el-option label="10" :value="10" />
             <el-option label="20" :value="20" />
           </el-select>
-          <el-button type="primary" :loading="aiSearchLoading" @click="runAiSearch">Search</el-button>
+          <el-button type="primary" :loading="aiSearchLoading" @click="runAiSearch">搜索</el-button>
         </div>
 
         <div v-if="aiSearchResults.length" class="ai-search-results">
@@ -1103,12 +1268,12 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
             </div>
           </article>
         </div>
-        <el-empty v-else description="No search results yet" />
+        <el-empty v-else description="暂无搜索结果" />
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'vector'" class="panel module-panel">
         <h2 class="panel-title">
-          Milvus / Vector Index
+          Milvus / 向量索引
           <span class="panel-title-actions">
             <span class="generated-at">{{ formatDateTime(knowledgeVectorStatus?.generatedAt) }}</span>
             <el-button circle size="small" :loading="knowledgeIngestionLoading" @click="refreshKnowledgeIngestions">
@@ -1119,37 +1284,37 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </h2>
         <div class="vector-status-grid">
           <div class="vector-status-card">
-            <span>Provider</span>
-            <strong>{{ knowledgeVectorStatus?.provider || 'unknown' }}</strong>
+            <span>供应商</span>
+            <strong>{{ fallbackText(knowledgeVectorStatus?.provider) }}</strong>
           </div>
           <div class="vector-status-card">
-            <span>Connection</span>
+            <span>连接状态</span>
             <el-tag :type="knowledgeVectorStatus?.connected ? 'success' : 'warning'">
-              {{ knowledgeVectorStatus?.connected ? 'CONNECTED' : 'OFFLINE' }}
+              {{ knowledgeVectorStatus?.connected ? '已连接' : '离线' }}
             </el-tag>
           </div>
           <div class="vector-status-card">
-            <span>Index Status</span>
+            <span>索引状态</span>
             <el-tag :type="systemTagType(vectorIndexStatus)">{{ vectorIndexStatus }}</el-tag>
           </div>
           <div class="vector-status-card">
-            <span>Collection</span>
+            <span>集合</span>
             <strong>{{ knowledgeVectorStatus?.collectionName || '-' }}</strong>
           </div>
           <div class="vector-status-card">
-            <span>Index</span>
+            <span>索引名</span>
             <strong>{{ knowledgeVectorStatus?.indexName || '-' }}</strong>
           </div>
           <div class="vector-status-card">
-            <span>Metric / Dimension</span>
+            <span>距离 / 维度</span>
             <strong>{{ knowledgeVectorStatus?.metricType || '-' }} / {{ knowledgeVectorStatus?.dimension || 0 }}</strong>
           </div>
           <div class="vector-status-card">
-            <span>Chunks</span>
+            <span>知识块</span>
             <strong>{{ knowledgeVectorStatus?.chunkCount || 0 }}</strong>
           </div>
           <div class="vector-status-card">
-            <span>Last Ingested</span>
+            <span>最近入库</span>
             <strong>{{ formatDateTime(knowledgeVectorStatus?.lastIngestedAt || undefined) }}</strong>
           </div>
         </div>
@@ -1165,7 +1330,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </div>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'rag-upload'" class="panel module-panel">
         <h2 class="panel-title">
           RAG 知识库文档上传（TXT/MD/PDF/DOC/DOCX）
           <ClipboardCheck :size="19" />
@@ -1209,6 +1374,21 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
             </label>
             <el-button type="primary" :loading="knowledgeUploadLoading" @click="submitKnowledgeFile">上传到 RAG 知识库</el-button>
           </div>
+          <div class="knowledge-upload-progress">
+            <div class="knowledge-upload-progress-head">
+              <strong>{{ uploadPhaseLabel(knowledgeUploadProgress.phase) }}</strong>
+              <span>{{ knowledgeUploadProgress.message }}</span>
+            </div>
+            <el-progress
+              :percentage="knowledgeUploadProgress.percent"
+              :status="uploadProgressStatus(knowledgeUploadProgress.phase)"
+              :stroke-width="12"
+            />
+            <div class="knowledge-upload-progress-meta">
+              <span>已上传：{{ formatFileSize(knowledgeUploadProgress.loaded) }}</span>
+              <span>总大小：{{ formatFileSize(knowledgeUploadProgress.total || knowledgeFile?.size) }}</span>
+            </div>
+          </div>
           <div class="knowledge-upload-meta">
             <span>当前文件：{{ knowledgeFile?.name || '未选择文件' }}</span>
             <span>支持格式：TXT、MD、PDF、DOC、DOCX</span>
@@ -1225,9 +1405,9 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </el-form>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'ingestions'" class="panel module-panel">
         <h2 class="panel-title">
-          Ingestion Jobs
+          RAG 导入任务
           <span class="panel-title-actions">
             <el-button circle size="small" :loading="knowledgeIngestionLoading" @click="refreshKnowledgeIngestions">
               <RefreshCw :size="15" />
@@ -1236,7 +1416,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
           </span>
         </h2>
         <div class="knowledge-ingestion-toolbar">
-          <el-select v-model="knowledgeIngestionFilters.status" clearable placeholder="status">
+          <el-select v-model="knowledgeIngestionFilters.status" clearable placeholder="状态">
             <el-option label="UPLOADED" value="UPLOADED" />
             <el-option label="PARSING" value="PARSING" />
             <el-option label="INDEXING" value="INDEXING" />
@@ -1244,15 +1424,15 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
             <el-option label="DUPLICATE" value="DUPLICATE" />
             <el-option label="FAILED" value="FAILED" />
           </el-select>
-          <el-select v-model="knowledgeIngestionFilters.limit" placeholder="limit">
+          <el-select v-model="knowledgeIngestionFilters.limit" placeholder="数量">
             <el-option label="10" :value="10" />
             <el-option label="20" :value="20" />
             <el-option label="50" :value="50" />
           </el-select>
-          <el-button :loading="knowledgeIngestionLoading" @click="refreshKnowledgeIngestions">Apply</el-button>
+          <el-button :loading="knowledgeIngestionLoading" @click="refreshKnowledgeIngestions">应用</el-button>
         </div>
         <el-table v-loading="knowledgeIngestionLoading" class="knowledge-table" :data="knowledgeIngestionRows" style="width: 100%">
-          <el-table-column label="Job" min-width="230">
+          <el-table-column label="任务" min-width="230">
             <template #default="{ row }">
               <div class="knowledge-title">
                 <strong>{{ row.title }}</strong>
@@ -1260,7 +1440,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="Source" min-width="140">
+          <el-table-column label="来源" min-width="140">
             <template #default="{ row }">
               <div class="knowledge-source">
                 <strong>{{ row.source }}</strong>
@@ -1268,29 +1448,29 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="Status" width="118">
+          <el-table-column label="状态" width="118">
             <template #default="{ row }">
               <el-tag :type="ingestionStatusType(row.status)">{{ row.status }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="Chunks" width="94">
+          <el-table-column label="知识块" width="94">
             <template #default="{ row }">{{ row.chunkCount }}</template>
           </el-table-column>
-          <el-table-column label="Vectors" width="94">
+          <el-table-column label="向量" width="94">
             <template #default="{ row }">{{ row.vectorCount }}</template>
           </el-table-column>
-          <el-table-column label="Updated" width="128">
+          <el-table-column label="更新时间" width="128">
             <template #default="{ row }">{{ formatDateTime(row.updatedAt) }}</template>
           </el-table-column>
-          <el-table-column prop="message" label="Message" min-width="220" />
+          <el-table-column prop="message" label="说明" min-width="220" />
         </el-table>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'documents'" class="panel module-panel">
         <h2 class="panel-title">
-          Knowledge Documents
+          RAG 知识文档
           <span class="panel-title-actions">
-            <span class="generated-at">{{ knowledgeStats?.corpusVersion || 'unknown corpus' }}</span>
+            <span class="generated-at">{{ knowledgeStats?.corpusVersion || '未知语料版本' }}</span>
             <el-button circle size="small" :loading="knowledgeLoading" @click="refreshKnowledgeDocuments">
               <RefreshCw :size="15" />
             </el-button>
@@ -1299,14 +1479,14 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </h2>
         <div class="knowledge-summary">
           <div class="ai-breakdown">
-            <h3>Categories</h3>
+            <h3>分类</h3>
             <div v-for="row in knowledgeTopCategories" :key="row.name" class="ai-breakdown-row">
               <span>{{ row.name }}</span>
               <strong>{{ row.count }}</strong>
             </div>
           </div>
           <div class="ai-breakdown">
-            <h3>Sources</h3>
+            <h3>来源</h3>
             <div v-for="row in knowledgeTopSources" :key="row.name" class="ai-breakdown-row">
               <span>{{ row.name }}</span>
               <strong>{{ row.count }}</strong>
@@ -1314,22 +1494,22 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
           </div>
         </div>
         <div class="knowledge-toolbar">
-          <el-input v-model="knowledgeFilters.keyword" clearable placeholder="Keyword, source, tag" @keyup.enter="refreshKnowledgeDocuments" />
-          <el-select v-model="knowledgeFilters.role" clearable placeholder="role">
+          <el-input v-model="knowledgeFilters.keyword" clearable placeholder="关键词 / 来源 / 标签" @keyup.enter="refreshKnowledgeDocuments" />
+          <el-select v-model="knowledgeFilters.role" clearable placeholder="角色">
             <el-option label="ADMIN" value="ADMIN" />
             <el-option label="STUDENT" value="STUDENT" />
             <el-option label="COMPANY" value="COMPANY" />
           </el-select>
-          <el-select v-model="knowledgeFilters.limit" placeholder="limit">
+          <el-select v-model="knowledgeFilters.limit" placeholder="数量">
             <el-option label="10" :value="10" />
             <el-option label="20" :value="20" />
             <el-option label="50" :value="50" />
           </el-select>
-          <el-button :loading="knowledgeLoading" @click="refreshKnowledgeDocuments">Apply</el-button>
+          <el-button :loading="knowledgeLoading" @click="refreshKnowledgeDocuments">应用</el-button>
         </div>
 
         <el-table v-loading="knowledgeLoading" class="knowledge-table" :data="knowledgeDocumentRows" style="width: 100%">
-          <el-table-column label="Document" min-width="220">
+          <el-table-column label="文档" min-width="220">
             <template #default="{ row }">
               <div class="knowledge-title">
                 <strong>{{ row.title }}</strong>
@@ -1337,7 +1517,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="Source" min-width="150">
+          <el-table-column label="来源" min-width="150">
             <template #default="{ row }">
               <div class="knowledge-source">
                 <strong>{{ row.source }}</strong>
@@ -1345,43 +1525,43 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="Roles" min-width="150">
+          <el-table-column label="角色" min-width="150">
             <template #default="{ row }">
               <div class="knowledge-tag-list">
                 <el-tag v-for="role in row.roles" :key="role" size="small">{{ role }}</el-tag>
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="Tags" min-width="190">
+          <el-table-column label="标签" min-width="190">
             <template #default="{ row }">
               <div class="knowledge-tag-list">
                 <span v-for="tag in row.tags" :key="tag" class="knowledge-chip">{{ tag }}</span>
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="Created" width="128">
+          <el-table-column label="创建时间" width="128">
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
           </el-table-column>
         </el-table>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'create'" class="panel module-panel">
         <h2 class="panel-title">
-          Add Knowledge Document
+          手工新增知识文档
           <ClipboardCheck :size="19" />
         </h2>
         <el-form label-position="top">
           <div class="knowledge-form-grid">
-            <el-form-item label="Title">
+            <el-form-item label="标题">
               <el-input v-model="knowledgeForm.title" maxlength="120" show-word-limit />
             </el-form-item>
-            <el-form-item label="Category">
+            <el-form-item label="分类">
               <el-input v-model="knowledgeForm.category" />
             </el-form-item>
-            <el-form-item label="Source">
+            <el-form-item label="来源">
               <el-input v-model="knowledgeForm.source" />
             </el-form-item>
-            <el-form-item label="Readable Roles">
+            <el-form-item label="可读取角色">
               <el-select v-model="knowledgeForm.roles" multiple collapse-tags collapse-tags-tooltip>
                 <el-option label="ADMIN" value="ADMIN" />
                 <el-option label="STUDENT" value="STUDENT" />
@@ -1390,18 +1570,30 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
               </el-select>
             </el-form-item>
           </div>
-          <el-form-item label="Tags">
-            <el-input v-model="knowledgeForm.tags" placeholder="Java, resume, interview" />
+          <el-form-item label="标签">
+            <el-input v-model="knowledgeForm.tags" placeholder="Java, 简历, 面试" />
           </el-form-item>
-          <el-form-item label="Content">
+          <el-form-item label="内容">
             <el-input v-model="knowledgeForm.content" type="textarea" :rows="5" maxlength="2000" show-word-limit />
           </el-form-item>
-          <el-button type="primary" :loading="knowledgeCreating" @click="submitKnowledgeDocument">Create Document</el-button>
+          <el-button type="primary" :loading="knowledgeCreating" @click="submitKnowledgeDocument">创建文档</el-button>
         </el-form>
       </section>
     </div>
 
     <div v-if="activeModule === 'audit'" class="module-stack">
+      <div class="sub-nav" aria-label="审计二级导航">
+        <button
+          v-for="tab in activeSubTabs"
+          :key="tab.key"
+          type="button"
+          :class="{ active: activeSubTab === tab.key }"
+          @click="selectSubTab(tab.key)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
       <section class="panel module-panel audit-hero">
         <div>
           <h2 class="panel-title">
@@ -1413,7 +1605,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         <span class="generated-at">{{ formatDateTime(auditOverview?.generatedAt) }}</span>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'query'" class="panel module-panel">
         <h2 class="panel-title">
           查询条件
           <span class="panel-title-actions">
@@ -1445,7 +1637,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </div>
       </section>
 
-      <div class="grid three audit-metrics">
+      <div v-if="activeSubTab === 'query'" class="grid three audit-metrics">
         <div v-for="metric in auditMetrics" :key="metric.key" class="metric audit-metric">
           <Database :size="22" />
           <span>{{ metric.label }}</span>
@@ -1453,7 +1645,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </div>
       </div>
 
-      <section v-if="auditExport" class="panel module-panel audit-export-panel">
+      <section v-if="activeSubTab === 'query' && auditExport" class="panel module-panel audit-export-panel">
         <h2 class="panel-title">
           导出结果
           <ClipboardCheck :size="19" />
@@ -1478,11 +1670,11 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </div>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'records'" class="panel module-panel">
         <h2 class="panel-title">
           跨服务审计记录
           <span class="panel-title-actions">
-            <span class="generated-at">{{ auditOverview?.source || 'frontend-demo' }}</span>
+            <span class="generated-at">{{ fallbackText(auditOverview?.source, '前端演示') }}</span>
             <Database :size="19" />
           </span>
         </h2>
@@ -1543,19 +1735,19 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
             </header>
             <div class="audit-card-grid">
               <div>
-                <span>Service</span>
+                <span>服务</span>
                 <strong>{{ row.service }}</strong>
               </div>
               <div>
-                <span>Status</span>
+                <span>状态</span>
                 <strong>{{ row.status }}</strong>
               </div>
               <div>
-                <span>Risk</span>
+                <span>风险</span>
                 <strong class="audit-pill" :class="auditRiskType(row)">{{ row.riskLevel }}</strong>
               </div>
               <div>
-                <span>Score</span>
+                <span>分数</span>
                 <strong>{{ row.score ?? '-' }}</strong>
               </div>
             </div>
@@ -1574,7 +1766,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         <el-empty v-if="!auditRows.length && !auditLoading" description="暂无审计记录" />
       </section>
 
-      <div v-if="auditWarnings.length" class="warning-list">
+      <div v-if="activeSubTab === 'alerts' && auditWarnings.length" class="warning-list">
         <el-alert
           v-for="warning in auditWarnings"
           :key="warning"
@@ -1584,10 +1776,23 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
           show-icon
         />
       </div>
+      <el-empty v-if="activeSubTab === 'alerts' && !auditWarnings.length" description="暂无风险提示" />
     </div>
 
     <div v-if="activeModule === 'system'" class="module-stack">
-      <div class="grid three">
+      <div class="sub-nav" aria-label="系统二级导航">
+        <button
+          v-for="tab in activeSubTabs"
+          :key="tab.key"
+          type="button"
+          :class="{ active: activeSubTab === tab.key }"
+          @click="selectSubTab(tab.key)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
+      <div v-if="activeSubTab === 'topology'" class="grid three">
         <div class="metric system-metric">
           <ServerCog :size="22" />
           <span>状态来源</span>
@@ -1596,7 +1801,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         <div class="metric system-metric">
           <HardDrive :size="22" />
           <span>运行环境</span>
-          <strong>{{ systemStatus?.environment || 'unknown' }}</strong>
+          <strong>{{ fallbackText(systemStatus?.environment) }}</strong>
         </div>
         <div class="metric system-metric">
           <AlertTriangle :size="22" />
@@ -1605,7 +1810,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </div>
       </div>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'topology'" class="panel module-panel">
         <h2 class="panel-title">
           部署拓扑
           <HardDrive :size="19" />
@@ -1645,7 +1850,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </div>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'services'" class="panel module-panel">
         <h2 class="panel-title">
           服务运行状态
           <span class="panel-title-actions">
@@ -1678,7 +1883,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </el-table>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'storage'" class="panel module-panel">
         <h2 class="panel-title">
           持久化与缓存
           <Database :size="19" />
@@ -1696,7 +1901,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </el-table>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'infra'" class="panel module-panel">
         <h2 class="panel-title">
           基础设施
           <HardDrive :size="19" />
@@ -1720,7 +1925,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </el-table>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'warnings'" class="panel module-panel">
         <h2 class="panel-title">
           运维提示
           <AlertTriangle :size="19" />
@@ -1740,6 +1945,18 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
     </div>
 
     <div v-if="activeModule === 'deploy'" class="module-stack">
+      <div class="sub-nav" aria-label="部署二级导航">
+        <button
+          v-for="tab in activeSubTabs"
+          :key="tab.key"
+          type="button"
+          :class="{ active: activeSubTab === tab.key }"
+          @click="selectSubTab(tab.key)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
       <section class="panel module-panel deploy-hero">
         <div>
           <h2 class="panel-title">
@@ -1748,10 +1965,10 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
           </h2>
           <p>{{ deploymentGuide?.summary || '按三虚拟机顺序启动并验收校园招聘系统。' }}</p>
         </div>
-        <el-tag type="info">{{ deploymentGuide?.environment || 'frontend-demo' }}</el-tag>
+        <el-tag type="info">{{ fallbackText(deploymentGuide?.environment, '前端演示') }}</el-tag>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'steps'" class="panel module-panel">
         <h2 class="panel-title">
           启动顺序
           <ClipboardCheck :size="19" />
@@ -1793,7 +2010,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </div>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'checks'" class="panel module-panel">
         <h2 class="panel-title">
           验收命令
           <CheckCircle2 :size="19" />
@@ -1809,7 +2026,7 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
         </div>
       </section>
 
-      <section class="panel module-panel">
+      <section v-if="activeSubTab === 'warnings'" class="panel module-panel">
         <h2 class="panel-title">
           向导提示
           <AlertTriangle :size="19" />
@@ -1859,6 +2076,47 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
 
 .compact-empty :deep(.el-empty__image) {
   width: 112px;
+}
+
+.sub-nav {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 8px;
+}
+
+.sub-nav button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #475467;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+  min-height: 34px;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.sub-nav button:hover {
+  background: #f2f4f7;
+  color: #18212f;
+}
+
+.sub-nav button.active {
+  background: #e6f4f1;
+  color: #0f766e;
+}
+
+.account-grid > .module-panel:only-child {
+  max-width: 760px;
 }
 
 .dashboard-overview .metric strong {
@@ -2735,6 +2993,47 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
   margin: 10px 0 0;
 }
 
+.knowledge-upload-progress {
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.knowledge-upload-progress-head {
+  align-items: baseline;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.knowledge-upload-progress-head strong,
+.knowledge-upload-progress-head span,
+.knowledge-upload-progress-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-upload-progress-head strong {
+  color: #18212f;
+}
+
+.knowledge-upload-progress-head span,
+.knowledge-upload-progress-meta {
+  color: #667085;
+  font-size: 13px;
+}
+
+.knowledge-upload-progress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
 .knowledge-upload-result {
   margin-top: 12px;
 }
@@ -2950,6 +3249,10 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
     flex-direction: column-reverse;
   }
 
+  .sub-nav {
+    gap: 6px;
+  }
+
   .topology-node-header {
     align-items: flex-start;
     flex-direction: column;
@@ -3009,6 +3312,11 @@ function auditRiskType(row: AdminAuditRecord): 'success' | 'warning' | 'danger' 
 
   .ai-search-score {
     align-self: flex-start;
+  }
+
+  .knowledge-upload-progress-head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .deploy-check-grid,

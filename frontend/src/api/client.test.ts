@@ -1269,6 +1269,82 @@ describe('api fallback behavior', () => {
     expect(formData.get('roles')).toBe('ADMIN,STUDENT')
   })
 
+  it('reports rag file upload progress when progress callback is provided', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    const progressEvents: string[] = []
+
+    class MockXmlHttpRequest {
+      static latest: MockXmlHttpRequest
+      upload = {
+        onprogress: null as ((event: ProgressEvent) => void) | null,
+        onload: null as (() => void) | null
+      }
+      status = 200
+      responseText = JSON.stringify({
+        code: 0,
+        message: 'ok',
+        data: {
+          jobId: 'KBI-901',
+          fileName: 'bulk-handbook.pdf',
+          title: 'Bulk Handbook',
+          category: 'rag',
+          source: 'admin-upload',
+          status: 'UPLOADED',
+          message: 'queued',
+          documentId: null,
+          chunkCount: 0,
+          vectorCount: 0,
+          error: null,
+          createdAt: '2026-06-12T00:00:00Z',
+          updatedAt: '2026-06-12T00:00:00Z'
+        }
+      })
+      timeout = 0
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      ontimeout: (() => void) | null = null
+      headers: Record<string, string> = {}
+
+      constructor() {
+        MockXmlHttpRequest.latest = this
+      }
+
+      open = vi.fn()
+
+      setRequestHeader(key: string, value: string) {
+        this.headers[key] = value
+      }
+
+      send() {
+        this.upload.onprogress?.({ lengthComputable: true, loaded: 50, total: 100 } as ProgressEvent)
+        this.upload.onload?.()
+        this.onload?.()
+      }
+    }
+
+    vi.stubGlobal('XMLHttpRequest', MockXmlHttpRequest)
+    const file = new File(['RAG handbook content'], 'bulk-handbook.pdf', { type: 'application/pdf' })
+    const result = await uploadKnowledgeFile({
+      file,
+      title: 'Bulk Handbook',
+      category: 'rag',
+      source: 'admin-upload',
+      tags: ['bulk'],
+      roles: ['ADMIN']
+    }, {
+      onProgress(progress) {
+        progressEvents.push(`${progress.phase}:${progress.percent}`)
+      }
+    })
+
+    expect(result.jobId).toBe('KBI-901')
+    expect(progressEvents).toContain('uploading:0')
+    expect(progressEvents).toContain('uploading:45')
+    expect(progressEvents).toContain('processing:92')
+    expect(progressEvents).toContain('completed:100')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('returns rag ingestion job fallback with status filtering', async () => {
     const result = await listKnowledgeIngestions({ status: 'FAILED', limit: 5 })
 
