@@ -373,6 +373,9 @@ export interface InterviewSessionRequest {
 
 export interface InterviewSessionQuestion {
   questionId: string
+  order?: number
+  mainQuestionId?: string
+  followUp?: boolean
   question: string
   category?: string
   difficulty?: string
@@ -407,6 +410,7 @@ export interface InterviewSession {
 
 export interface InterviewQuestionFeedback {
   questionId: string
+  mocked?: boolean
   score?: number
   strengths?: string[]
   gaps?: string[]
@@ -3124,10 +3128,13 @@ async function strictRequest<T>(path: string, init: RequestInit, fallback: T): P
 }
 
 async function authenticatedRequest<T>(path: string, init: RequestInit): Promise<T> {
-  const response = await fetch(resolveRequestPath(path), {
-    ...init,
-    headers: requestHeaders(init)
-  })
+  let response: Response
+  try {
+    response = await fetch(resolveRequestPath(path), { ...init, headers: requestHeaders(init) })
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
+    throw new Error('无法连接服务，请检查网络或服务状态后重试；本次操作未确认成功')
+  }
   if (!response.ok) {
     if (response.status === 401) {
       if (!path.startsWith('/api/auth/login')) {
@@ -3145,7 +3152,7 @@ async function authenticatedRequest<T>(path: string, init: RequestInit): Promise
       }
       throw new Error(path.startsWith('/api/auth/login') ? '账号或密码错误，请重新输入' : '登录已失效，请重新登录')
     }
-    throw new Error(payload.message || '请求失败')
+    throw new Error(readableApiError(payload.message || '请求失败'))
   }
   return payload.data
 }
@@ -3153,10 +3160,46 @@ async function authenticatedRequest<T>(path: string, init: RequestInit): Promise
 async function responseErrorMessage(response: Response, fallback: string) {
   try {
     const payload = await response.json() as Partial<ApiResponse<unknown>>
-    return payload.message || fallback
+    return readableApiError(payload.message || fallback)
   } catch {
     return fallback
   }
+}
+
+function readableApiError(message: string) {
+  const messages: Record<string, string> = {
+    'Resume not found': '简历不存在或无权访问，请重新选择简历',
+    'Job not found': '岗位不存在或已下线，请重新选择岗位',
+    'The requested job is not open': '该岗位已暂停招聘，请选择其他开放岗位',
+    'Learning plan not found': '学习计划不存在或无权访问，请刷新列表',
+    'Interview session not found': '面试会话不存在或无权访问，请刷新记录',
+    'Only active learning plans can be updated': '该学习计划已完成或已被新版本替代，不能修改任务',
+    'Only active learning plans can be replanned': '请选择正在进行的学习计划后重新规划',
+    'Interview session is already finished': '本次面试已结束，可以查看报告或开始新的面试',
+    'Interview question already has an answer': '本题回答已保存，不能重复修改，请继续下一题',
+    'Interview answers must be submitted in question order': '请先保存前面的题目，再回答本题',
+    'All interview questions must be answered before finish': '请先保存所有题目的回答（包括追问），再生成报告',
+    'answer must not exceed 8000 characters': '每题回答最多 8000 字，请精简后再保存',
+    'feedback must not exceed 2000 characters': '复盘备注最多 2000 字，请精简后再保存',
+    'Selected interview session is not completed': '请先完成所选面试并生成报告',
+    'Selected interview session has a different target role': '请选择与学习计划目标岗位一致的面试报告',
+    'Selected interview session does not match the learning plan context': '面试报告需来自同一份简历、岗位和匹配记录，请重新选择',
+    'AI data service is temporarily unavailable': '数据服务暂时不可用，请刷新确认最新记录后重试',
+    'targetRole or jobId is required': '请填写目标岗位或选择一个招聘岗位',
+    'targetJob is required for a resume diagnosis': '请先填写诊断的目标岗位',
+    'Interview question generation did not return enough questions': 'AI 返回的题目不完整，请稍后重新生成',
+    'weeklyHours must be between 2 and 40': '每周投入时间需在 2 到 40 小时之间',
+    'durationWeeks must be between 1 and 24': '计划周期需在 1 到 24 周之间',
+    'questionCount must be between 1 and 8': '面试主问题数量需在 1 到 8 题之间',
+    'HTTP 403': '没有权限执行此操作，请检查登录账号',
+    'HTTP 429': '操作过于频繁，请稍后再试',
+    'HTTP 502': '服务暂时不可用，请稍后重试',
+    'HTTP 503': '服务暂时不可用，请稍后重试',
+    'HTTP 504': '服务响应超时，请先刷新记录确认结果，再决定是否重试'
+  }
+  if (message.startsWith('Cannot shorten the plan past a completed task in week ')) return '新周期不能短于已完成任务所在周，请保留已完成的学习成果'
+  if (message.startsWith('weeklyHours is lower than completed work in week ')) return '每周时间不能低于该周已完成任务的时长，请增加投入时间'
+  return messages[message] || message
 }
 
 function requestHeaders(init: RequestInit) {

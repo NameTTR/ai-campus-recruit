@@ -83,6 +83,62 @@ class MatchControllerTest {
     }
 
     @Test
+    void closedJobsCannotBeMatchedByStudentsOrAdministrators() throws Exception {
+        when(jobClient.detail(anyString(), anyString(), anyString()))
+                .thenReturn(ApiResponse.ok(job(List.of("Spring Boot"), "CLOSED")));
+
+        mockMvc.perform(post("/api/matches/resume-job")
+                        .headers(studentHeaders("S-REAL"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"resumeId\":\"R-REAL\",\"jobId\":\"J-REAL\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.message").value("The requested job is not open"));
+        mockMvc.perform(post("/api/matches/resume-job")
+                        .headers(adminHeaders("A-REAL"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"resumeId\":\"R-REAL\",\"jobId\":\"J-REAL\",\"studentId\":\"S-REAL\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.message").value("The requested job is not open"));
+    }
+
+    @Test
+    void missingJobSkillRequirementsProduceAnInsufficientEvidenceResult() throws Exception {
+        when(jobClient.detail(anyString(), anyString(), anyString()))
+                .thenReturn(ApiResponse.ok(job(List.of(), "OPEN")));
+
+        mockMvc.perform(post("/api/matches/resume-job")
+                        .headers(studentHeaders("S-REAL"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"resumeId\":\"R-REAL\",\"jobId\":\"J-REAL\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.score").value(0))
+                .andExpect(jsonPath("$.data.analysisSource").value("RULE_INSUFFICIENT_JOB_SKILLS"))
+                .andExpect(jsonPath("$.data.requiredSkillsSnapshot.length()").value(0))
+                .andExpect(jsonPath("$.data.gaps[0]").value("岗位未配置技能要求，无法进行可靠匹配。"))
+                .andExpect(jsonPath("$.data.suggestions[0]").value("请补充岗位技能要求后重新匹配。"));
+    }
+
+    @Test
+    void emptyResumeSkillsExposeEveryJobRequirementAsMissing() throws Exception {
+        when(resumeClient.detail(anyString(), anyString(), anyString()))
+                .thenReturn(ApiResponse.ok(resume(List.of())));
+
+        mockMvc.perform(post("/api/matches/resume-job")
+                        .headers(studentHeaders("S-REAL"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"resumeId\":\"R-REAL\",\"jobId\":\"J-REAL\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.score").value(0))
+                .andExpect(jsonPath("$.data.analysisSource").value("RULE_SKILL_COVERAGE"))
+                .andExpect(jsonPath("$.data.missingSkills[0]").value("Spring Boot"))
+                .andExpect(jsonPath("$.data.missingSkills[1]").value("Docker"));
+    }
+
+    @Test
     void studentAndCompanyHistoryViewsEnforceOwnership() throws Exception {
         mockMvc.perform(post("/api/matches/resume-job")
                         .headers(studentHeaders("S-REAL"))
@@ -102,13 +158,21 @@ class MatchControllerTest {
     }
 
     private static ResumeSummary resume() {
-        return new ResumeSummary("R-REAL", "S-REAL", "resume.docx", "Bachelor", List.of("Java", "SpringBoot"),
+        return resume(List.of("Java", "SpringBoot"));
+    }
+
+    private static ResumeSummary resume(List<String> skills) {
+        return new ResumeSummary("R-REAL", "S-REAL", "resume.docx", "Bachelor", skills,
                 List.of("Project API"), "Extracted", 40, "key", "local", "SKIPPED", "DOCX", "TEXT_EXTRACTED", 120);
     }
 
     private static JobSummary job() {
+        return job(List.of("Spring Boot", "Docker"), "OPEN");
+    }
+
+    private static JobSummary job(List<String> requiredSkills, String status) {
         return new JobSummary("J-REAL", "C-REAL", "C-REAL", "Platform Engineer", "Shanghai", "200/day",
-                List.of("Spring Boot", "Docker"), "Build platform APIs", "Not analyzed", "OPEN");
+                requiredSkills, "Build platform APIs", "Not analyzed", status);
     }
 
     private static org.springframework.http.HttpHeaders studentHeaders(String studentId) {
@@ -122,6 +186,13 @@ class MatchControllerTest {
         org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
         headers.add("X-User-Id", companyId);
         headers.add("X-User-Role", "COMPANY");
+        return headers;
+    }
+
+    private static org.springframework.http.HttpHeaders adminHeaders(String adminId) {
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.add("X-User-Id", adminId);
+        headers.add("X-User-Role", "ADMIN");
         return headers;
     }
 }

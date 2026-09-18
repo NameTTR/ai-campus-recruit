@@ -18,6 +18,16 @@ public class InMemoryInterviewSessionStore implements InterviewSessionStore {
     }
 
     @Override
+    public synchronized boolean replaceInProgress(InterviewSession expectedSession, InterviewSession updatedSession) {
+        InterviewSession current = expectedSession == null ? null : sessions.get(expectedSession.sessionId());
+        if (current == null || !"IN_PROGRESS".equals(current.status()) || !current.equals(expectedSession)) {
+            return false;
+        }
+        sessions.put(updatedSession.sessionId(), updatedSession);
+        return true;
+    }
+
+    @Override
     public Optional<InterviewSession> findById(String sessionId) {
         return Optional.ofNullable(sessions.get(sessionId));
     }

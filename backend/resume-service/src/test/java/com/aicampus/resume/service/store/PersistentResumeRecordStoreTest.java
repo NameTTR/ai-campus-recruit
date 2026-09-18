@@ -11,7 +11,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.aicampus.common.dto.ResumeSummary;
+import com.aicampus.common.dto.ResumeDiagnosis;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Instant;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +23,21 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 class PersistentResumeRecordStoreTest {
+    @Test
+    void recordRoundTripPreservesDiagnosisHistorySnapshots() {
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        ResumeRecord base = record("R-HISTORY-001", "Original parsed resume text.");
+        ResumeDiagnosis diagnosis = new ResumeDiagnosis(
+                "RD-HISTORY-001", "R-HISTORY-001", "S-TEST-001", "Backend Engineer",
+                "Rule diagnosis", 63, "RULE_FALLBACK", Instant.parse("2026-01-02T03:04:05Z"),
+                "Bachelor degree", List.of("Java", "Redis"), List.of("Campus API"), "Original parsed resume text.");
+        ResumeRecord record = new ResumeRecord(base.summary(), base.parsedText(), List.of(diagnosis));
+
+        ResumeRecord restored = ResumeRecordEntity.fromRecord(record, objectMapper).toRecord(objectMapper);
+
+        assertThat(restored.diagnoses()).containsExactly(diagnosis);
+    }
+
     @Test
     void findByIdFallsBackToDatabaseWhenRedisReadFailsAndWritesCache() {
         ResumeRecordMapper mapper = mock(ResumeRecordMapper.class);

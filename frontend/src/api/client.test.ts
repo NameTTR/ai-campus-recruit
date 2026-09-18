@@ -215,6 +215,25 @@ describe('api fallback behavior', () => {
     expect(result.token).toBe('demo-company-token')
   })
 
+  it('keeps failed saves as failures and explains a network outage', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+
+    await expect(saveInterviewSessionAnswer('IS-network', 'Q1', 'draft'))
+      .rejects.toThrow('本次操作未确认成功')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('explains server-side interview ordering failures without returning demo data', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ code: 400, message: 'Interview answers must be submitted in question order', data: null })
+    } as Response)
+
+    await expect(saveInterviewSessionAnswer('IS-order', 'Q2', 'draft'))
+      .rejects.toThrow('请先保存前面的题目')
+  })
+
   it('calls login endpoint when gateway is configured', async () => {
     vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
     vi.mocked(fetch).mockResolvedValueOnce({
@@ -552,7 +571,7 @@ describe('api fallback behavior', () => {
       })
     } as Response)
 
-    await expect(analyzeResume('R404')).rejects.toThrow('Resume not found')
+    await expect(analyzeResume('R404')).rejects.toThrow('简历不存在或无权访问')
   })
 
   it('clears invalid session when resume analyze is unauthorized', async () => {
@@ -603,7 +622,7 @@ describe('api fallback behavior', () => {
       })
     } as Response)
 
-    await expect(deleteResume('R404')).rejects.toThrow('Resume not found')
+    await expect(deleteResume('R404')).rejects.toThrow('简历不存在或无权访问')
   })
 
   it('returns interview question fallback when gateway is offline', async () => {

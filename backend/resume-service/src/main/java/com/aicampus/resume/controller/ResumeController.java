@@ -20,6 +20,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -210,10 +211,17 @@ public class ResumeController {
         String education = request.education() == null ? current.education() : request.education().trim();
         List<String> skills = request.skills() == null ? current.skills() : normalizedList(request.skills());
         List<String> projects = request.projects() == null ? current.projects() : normalizedList(request.projects());
-        int score = evidenceScore(education, skills, projects, record.parsedText());
+        boolean profileChanged = !Objects.equals(current.education(), education)
+                || !Objects.equals(current.skills(), skills)
+                || !Objects.equals(current.projects(), projects);
+        int score = profileChanged ? evidenceScore(education, skills, projects, record.parsedText()) : current.score();
+        String diagnosis = profileChanged
+                ? "简历资料已更新，请重新生成诊断以反映最新信息。"
+                : current.diagnosis();
         ResumeSummary updated = new ResumeSummary(
                 current.resumeId(), current.studentId(), current.fileName(), education, skills, projects,
-                current.diagnosis(), score, current.objectKey(), current.storageProvider(), current.storageStatus(),
+                diagnosis, score,
+                current.objectKey(), current.storageProvider(), current.storageStatus(),
                 current.sourceFormat(), current.parseStatus(), current.parsedTextLength());
         resumeStore.save(new ResumeRecord(updated, record.parsedText(), record.diagnoses()));
         return ApiResponse.ok(updated);

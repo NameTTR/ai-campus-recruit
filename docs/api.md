@@ -20,22 +20,24 @@
 
 简历与岗位：
 
-- `PATCH` 或 `PUT /api/resumes/{id}/profile`：本人修正 `education`、`skills`、`projects`，返回更新后的 `ResumeSummary`。
+- `PATCH` 或 `PUT /api/resumes/{id}/profile`：本人修正 `education`、`skills`、`projects`，返回更新后的 `ResumeSummary`。字段实际变化时重新计算证据分，当前诊断改为“请重新生成诊断”的提示，已有历史快照保留；无变化保存保留当前报告与评分。
 - `GET /api/resumes/{id}/diagnoses`：本人诊断历史；每条记录包含诊断编号、目标岗位、报告、评分、来源和生成时间，后续诊断不覆盖旧记录。
 - `POST /api/resumes/{id}/analyze`：保留原接口，按真实正文及目标岗位分析，取消固定高分。无法抽取的扫描文档应先转为文本型 PDF/DOCX。
   - 诊断历史 `source=AI_STRUCTURED` 表示 AI 报告与可识别评分；`AI_TEXT_RULE_SCORE` 保留真实 AI 报告，分数使用规则证据分；`RULE_FALLBACK` 表示模型不可用时的规则建议。报告不会因为缺少数值评分而被丢弃。
 - `PUT /api/jobs/{id}`：企业修改本人岗位，使用岗位创建字段；学生不可写入。
 - `POST /api/jobs/{id}/status`：请求 `{ "status": "OPEN" }` 或 `{ "status": "CLOSED" }`。关闭岗位不对学生列出或参与新匹配，企业本人仍可管理。
 - `POST /api/matches/resume-job`：必须引用存在且有权限的简历和岗位；`score` 为技能覆盖率，不是录用概率。新增 `matchedSkills`、`missingSkills`、`analysisSource`、`resumeSkillsSnapshot`、`requiredSkillsSnapshot`，取消固定 88 分。
+  - 关闭的岗位不允许创建匹配，包括管理员请求。岗位未配置任何技能要求时，`analysisSource=RULE_INSUFFICIENT_JOB_SKILLS`，数字字段为兼容返回 `score=0`，页面应展示“匹配依据不足”而非有效的 0% 评分；`gaps` 和 `suggestions` 说明需补充岗位要求。简历未提取到技能时，有要求的岗位会列出全部缺失技能。
 
 学习路径：
 
 - `POST /api/ai/learning/plans`：请求 `resumeId`、`jobId`、可选 `matchId`、`targetRole`、`weeklyHours`、`durationWeeks`。每周 2–40 小时、周期 1–24 周；默认每周 6 小时、8 周，返回 `LearningPlan`。
 - `GET /api/ai/learning/plans`、`GET /api/ai/learning/plans/{planId}`：列出本人计划或读取详情。
 - `PUT /api/ai/learning/plans/{planId}/tasks/{taskId}`：更新任务 `status` 和 `feedback`，返回 `LearningTask`。支持 `PENDING`、`IN_PROGRESS`、`COMPLETED`、`SKIPPED`；仅 `ACTIVE` 计划可修改。
-- `POST /api/ai/learning/plans/{planId}/replan`：请求调整 `reason`、可选 `weeklyHours`、`durationWeeks`、`interviewSessionId`。引用面试报告时，报告必须属于本人、已完成且目标岗位一致。缩短周期或预算不能排除已完成任务；模型生成或保存失败时保留原计划，成功时在同一事务中新增版本并将旧版标记为 `SUPERSEDED`。
+- `POST /api/ai/learning/plans/{planId}/replan`：请求调整 `reason`、可选 `weeklyHours`、`durationWeeks`、`interviewSessionId`。引用面试报告时，报告必须属于本人、已完成、目标岗位一致，且 `resumeId`、`jobId`、`matchId` 与该计划一致。缩短周期或预算不能排除已完成任务；模型生成或保存失败时保留原计划，成功时在同一事务中新增版本并将旧版标记为 `SUPERSEDED`。
 - `GET /api/ai/learning/plans/{planId}/versions`：读取同一学习路径的历史版本。
 - `LearningPlan` 包含编号、根计划编号、版本、上一版本、目标岗位、输入快照、周期、状态、任务及 `mocked`。任务包括周次、技能差距、阶段、具体行动、预计用时、验收标准、实践成果及进度反馈。调整只替换未完成部分，保留已完成任务身份和记录。
+- 任务更新和重规划使用原记录快照作为条件写入。冲突后重新读取并有限重试，旧页面的整条计划不能覆盖已保存的其他任务；重规划条件写入失败不创建新版本。全部任务完成后计划状态变为 `COMPLETED`，已完成与已替代版本均只读。
 
 模拟面试：
 
@@ -44,6 +46,7 @@
 - `PUT /api/ai/interview/sessions/{sessionId}/questions/{questionId}/answer`：请求 `{ "questionId": "...", "answer": "..." }`，按当前题顺序提交；重复请求不可把同一回答当作下一题答案。
 - `POST /api/ai/interview/sessions/{sessionId}/finish`：完成面试并返回整场报告，包含总体评分、优势、薄弱项、改进建议及逐题反馈。
 - 会话保存目标与简历快照、题目、回答、进度及报告。未作答题目不暴露参考要点；每道主问题最多追加一次追问。旧单题接口保留兼容。
+- 回答按顺序且只能保存一次；进行中的会话允许同题同内容的幂等重试，修改已保存答案会被拒绝。全部主问题与追问都作答后才能完成，已完成会话只读；重复完成请求返回已保存的报告。回答和报告落库使用快照条件写入，避免并发覆盖。
 
 RAG 沿用 `/api/ai/knowledge/*` 接口。检索和回答使用认证角色，正文引用对应真实知识块；文档删除或角色修改后必须同步影响检索结果。
 
@@ -489,7 +492,8 @@ RAG 沿用 `/api/ai/knowledge/*` 接口。检索和回答使用认证角色，�
   - Gateway permission: AI analyze.
   - Request fields: `query`, `role`, `limit`, optional `useAi`.
   - Gateway-injected `STUDENT` or `COMPANY` role overrides the request body role.
-  - Retrieves top chunks, returns citations, and calls DashScope only when `useAi` is not `false` and `DASHSCOPE_API_KEY` is configured. Missing key, model failure, no evidence, or `useAi=false` returns a deterministic `mocked=true` local answer with citations.
+  - Retrieves top chunks, returns citations, and calls DashScope only when `useAi` is not `false` and `DASHSCOPE_API_KEY` is configured. Missing key, model failure, empty model output, no evidence, or `useAi=false` returns a deterministic `mocked=true`, `provider=local-rag-fallback` local answer with available citations. The local response is an evidence summary; an empty model reply is never presented as successful AI generation.
+  - Fallback answers explain the condition in Chinese and preserve readable citations without exposing raw provider exceptions or connection details. `useAi=false` never invokes the model.
   - Answers are Markdown-oriented and use longer retrieved context per chunk. `DASHSCOPE_MAX_TOKENS` controls the DashScope output token budget; the service no longer truncates generated answers in this endpoint.
   - Returns: `ApiResponse<KnowledgeAnswerResponse>`.
 - `KnowledgeDocument` fields: `documentId`, `title`, `content`, `category`, `source`, `tags`, `roles`, `createdBy`, `createdAt`.

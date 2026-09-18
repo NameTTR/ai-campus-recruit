@@ -17,7 +17,9 @@ import com.aicampus.common.dto.LearningPlanCreateRequest;
 import com.aicampus.common.dto.LearningPlanReplanRequest;
 import com.aicampus.common.dto.LearningTask;
 import com.aicampus.common.dto.LearningTaskUpdateRequest;
+import java.time.Instant;
 import java.util.Comparator;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
 
@@ -149,6 +151,7 @@ class AiCareerCoreServiceTest {
         assertThat(report.questionFeedback()).hasSize(6);
         assertThat(report.overallScore()).isBetween(0, 100);
         assertThat(service.getInterviewSession(created.sessionId(), "S-CORE-001").status()).isEqualTo("COMPLETED");
+        assertThat(service.finishInterviewSession(created.sessionId(), "S-CORE-001")).isEqualTo(report);
         assertThatThrownBy(() -> service.answerInterviewQuestion(
                         created.sessionId(),
                         first.questionId(),
@@ -196,6 +199,114 @@ class AiCareerCoreServiceTest {
         assertThat(service.listLearningPlanVersions(initial.planId(), "S-CORE-FAIL-001")).hasSize(1);
     }
 
+    @Test
+    void taskUpdateRetriesAfterConflictWithoutLosingTheOtherTask() {
+        ConflictOnceLearningPlanStore store = new ConflictOnceLearningPlanStore();
+        AiCareerCoreService service = service(store, new InMemoryInterviewSessionStore());
+        LearningPlan initial = service.createLearningPlan(
+                "S-CORE-CONFLICT-001",
+                "STUDENT",
+                new LearningPlanCreateRequest(
+                        "S-CORE-CONFLICT-001", null, null, null, "Java Backend Intern", null, null));
+        LearningTask firstTask = initial.tasks().get(0);
+        LearningTask secondTask = initial.tasks().get(1);
+        store.injectTaskUpdate(withTaskUpdate(initial, secondTask.taskId(), "IN_PROGRESS", "Updated in another tab."));
+
+        service.updateLearningTask(
+                initial.planId(),
+                firstTask.taskId(),
+                initial.studentId(),
+                new LearningTaskUpdateRequest("COMPLETED", "Completed in this tab."));
+
+        LearningPlan updated = service.getLearningPlan(initial.planId(), initial.studentId());
+        assertThat(updated.tasks()).filteredOn(task -> task.taskId().equals(firstTask.taskId()))
+                .allSatisfy(task -> assertThat(task.status()).isEqualTo("COMPLETED"));
+        assertThat(updated.tasks()).filteredOn(task -> task.taskId().equals(secondTask.taskId()))
+                .allSatisfy(task -> {
+                    assertThat(task.status()).isEqualTo("IN_PROGRESS");
+                    assertThat(task.feedback()).isEqualTo("Updated in another tab.");
+                });
+    }
+
+    @Test
+    void replanRetriesAgainstLatestPlanAndRetainsConcurrentCompletedWork() {
+        ConflictOnceLearningPlanStore store = new ConflictOnceLearningPlanStore();
+        AiCareerCoreService service = service(store, new InMemoryInterviewSessionStore());
+        LearningPlan initial = service.createLearningPlan(
+                "S-CORE-REPLAN-CONFLICT-001",
+                "STUDENT",
+                new LearningPlanCreateRequest(
+                        "S-CORE-REPLAN-CONFLICT-001", null, null, null, "Java Backend Intern", null, null));
+        LearningTask task = initial.tasks().get(0);
+        store.injectReplanConflict(withTaskUpdate(initial, task.taskId(), "COMPLETED", "Completed while replanning."));
+
+        LearningPlan revised = service.replan(
+                initial.planId(),
+                initial.studentId(),
+                "STUDENT",
+                new LearningPlanReplanRequest("Rebalance study effort.", 8, 8, null));
+
+        assertThat(revised.version()).isEqualTo(2);
+        assertThat(revised.tasks()).filteredOn(candidate -> candidate.taskId().equals(task.taskId()))
+                .allSatisfy(candidate -> {
+                    assertThat(candidate.status()).isEqualTo("COMPLETED");
+                    assertThat(candidate.feedback()).isEqualTo("Completed while replanning.");
+                });
+    }
+
+    @Test
+    void answerRetryIsIdempotentAndReplanRejectsMismatchedInterviewContext() {
+        ConflictOnceInterviewSessionStore sessionStore = new ConflictOnceInterviewSessionStore();
+        InMemoryLearningPlanStore planStore = new InMemoryLearningPlanStore();
+        AiCareerCoreService service = service(planStore, sessionStore);
+        LearningPlan plan = service.createLearningPlan(
+                "S-CORE-CONTEXT-001",
+                "STUDENT",
+                new LearningPlanCreateRequest(
+                        "S-CORE-CONTEXT-001", null, null, null, "Java Backend Intern", null, null));
+        InterviewSession session = service.createInterviewSession(
+                plan.studentId(),
+                "STUDENT",
+                new InterviewSessionCreateRequest(
+                        plan.studentId(), null, null, null, plan.targetRole(), 1));
+        InterviewSessionQuestion question = session.questions().get(0);
+        sessionStore.injectAnswer(withAnswer(session, question.questionId(), longAnswer()));
+
+        InterviewSession answered = service.answerInterviewQuestion(
+                session.sessionId(),
+                question.questionId(),
+                plan.studentId(),
+                new InterviewSessionAnswerRequest(question.questionId(), longAnswer()));
+        assertThat(answered.answers()).hasSize(1);
+        assertThat(service.finishInterviewSession(session.sessionId(), plan.studentId()))
+                .isEqualTo(service.finishInterviewSession(session.sessionId(), plan.studentId()));
+
+        String mismatchedSessionId = "IS-CORE-MISMATCH";
+        Instant now = Instant.now();
+        sessionStore.save(new InterviewSession(
+                mismatchedSessionId,
+                plan.studentId(),
+                "R-OTHER", null, null,
+                plan.targetRole(),
+                null,
+                "COMPLETED",
+                List.of(),
+                List.of(),
+                new InterviewSessionReport(
+                        mismatchedSessionId, 80, List.of(), List.of(), List.of("Focus on measurable outcomes."), List.of(), now, false),
+                false,
+                now,
+                now,
+                now));
+        assertThatThrownBy(() -> service.replan(
+                        plan.planId(),
+                        plan.studentId(),
+                        "STUDENT",
+                        new LearningPlanReplanRequest("Use interview feedback.", 8, 8, mismatchedSessionId)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Selected interview session does not match the learning plan context");
+    }
+
     private static void answerEveryRemainingQuestion(
             AiCareerCoreService service,
             String sessionId,
@@ -224,11 +335,14 @@ class AiCareerCoreServiceTest {
     }
 
     private static AiCareerCoreService service() {
+        return service(new InMemoryLearningPlanStore(), new InMemoryInterviewSessionStore());
+    }
+
+    private static AiCareerCoreService service(
+            LearningPlanStore learningPlanStore,
+            InterviewSessionStore interviewSessionStore) {
         return new AiCareerCoreService(
-                new ReliablePlanAiCoachService(),
-                new InMemoryLearningPlanStore(),
-                new InMemoryInterviewSessionStore(),
-                contextClient());
+                new ReliablePlanAiCoachService(), learningPlanStore, interviewSessionStore, contextClient());
     }
 
     private static AiCareerCoreService serviceWithFallbackPlanGeneration() {
@@ -245,6 +359,92 @@ class AiCareerCoreServiceTest {
                 "http://localhost:18104",
                 "http://localhost:18105",
                 RestClient.create());
+    }
+
+    private static LearningPlan withTaskUpdate(
+            LearningPlan plan,
+            String taskId,
+            String status,
+            String feedback) {
+        Instant now = Instant.now();
+        List<LearningTask> tasks = plan.tasks().stream()
+                .map(task -> !task.taskId().equals(taskId)
+                        ? task
+                        : new LearningTask(
+                                task.taskId(), task.week(), task.title(), task.description(), task.skillGap(), task.stage(),
+                                task.acceptanceCriteria(), task.practiceDeliverable(), task.estimatedHours(), status, feedback,
+                                "COMPLETED".equals(status) ? now : null, now))
+                .toList();
+        return new LearningPlan(
+                plan.planId(), plan.rootPlanId(), plan.studentId(), plan.resumeId(), plan.jobId(), plan.matchId(),
+                plan.targetRole(), plan.contextSnapshot(), plan.weeklyHours(), plan.durationWeeks(), plan.status(), plan.version(),
+                plan.revisionOfPlanId(), tasks, plan.mocked(), plan.createdAt(), now);
+    }
+
+    private static InterviewSession withAnswer(InterviewSession session, String questionId, String answer) {
+        Instant now = Instant.now();
+        return new InterviewSession(
+                session.sessionId(), session.studentId(), session.resumeId(), session.jobId(), session.matchId(),
+                session.targetRole(), session.contextSnapshot(), session.status(), session.questions(),
+                List.of(new com.aicampus.common.dto.InterviewSessionAnswer(questionId, answer, now)), session.report(),
+                session.mocked(), session.createdAt(), now, session.completedAt());
+    }
+
+    private static final class ConflictOnceLearningPlanStore extends InMemoryLearningPlanStore {
+        private LearningPlan taskUpdate;
+        private LearningPlan replanConflict;
+
+        private void injectTaskUpdate(LearningPlan plan) {
+            taskUpdate = plan;
+        }
+
+        private void injectReplanConflict(LearningPlan plan) {
+            replanConflict = plan;
+        }
+
+        @Override
+        public synchronized boolean updateActive(LearningPlan expectedPlan, LearningPlan updatedPlan) {
+            if (taskUpdate != null) {
+                LearningPlan concurrent = taskUpdate;
+                taskUpdate = null;
+                assertThat(super.updateActive(expectedPlan, concurrent)).isTrue();
+                return false;
+            }
+            return super.updateActive(expectedPlan, updatedPlan);
+        }
+
+        @Override
+        public synchronized boolean replaceActiveWithRevision(
+                LearningPlan activePlan,
+                LearningPlan supersededPlan,
+                LearningPlan revision) {
+            if (replanConflict != null) {
+                LearningPlan concurrent = replanConflict;
+                replanConflict = null;
+                assertThat(super.updateActive(activePlan, concurrent)).isTrue();
+                return false;
+            }
+            return super.replaceActiveWithRevision(activePlan, supersededPlan, revision);
+        }
+    }
+
+    private static final class ConflictOnceInterviewSessionStore extends InMemoryInterviewSessionStore {
+        private InterviewSession answer;
+
+        private void injectAnswer(InterviewSession session) {
+            answer = session;
+        }
+
+        @Override
+        public synchronized boolean replaceInProgress(InterviewSession expectedSession, InterviewSession updatedSession) {
+            if (answer != null) {
+                InterviewSession concurrent = answer;
+                answer = null;
+                assertThat(super.replaceInProgress(expectedSession, concurrent)).isTrue();
+                return false;
+            }
+            return super.replaceInProgress(expectedSession, updatedSession);
+        }
     }
 
     private static final class ReliablePlanAiCoachService extends AiCoachService {

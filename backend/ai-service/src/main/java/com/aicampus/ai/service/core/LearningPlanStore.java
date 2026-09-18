@@ -7,7 +7,9 @@ import java.util.Optional;
 public interface LearningPlanStore {
     void save(LearningPlan plan);
 
-    void replaceActiveWithRevision(LearningPlan activePlan, LearningPlan supersededPlan, LearningPlan revision);
+    boolean updateActive(LearningPlan expectedPlan, LearningPlan updatedPlan);
+
+    boolean replaceActiveWithRevision(LearningPlan activePlan, LearningPlan supersededPlan, LearningPlan revision);
 
     Optional<LearningPlan> findById(String planId);
 

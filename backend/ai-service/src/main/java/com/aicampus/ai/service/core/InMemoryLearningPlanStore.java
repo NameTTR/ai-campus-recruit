@@ -18,18 +18,29 @@ public class InMemoryLearningPlanStore implements LearningPlanStore {
     }
 
     @Override
-    public synchronized void replaceActiveWithRevision(
+    public synchronized boolean updateActive(LearningPlan expectedPlan, LearningPlan updatedPlan) {
+        LearningPlan current = expectedPlan == null ? null : plans.get(expectedPlan.planId());
+        if (current == null || !"ACTIVE".equals(current.status()) || !current.equals(expectedPlan)) {
+            return false;
+        }
+        plans.put(updatedPlan.planId(), updatedPlan);
+        return true;
+    }
+
+    @Override
+    public synchronized boolean replaceActiveWithRevision(
             LearningPlan activePlan,
             LearningPlan supersededPlan,
             LearningPlan revision) {
         LearningPlan current = activePlan == null ? null : plans.get(activePlan.planId());
         if (current == null
                 || !"ACTIVE".equals(current.status())
-                || current.version() != activePlan.version()) {
-            throw new IllegalStateException("Learning plan was changed before it could be replanned");
+                || !current.equals(activePlan)) {
+            return false;
         }
         plans.put(supersededPlan.planId(), supersededPlan);
         plans.put(revision.planId(), revision);
+        return true;
     }
 
     @Override

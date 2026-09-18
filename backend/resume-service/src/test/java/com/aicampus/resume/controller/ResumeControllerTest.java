@@ -17,6 +17,7 @@ import com.aicampus.common.api.ApiResponse;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.jayway.jsonpath.JsonPath;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +55,27 @@ class ResumeControllerTest {
                 .andExpect(jsonPath("$.data.diagnosis").value(containsString("项目成果明确")));
         mockMvc.perform(get("/api/resumes/{id}/diagnoses", id).headers(studentHeaders(STUDENT_ID)))
                 .andExpect(jsonPath("$.data[0].source").value("AI_TEXT_RULE_SCORE"));
+    }
+
+    @Test
+    void aiTextDiagnosisWithoutScoreKeepsSummaryAndHistoryScoresConsistent() throws Exception {
+        org.mockito.Mockito.when(aiAnalyzeClient.analyze(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(ApiResponse.ok(new AiAnalyzeResponse(
+                        "resume", "dashscope", "The project evidence is clear, but testing evidence is incomplete.", false)));
+        String id = resumeId(upload("Bachelor degree\nSkills: Java\nProject: Campus platform", STUDENT_ID));
+
+        MvcResult analysis = mockMvc.perform(post("/api/resumes/{id}/analyze", id)
+                        .headers(studentHeaders(STUDENT_ID)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetJob\":\"Java internship\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andReturn();
+        Integer summaryScore = JsonPath.read(analysis.getResponse().getContentAsString(), "$.data.score");
+
+        mockMvc.perform(get("/api/resumes/{id}/diagnoses", id).headers(studentHeaders(STUDENT_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].source").value("AI_TEXT_RULE_SCORE"))
+                .andExpect(jsonPath("$.data[0].score").value(summaryScore));
     }
 
     @Test
@@ -115,7 +137,9 @@ class ResumeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"skills\":[\"Python\"],\"projects\":[\"Project: Updated profile\"]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.skills[0]").value("Python"));
+                .andExpect(jsonPath("$.data.skills[0]").value("Python"))
+                .andExpect(jsonPath("$.data.diagnosis")
+                        .value("简历资料已更新，请重新生成诊断以反映最新信息。"));
 
         mockMvc.perform(get("/api/resumes/{id}/diagnoses", resumeId).headers(studentHeaders(STUDENT_ID)))
                 .andExpect(status().isOk())
@@ -124,6 +148,31 @@ class ResumeControllerTest {
                 .andExpect(jsonPath("$.data[0].source").value("RULE_FALLBACK"))
                 .andExpect(jsonPath("$.data[0].skillsSnapshot", hasItem("Java")))
                 .andExpect(jsonPath("$.data[0].resumeTextSnapshot").value(containsString("Campus platform")));
+    }
+
+    @Test
+    void unchangedProfileSaveRetainsTheCurrentDiagnosisAndScore() throws Exception {
+        MvcResult upload = upload("Bachelor degree\nSkills: Java\nProject: Campus platform", STUDENT_ID);
+        String resumeId = resumeId(upload);
+        MvcResult analysis = mockMvc.perform(post("/api/resumes/{id}/analyze", resumeId)
+                        .headers(studentHeaders(STUDENT_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetJob\":\"Backend Engineer\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andReturn();
+        String responseBody = analysis.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        String diagnosis = JsonPath.read(responseBody, "$.data.diagnosis");
+        Integer score = JsonPath.read(responseBody, "$.data.score");
+
+        mockMvc.perform(patch("/api/resumes/{id}/profile", resumeId)
+                        .headers(studentHeaders(STUDENT_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"education\":\"Bachelor degree\",\"skills\":[\"Java\"],"
+                                + "\"projects\":[\"Project: Campus platform\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.diagnosis").value(diagnosis))
+                .andExpect(jsonPath("$.data.score").value(score));
     }
 
     @Test

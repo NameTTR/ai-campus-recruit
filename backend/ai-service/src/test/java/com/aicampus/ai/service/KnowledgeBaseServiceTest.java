@@ -123,6 +123,65 @@ class KnowledgeBaseServiceTest {
         return service(store, new DashScopeClient("", "qwen-plus", "http://localhost"));
     }
 
+    @Test
+    void blankProviderAnswerKeepsEvidenceAndIsMarkedAsLocalFallback() {
+        KnowledgeBaseService service = service(new InMemoryKnowledgeBaseStore(), new StubDashScopeClient("  \n  "));
+        seedAnswerEvidence(service);
+
+        var response = service.answer(new KnowledgeAnswerRequest("Redis 缓存", "STUDENT", 3, true));
+
+        assertThat(response.mocked()).isTrue();
+        assertThat(response.provider()).isEqualTo("local-rag-fallback");
+        assertThat(response.citations()).isNotEmpty();
+        assertThat(response.answer()).contains("Redis").contains("有效回答");
+    }
+
+    @Test
+    void failedProviderAnswerDoesNotExposeTechnicalExceptionToStudent() {
+        DashScopeClient failing = new DashScopeClient("test-key", "qwen-plus", "http://localhost") {
+            @Override
+            public boolean isConfigured() { return true; }
+
+            @Override
+            public String complete(String systemPrompt, String userPrompt, boolean jsonMode) {
+                throw new IllegalStateException("upstream returned Authorization: Bearer secret-test-token at internal-host");
+            }
+        };
+        KnowledgeBaseService service = service(new InMemoryKnowledgeBaseStore(), failing);
+        seedAnswerEvidence(service);
+
+        var response = service.answer(new KnowledgeAnswerRequest("Redis 缓存", "STUDENT", 3, true));
+
+        assertThat(response.mocked()).isTrue();
+        assertThat(response.citations()).isNotEmpty();
+        assertThat(response.answer()).contains("暂时不可用");
+        assertThat(response.answer()).doesNotContain("secret-test-token", "internal-host", "Authorization", "DashScope");
+    }
+
+    @Test
+    void retrievalOnlyAnswerExplainsSourceWithoutCallingModel() {
+        DashScopeClient unexpected = new DashScopeClient("test-key", "qwen-plus", "http://localhost") {
+            @Override
+            public String complete(String systemPrompt, String userPrompt, boolean jsonMode) {
+                throw new AssertionError("Retrieval-only must not call the model");
+            }
+        };
+        KnowledgeBaseService service = service(new InMemoryKnowledgeBaseStore(), unexpected);
+        seedAnswerEvidence(service);
+
+        var response = service.answer(new KnowledgeAnswerRequest("Redis 缓存", "STUDENT", 3, false));
+
+        assertThat(response.answer()).contains("检索摘要").doesNotContain("load smoke", "API_KEY");
+        assertThat(response.citations()).isNotEmpty();
+        assertThat(response.provider()).isEqualTo("local-rag-fallback");
+    }
+
+    private void seedAnswerEvidence(KnowledgeBaseService service) {
+        service.saveDocument(new KnowledgeDocument(
+                "KB-ANSWER-EVIDENCE", "Redis 缓存", "Redis 缓存需要设置过期时间，并根据业务处理数据一致性。",
+                "interview", "course-notes", List.of("Redis"), List.of("STUDENT"), "admin", LocalDateTime.now()));
+    }
+
     private KnowledgeBaseService service(InMemoryKnowledgeBaseStore store, DashScopeClient dashScopeClient) {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         return new KnowledgeBaseService(

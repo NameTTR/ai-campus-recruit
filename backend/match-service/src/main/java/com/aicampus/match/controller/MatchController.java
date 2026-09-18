@@ -87,7 +87,7 @@ public class MatchController {
             return ApiResponse.fail(jobResult.error());
         }
         JobSummary job = jobResult.value();
-        if (!"OPEN".equalsIgnoreCase(job.status()) && !isAdmin(role)) {
+        if (!"OPEN".equalsIgnoreCase(job.status())) {
             return ApiResponse.fail("The requested job is not open");
         }
 
@@ -169,19 +169,35 @@ public class MatchController {
     }
 
     private static MatchResult ruleMatch(ResumeSummary resume, JobSummary job, String studentId) {
+        List<String> resumeSnapshot = normalizedList(resume.skills());
+        List<String> requiredSnapshot = normalizedList(job.requiredSkills());
+        if (requiredSnapshot.isEmpty()) {
+            return new MatchResult(
+                    "M" + UUID.randomUUID().toString().substring(0, 8),
+                    resume.resumeId(),
+                    job.jobId(),
+                    studentId,
+                    0,
+                    List.of(),
+                    List.of("岗位未配置技能要求，无法进行可靠匹配。"),
+                    List.of("请补充岗位技能要求后重新匹配。"),
+                    List.of(),
+                    List.of(),
+                    "RULE_INSUFFICIENT_JOB_SKILLS",
+                    resumeSnapshot,
+                    requiredSnapshot);
+        }
         Map<String, String> resumeSkills = indexSkills(resume.skills());
         List<String> matched = new ArrayList<>();
         List<String> missing = new ArrayList<>();
-        for (String requiredSkill : normalizedList(job.requiredSkills())) {
+        for (String requiredSkill : requiredSnapshot) {
             if (resumeSkills.containsKey(normalizeSkill(requiredSkill))) {
                 matched.add(requiredSkill);
             } else {
                 missing.add(requiredSkill);
             }
         }
-
-        List<String> requiredSnapshot = normalizedList(job.requiredSkills());
-        int score = requiredSnapshot.isEmpty() ? 0 : Math.round(matched.size() * 100.0f / requiredSnapshot.size());
+        int score = Math.round(matched.size() * 100.0f / requiredSnapshot.size());
         List<String> strengths = matched.stream()
                 .map(skill -> "已匹配岗位要求技能：" + skill)
                 .toList();
@@ -203,7 +219,7 @@ public class MatchController {
                 matched,
                 missing,
                 "RULE_SKILL_COVERAGE",
-                normalizedList(resume.skills()),
+                resumeSnapshot,
                 requiredSnapshot);
     }
 

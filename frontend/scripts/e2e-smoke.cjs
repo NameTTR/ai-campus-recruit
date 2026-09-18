@@ -7,6 +7,7 @@ const explicitBaseUrl = Boolean(process.env.E2E_BASE_URL)
 const localPort = process.env.E2E_PORT || '5174'
 const rawBaseUrl = process.env.E2E_BASE_URL || `http://127.0.0.1:${localPort}`
 const baseUrl = rawBaseUrl.replace(/\/+$/, '')
+const apiProxyTarget = process.env.E2E_API_PROXY_TARGET || process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8080'
 const artifactsDir = process.env.E2E_ARTIFACTS_DIR || path.join(rootDir, '.e2e-artifacts')
 const coreFixturePath = path.resolve(rootDir, '../logs/core-mvp-verification.json')
 const coreFixturePassword = process.env.MVP_SMOKE_PASSWORD || 'Verification123!'
@@ -177,7 +178,7 @@ function readCoreFixture() {
   } catch (error) {
     throw new Error(`Unable to read core MVP fixture ${coreFixturePath}: ${error.message}`)
   }
-  for (const field of ['studentUsername', 'planId', 'sessionId']) {
+  for (const field of ['studentUsername', 'resumeId', 'jobId', 'matchId', 'planId', 'sessionId']) {
     if (typeof fixture[field] !== 'string' || !fixture[field].trim()) {
       throw new Error(`Core MVP fixture is missing ${field}: ${coreFixturePath}`)
     }
@@ -188,8 +189,15 @@ function readCoreFixture() {
 async function verifyCoreFixture(client, fixture) {
   console.log(`Core MVP fixture detected for ${fixture.studentUsername}; checking persisted student data.`)
   await loginAs(client, fixture.studentUsername, 'STUDENT', '/student/resume', coreFixturePassword)
+  const resume = await fetchFixtureData(client, `/api/resumes/${encodeURIComponent(fixture.resumeId)}`)
+  const job = await fetchFixtureData(client, `/api/jobs/${encodeURIComponent(fixture.jobId)}`)
   const plan = await fetchFixtureData(client, `/api/ai/learning/plans/${encodeURIComponent(fixture.planId)}`)
   const session = await fetchFixtureData(client, `/api/ai/interview/sessions/${encodeURIComponent(fixture.sessionId)}`)
+  const matches = await fetchFixtureData(client, '/api/matches')
+  const fixtureMatch = matches.find((match) => match.matchId === fixture.matchId)
+  if (!fixtureMatch) {
+    throw new Error(`Fixture match was not restored: ${fixture.matchId}`)
+  }
   if (plan.status !== 'ACTIVE' || !Number.isInteger(plan.version)) {
     throw new Error(`Fixture plan is not an active version: ${fixture.planId}`)
   }
@@ -202,11 +210,17 @@ async function verifyCoreFixture(client, fixture) {
     throw new Error(`Fixture interview session is missing its completed report: ${fixture.sessionId}`)
   }
 
+  await verifyResumeDeleteCancellation(client, fixture, resume)
+  await verifyResumeDraftPersistence(client, fixture, resume)
+  await verifyMatchHistoryRestoreAndContext(client, fixtureMatch, resume, job)
+
   await navigate(client, `${baseUrl}/student/plan`)
   await assertText(client, ['学习路径', '学习计划', '任务进度', plan.targetRole, `V${plan.version}`, '当前可编辑版本'])
   await assertSelectDisplay(client, `V${plan.version}`)
   await assertPersistedTask(client, persistedTaskFeedback)
   await screenshot(client, '00-core-fixture-learning-plan.png')
+  await verifyTaskSaveFailureRetention(client, plan)
+  await verifyPlanHistoryReadOnly(client, plan)
 
   await navigate(client, `${baseUrl}/student/history`)
   await waitForExpression(client, "location.pathname === '/student/interview' && new URLSearchParams(location.search).get('tab') === 'history'")
@@ -219,6 +233,209 @@ async function verifyCoreFixture(client, fixture) {
     session.report.recommendations[0]
   ])
   await screenshot(client, '00-core-fixture-interview-report.png')
+  await verifyCompletedInterviewReadOnly(client, fixture, session)
+  await verifyRetrievalOnlyKnowledge(client)
+}
+
+async function verifyResumeDeleteCancellation(client, fixture, resume) {
+  await navigate(client, `${baseUrl}/student/resume`)
+  await waitForExpression(client, `Boolean(document.querySelector('.resume-summary strong')?.innerText.includes(${JSON.stringify(resume.fileName)}))`)
+  await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
+  await clickButton(client, '删除该版本')
+  await waitForExpression(client, "Boolean(document.querySelector('.el-message-box'))")
+  await clickElementContaining(client, '.el-message-box__btns button', '取消')
+  await waitForExpression(client, "!document.querySelector('.el-message-box')")
+  await waitForExpression(client, `Boolean(document.querySelector('.resume-summary strong')?.innerText.includes(${JSON.stringify(resume.fileName)}))`)
+  const restored = await fetchFixtureData(client, `/api/resumes/${encodeURIComponent(fixture.resumeId)}`)
+  if (restored.resumeId !== fixture.resumeId) {
+    throw new Error('Resume was changed after cancelling the delete confirmation')
+  }
+  await screenshot(client, '00a-resume-delete-cancelled.png')
+}
+
+async function verifyResumeDraftPersistence(client, fixture, resume) {
+  const educationSelector = '.profile-form .form-field input'
+  await navigate(client, `${baseUrl}/student/resume`)
+  await waitForExpression(client, `Boolean(document.querySelector('.resume-summary strong')?.innerText.includes(${JSON.stringify(resume.fileName)}))`)
+  await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
+  const originalEducation = await elementBox(client, `document.querySelector(${JSON.stringify(educationSelector)})?.value`)
+  const userId = await elementBox(client, 'localStorage.getItem(\'userId\')')
+  if (typeof originalEducation !== 'string' || !userId) {
+    throw new Error('Unable to read the selected resume form before testing draft persistence')
+  }
+
+  const draftMarker = `E2E_DRAFT_${Date.now()}`
+  const draftKey = `aicampus.draft.${encodeURIComponent(userId)}.resume.${encodeURIComponent(fixture.resumeId)}`
+  await fillInput(client, educationSelector, draftMarker)
+  await assertInputValue(client, educationSelector, draftMarker)
+  await waitForExpression(client, "Boolean(document.querySelector('.form-dirty-note'))")
+
+  await navigate(client, `${baseUrl}/student/jobs`)
+  await waitForExpression(client, "location.pathname === '/student/jobs'")
+  await navigate(client, `${baseUrl}/student/resume`)
+  await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
+  await assertInputValue(client, educationSelector, draftMarker)
+
+  await navigate(client, `${baseUrl}/student/resume`)
+  await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
+  await assertInputValue(client, educationSelector, draftMarker)
+
+  await fillInput(client, educationSelector, originalEducation)
+  await client.send('Runtime.evaluate', {
+    expression: `sessionStorage.removeItem(${JSON.stringify(draftKey)})`
+  })
+  await navigate(client, `${baseUrl}/student/resume`)
+  await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
+  await assertInputValue(client, educationSelector, originalEducation)
+  await screenshot(client, '00g-resume-draft-restored.png')
+}
+
+async function verifyMatchHistoryRestoreAndContext(client, match, resume, job) {
+  await navigate(client, `${baseUrl}/student/jobs`)
+  await waitForExpression(client, "Boolean(document.querySelector('button.match-record'))")
+  await clickElementByData(client, '.match-records button.match-record', 'matchId', match.matchId)
+  await assertMatchSelection(client, resume.fileName, job.title)
+  await screenshot(client, '00b-match-history-restored.png')
+
+  await navigate(client, `${baseUrl}/student/jobs`)
+  await assertMatchSelection(client, resume.fileName, job.title)
+  await clickSelector(client, '.match-next-actions button')
+  await waitForExpression(client, "location.pathname === '/student/plan'")
+  await waitForText(client, `已关联匹配：${match.score}%`)
+
+  await navigate(client, `${baseUrl}/student/jobs`)
+  await assertMatchSelection(client, resume.fileName, job.title)
+  await clickSelector(client, '.match-next-actions .el-button--primary')
+  await waitForExpression(client, "location.pathname === '/student/interview'")
+  await assertInputValue(client, '.target-role-editor input', job.title)
+  await screenshot(client, '00c-match-interview-context.png')
+}
+
+async function verifyTaskSaveFailureRetention(client, plan) {
+  const task = plan.tasks?.find((item) => item.status !== 'COMPLETED')
+  if (!task) {
+    throw new Error(`Fixture plan has no unfinished task for save failure coverage: ${plan.planId}`)
+  }
+  const taskPath = `/api/ai/learning/plans/${encodeURIComponent(plan.planId)}/tasks/${encodeURIComponent(task.taskId)}`
+  const feedback = `E2E save failure ${Date.now()}`
+  let intercepted = false
+  let interceptionError
+  const stopListening = client.on('Fetch.requestPaused', (params) => {
+    void (async () => {
+      if (params.request.method !== 'PUT' || !params.request.url.includes(taskPath)) {
+        await client.send('Fetch.continueRequest', { requestId: params.requestId })
+        return
+      }
+      try {
+        intercepted = true
+        await client.send('Fetch.fulfillRequest', {
+          requestId: params.requestId,
+          responseCode: 503,
+          responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
+          body: Buffer.from(JSON.stringify({ code: 503, message: 'E2E simulated task save failure', data: null })).toString('base64')
+        })
+      } catch (error) {
+        interceptionError = error
+      }
+    })()
+  })
+
+  try {
+    await client.send('Fetch.enable', { patterns: [{ urlPattern: `*${taskPath}`, requestStage: 'Request' }] })
+    const taskIndex = await elementBox(client, `(() => [...document.querySelectorAll('.task-row')]
+      .findIndex((row) => row.querySelector('strong')?.innerText.includes(${JSON.stringify(task.title)})))()`)
+    if (!Number.isInteger(taskIndex) || taskIndex < 0) {
+      throw new Error(`Unable to locate unfinished task in the plan UI: ${task.taskId}`)
+    }
+    const feedbackInput = `.task-list > .task-row:nth-child(${taskIndex + 1}) input[placeholder="复盘备注"]`
+    await fillInput(client, feedbackInput, feedback)
+    for (let index = 0; index < 30 && !intercepted && !interceptionError; index += 1) {
+      await sleep(250)
+    }
+    if (interceptionError) {
+      throw interceptionError
+    }
+    if (!intercepted) {
+      throw new Error(`Task update request was not intercepted: ${taskPath}`)
+    }
+    await waitForExpression(client, `(() => {
+      const rows = [...document.querySelectorAll('.task-row')];
+      const row = rows[${taskIndex}];
+      const input = row?.querySelector('input[placeholder="复盘备注"]');
+      return input?.value === ${JSON.stringify(feedback)} && !input.disabled && row.innerText.includes('重试');
+    })()`)
+    await screenshot(client, '00h-task-save-failure-retained.png')
+  } finally {
+    stopListening()
+    await client.send('Fetch.disable')
+  }
+
+  await navigate(client, `${baseUrl}/student/history`)
+  await waitForExpression(client, "location.pathname === '/student/interview' && new URLSearchParams(location.search).get('tab') === 'history'")
+}
+
+async function verifyPlanHistoryReadOnly(client, plan) {
+  const versions = await fetchFixtureData(client, `/api/ai/learning/plans/${encodeURIComponent(plan.planId)}/versions`)
+  const historical = versions.find((version) => version.status !== 'ACTIVE'
+    && version.tasks?.some((task) => task.feedback === persistedTaskFeedback))
+  if (!historical) {
+    throw new Error(`Fixture plan has no historical version with persisted task feedback: ${plan.planId}`)
+  }
+
+  await navigate(client, `${baseUrl}/student/plan`)
+  await selectElementPlusOption(client, '.plan-sidebar .el-select', `V${plan.version} · 进行中`)
+  await waitForText(client, `V${plan.version}`)
+  await clickElementByData(client, '.version-actions button', 'planId', historical.planId)
+  await waitForText(client, '当前选择的是历史版本')
+  await assertReadOnlyPersistedTask(client, persistedTaskFeedback)
+  await screenshot(client, '00d-plan-history-readonly.png')
+}
+
+async function verifyCompletedInterviewReadOnly(client, fixture, session) {
+  const feedbackByQuestion = new Map((session.report.questionFeedback || []).map((feedback) => [feedback.questionId, feedback]))
+  const activeQuestion = session.questions[session.questions.length - 1]
+  const activeFeedback = feedbackByQuestion.get(activeQuestion?.questionId) || session.report.questionFeedback[0]
+  const feedbackText = activeFeedback?.summary || activeFeedback?.suggestions?.[0]
+  if (!feedbackText) {
+    throw new Error(`Fixture interview report has no visible question feedback: ${fixture.sessionId}`)
+  }
+
+  await navigate(client, `${baseUrl}/student/interview?tab=history`)
+  await waitForExpression(client, "Boolean(document.querySelector('.session-card'))")
+  await clickSessionCard(client, fixture.sessionId, session.targetRole)
+  await waitForExpression(client, "location.pathname === '/student/interview' && !new URLSearchParams(location.search).get('tab')")
+  await waitForExpression(client, "Boolean(document.querySelector('.answer-input textarea')?.readOnly)")
+  await waitForText(client, '本题反馈')
+  await waitForText(client, feedbackText)
+  await screenshot(client, '00e-completed-interview-readonly.png')
+}
+
+async function verifyRetrievalOnlyKnowledge(client) {
+  const query = 'Java Redis'
+  await navigate(client, `${baseUrl}/student/knowledge`)
+  await waitForExpression(client, "Boolean(document.querySelector('.knowledge-mode .el-switch'))")
+  const retrievalOnly = await elementBox(client, `(() => {
+    const control = document.querySelector('.knowledge-mode .el-switch');
+    const input = control?.querySelector('input');
+    return control?.getAttribute('aria-checked') === 'false' || Boolean(input && !input.checked);
+  })()`)
+  if (!retrievalOnly) {
+    throw new Error('Knowledge search defaults to AI generation instead of retrieval-only mode')
+  }
+  await fillInput(client, '.knowledge-search input', query)
+  await clickSelector(client, '.knowledge-search button')
+  await waitForExpression(client, "Boolean(document.querySelector('.knowledge-retrieval .retrieval-result'))")
+  await waitForExpression(client, "Boolean(document.querySelector('.citation-row'))")
+  await waitForText(client, '检索摘要')
+  await waitForText(client, '未调用 AI 生成')
+  await waitForText(client, query)
+  await fillInput(client, '.knowledge-search input', '')
+  await clickSelector(client, '.knowledge-search button')
+  await waitForText(client, '请输入检索关键词')
+  await navigate(client, `${baseUrl}/student/knowledge`)
+  await waitForText(client, '最近查询')
+  await waitForText(client, query)
+  await screenshot(client, '00f-retrieval-only-rag.png')
 }
 
 async function fetchFixtureData(client, route) {
@@ -257,6 +474,7 @@ async function ensureFrontend() {
     : ['run', 'dev', '--', '--host', host, '--port', port]
   devServer = spawn(command, args, {
     cwd: rootDir,
+    env: { ...process.env, VITE_API_PROXY_TARGET: apiProxyTarget },
     stdio: ['ignore', 'pipe', 'pipe']
   })
   devServer.stdout.on('data', (chunk) => process.stdout.write(chunk))
@@ -327,12 +545,17 @@ function findBrowser() {
 async function connect(wsUrl) {
   const ws = new WebSocket(wsUrl)
   const pending = new Map()
+  const listeners = new Map()
   let sequence = 0
   ws.addEventListener('message', (event) => {
     const message = JSON.parse(event.data)
-    if (!message.id || !pending.has(message.id)) {
+    if (!message.id) {
+      for (const listener of listeners.get(message.method) || []) {
+        Promise.resolve(listener(message.params || {})).catch(() => {})
+      }
       return
     }
+    if (!pending.has(message.id)) return
     const request = pending.get(message.id)
     pending.delete(message.id)
     if (message.error) {
@@ -350,6 +573,12 @@ async function connect(wsUrl) {
       const id = ++sequence
       ws.send(JSON.stringify({ id, method, params }))
       return new Promise((resolve, reject) => pending.set(id, { resolve, reject }))
+    },
+    on(method, listener) {
+      const handlers = listeners.get(method) || new Set()
+      handlers.add(listener)
+      listeners.set(method, handlers)
+      return () => handlers.delete(listener)
     },
     close() {
       ws.close()
@@ -439,6 +668,111 @@ async function clickSelector(client, selector) {
     await sleep(250)
   }
   throw new Error(`Element not available: ${selector}`)
+}
+
+async function clickElementContaining(client, selector, expectedText) {
+  for (let index = 0; index < 30; index += 1) {
+    const box = await elementBox(client, `(() => {
+      const element = [...document.querySelectorAll(${JSON.stringify(selector)})]
+        .find((item) => item.getClientRects().length && item.innerText.includes(${JSON.stringify(expectedText)}));
+      if (!element) return null;
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
+      const rect = element.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, disabled: element.disabled };
+    })()`)
+    if (box && !box.disabled) {
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: box.x, y: box.y })
+      await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: box.x, y: box.y, button: 'left', clickCount: 1 })
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: box.x, y: box.y, button: 'left', clickCount: 1 })
+      await sleep(500)
+      return
+    }
+    await sleep(250)
+  }
+  throw new Error(`Element containing "${expectedText}" not available: ${selector}`)
+}
+
+async function clickElementByData(client, selector, dataName, expectedValue) {
+  for (let index = 0; index < 30; index += 1) {
+    const box = await elementBox(client, `(() => {
+      const element = [...document.querySelectorAll(${JSON.stringify(selector)})]
+        .find((item) => item.getClientRects().length && item.dataset[${JSON.stringify(dataName)}] === ${JSON.stringify(expectedValue)});
+      if (!element) return null;
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
+      const rect = element.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, disabled: element.disabled };
+    })()`)
+    if (box && !box.disabled) {
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: box.x, y: box.y })
+      await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: box.x, y: box.y, button: 'left', clickCount: 1 })
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: box.x, y: box.y, button: 'left', clickCount: 1 })
+      await sleep(500)
+      return
+    }
+    await sleep(250)
+  }
+  throw new Error(`Element with ${dataName}=${expectedValue} not available: ${selector}`)
+}
+
+async function clickSessionCard(client, sessionId, targetRole) {
+  for (let index = 0; index < 30; index += 1) {
+    const box = await elementBox(client, `(() => {
+      const element = [...document.querySelectorAll('.session-card')].find((item) => item.getClientRects().length
+        && (item.dataset.sessionId === ${JSON.stringify(sessionId)}
+          || (item.innerText.includes(${JSON.stringify(targetRole)}) && item.innerText.includes('COMPLETED'))));
+      if (!element) return null;
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
+      const rect = element.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, disabled: element.disabled };
+    })()`)
+    if (box && !box.disabled) {
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: box.x, y: box.y })
+      await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: box.x, y: box.y, button: 'left', clickCount: 1 })
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: box.x, y: box.y, button: 'left', clickCount: 1 })
+      await sleep(500)
+      return
+    }
+    await sleep(250)
+  }
+  throw new Error(`Completed fixture session is not available: ${sessionId}`)
+}
+
+async function selectElementPlusOption(client, selector, expectedText) {
+  await clickSelector(client, selector)
+  await clickElementContaining(client, '.el-select-dropdown__item', expectedText)
+}
+
+async function assertMatchSelection(client, resumeFileName, jobTitle) {
+  await waitForExpression(client, `Boolean([...document.querySelectorAll('.match-launcher .el-select')]
+    .some((select) => select.innerText.includes(${JSON.stringify(resumeFileName)})))`)
+  await waitForExpression(client, `Boolean(document.querySelector('.job-card.selected')?.innerText.includes(${JSON.stringify(jobTitle)}))`)
+  await waitForExpression(client, "Boolean(document.querySelector('.match-result'))")
+}
+
+async function assertInputValue(client, selector, expectedValue) {
+  await waitForExpression(client, `Boolean([...document.querySelectorAll(${JSON.stringify(selector)})]
+    .some((input) => input.value === ${JSON.stringify(expectedValue)}))`)
+}
+
+async function assertReadOnlyPersistedTask(client, feedback) {
+  for (let index = 0; index < 30; index += 1) {
+    const state = await elementBox(client, `(() => {
+      const row = [...document.querySelectorAll('.task-row')].find((item) =>
+        [...item.querySelectorAll('input, textarea')].some((input) => input.value === ${JSON.stringify(feedback)}));
+      const feedbackInput = row && [...row.querySelectorAll('input, textarea')]
+        .find((input) => input.value === ${JSON.stringify(feedback)});
+      const replanInput = document.querySelector('.replan-form textarea');
+      return {
+        feedbackReadOnly: Boolean(feedbackInput && (feedbackInput.disabled || feedbackInput.readOnly)),
+        replanReadOnly: Boolean(replanInput && (replanInput.disabled || replanInput.readOnly))
+      };
+    })()`)
+    if (state?.feedbackReadOnly && state?.replanReadOnly) {
+      return
+    }
+    await sleep(500)
+  }
+  throw new Error(`Historical plan task feedback is not read-only: ${feedback}`)
 }
 
 async function waitForButton(client, label) {

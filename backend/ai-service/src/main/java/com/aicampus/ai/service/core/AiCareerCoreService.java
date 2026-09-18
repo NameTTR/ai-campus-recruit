@@ -37,6 +37,7 @@ public class AiCareerCoreService {
     private static final int DEFAULT_WEEKLY_HOURS = 6;
     private static final int DEFAULT_DURATION_WEEKS = 8;
     private static final int DEFAULT_INTERVIEW_QUESTION_COUNT = 5;
+    private static final int MAX_CONCURRENT_WRITE_ATTEMPTS = 3;
     private static final Set<String> TASK_STATUSES = Set.of("PENDING", "IN_PROGRESS", "COMPLETED", "SKIPPED");
 
     private final AiCoachService aiCoachService;
@@ -96,47 +97,51 @@ public class AiCareerCoreService {
             String taskId,
             String studentId,
             LearningTaskUpdateRequest request) {
-        LearningPlan plan = getLearningPlan(planId, studentId);
-        if (!"ACTIVE".equals(plan.status())) {
-            throw new IllegalArgumentException("Only active learning plans can be updated");
-        }
         String status = normalizeTaskStatus(request == null ? null : request.status());
         String feedback = normalizeFeedback(request == null ? null : request.feedback());
-        Instant now = Instant.now();
-        List<LearningTask> tasks = new ArrayList<>();
-        LearningTask updatedTask = null;
-        for (LearningTask task : safeTasks(plan.tasks())) {
-            if (!task.taskId().equals(taskId)) {
-                tasks.add(task);
-                continue;
+        for (int attempt = 0; attempt < MAX_CONCURRENT_WRITE_ATTEMPTS; attempt++) {
+            LearningPlan plan = getLearningPlan(planId, studentId);
+            if (!"ACTIVE".equals(plan.status())) {
+                throw new IllegalArgumentException("Only active learning plans can be updated");
             }
-            Instant completedAt = "COMPLETED".equals(status)
-                    ? (task.completedAt() == null ? now : task.completedAt())
-                    : null;
-            updatedTask = new LearningTask(
-                    task.taskId(),
-                    task.week(),
-                    task.title(),
-                    task.description(),
-                    task.skillGap(),
-                    task.stage(),
-                    task.acceptanceCriteria(),
-                    task.practiceDeliverable(),
-                    task.estimatedHours(),
-                    status,
-                    feedback,
-                    completedAt,
-                    now);
-            tasks.add(updatedTask);
+            Instant now = Instant.now();
+            List<LearningTask> tasks = new ArrayList<>();
+            LearningTask updatedTask = null;
+            for (LearningTask task : safeTasks(plan.tasks())) {
+                if (!task.taskId().equals(taskId)) {
+                    tasks.add(task);
+                    continue;
+                }
+                Instant completedAt = "COMPLETED".equals(status)
+                        ? (task.completedAt() == null ? now : task.completedAt())
+                        : null;
+                updatedTask = new LearningTask(
+                        task.taskId(),
+                        task.week(),
+                        task.title(),
+                        task.description(),
+                        task.skillGap(),
+                        task.stage(),
+                        task.acceptanceCriteria(),
+                        task.practiceDeliverable(),
+                        task.estimatedHours(),
+                        status,
+                        feedback,
+                        completedAt,
+                        now);
+                tasks.add(updatedTask);
+            }
+            if (updatedTask == null) {
+                throw new IllegalArgumentException("Learning task not found");
+            }
+            String planStatus = tasks.stream().allMatch(task -> "COMPLETED".equals(task.status()))
+                    ? "COMPLETED"
+                    : "ACTIVE";
+            if (learningPlanStore.updateActive(plan, copyPlan(plan, planStatus, tasks, now))) {
+                return updatedTask;
+            }
         }
-        if (updatedTask == null) {
-            throw new IllegalArgumentException("Learning task not found");
-        }
-        String planStatus = tasks.stream().allMatch(task -> "COMPLETED".equals(task.status()))
-                ? "COMPLETED"
-                : "ACTIVE";
-        learningPlanStore.save(copyPlan(plan, planStatus, tasks, now));
-        return updatedTask;
+        throw new IllegalStateException("Learning plan was changed before the task could be updated");
     }
 
     public LearningPlan replan(
@@ -144,39 +149,41 @@ public class AiCareerCoreService {
             String studentId,
             String userRole,
             LearningPlanReplanRequest request) {
-        LearningPlan previous = getLearningPlan(planId, studentId);
-        if (!"ACTIVE".equals(previous.status())) {
-            throw new IllegalArgumentException("Only active learning plans can be replanned");
-        }
         String reason = valueOr(request == null ? null : request.reason());
         if (reason == null) {
             throw new IllegalArgumentException("replan reason is required");
         }
-        RecruitmentContextClient.ValidatedContext context = contextClient.validate(
-                studentId, previous.resumeId(), previous.jobId(), previous.matchId(), userRole);
-        int weeklyHours = normalizeWeeklyHours(request == null ? null : request.weeklyHours(), previous.weeklyHours());
-        int durationWeeks = normalizeDurationWeeks(request == null ? null : request.durationWeeks(), previous.durationWeeks());
-        validateReplanBudget(previous.tasks(), weeklyHours, durationWeeks);
-        String interviewSummary = selectedInterviewSummary(
-                request == null ? null : request.interviewSessionId(),
-                studentId,
-                previous.targetRole());
-        LearningPlan revised = generateLearningPlan(
-                studentId,
-                previous.resumeId(),
-                previous.jobId(),
-                previous.matchId(),
-                previous.targetRole(),
-                weeklyHours,
-                durationWeeks,
-                context,
-                previous,
-                interviewSummary == null ? reason : reason + "; " + interviewSummary);
-        learningPlanStore.replaceActiveWithRevision(
-                previous,
-                copyPlan(previous, "SUPERSEDED", previous.tasks(), Instant.now()),
-                revised);
-        return revised;
+        for (int attempt = 0; attempt < MAX_CONCURRENT_WRITE_ATTEMPTS; attempt++) {
+            LearningPlan previous = getLearningPlan(planId, studentId);
+            if (!"ACTIVE".equals(previous.status())) {
+                throw new IllegalArgumentException("Only active learning plans can be replanned");
+            }
+            RecruitmentContextClient.ValidatedContext context = contextClient.validate(
+                    studentId, previous.resumeId(), previous.jobId(), previous.matchId(), userRole);
+            int weeklyHours = normalizeWeeklyHours(request == null ? null : request.weeklyHours(), previous.weeklyHours());
+            int durationWeeks = normalizeDurationWeeks(request == null ? null : request.durationWeeks(), previous.durationWeeks());
+            validateReplanBudget(previous.tasks(), weeklyHours, durationWeeks);
+            String interviewSummary = selectedInterviewSummary(
+                    request == null ? null : request.interviewSessionId(), studentId, previous);
+            LearningPlan revised = generateLearningPlan(
+                    studentId,
+                    previous.resumeId(),
+                    previous.jobId(),
+                    previous.matchId(),
+                    previous.targetRole(),
+                    weeklyHours,
+                    durationWeeks,
+                    context,
+                    previous,
+                    interviewSummary == null ? reason : reason + "; " + interviewSummary);
+            if (learningPlanStore.replaceActiveWithRevision(
+                    previous,
+                    copyPlan(previous, "SUPERSEDED", previous.tasks(), Instant.now()),
+                    revised)) {
+                return revised;
+            }
+        }
+        throw new IllegalStateException("Learning plan was changed before it could be replanned");
     }
 
     public List<LearningPlan> listLearningPlanVersions(String planId, String studentId) {
@@ -266,10 +273,6 @@ public class AiCareerCoreService {
             String questionId,
             String studentId,
             InterviewSessionAnswerRequest request) {
-        InterviewSession session = getInterviewSession(sessionId, studentId);
-        if (!"IN_PROGRESS".equals(session.status())) {
-            throw new IllegalArgumentException("Interview session is already finished");
-        }
         String answer = requireText(request == null ? null : request.answer(), "answer is required");
         String requestedQuestionId = requireText(
                 request == null ? null : request.questionId(), "questionId is required");
@@ -279,99 +282,118 @@ public class AiCareerCoreService {
         if (answer.length() > 8000) {
             throw new IllegalArgumentException("answer must not exceed 8000 characters");
         }
-        InterviewSessionAnswer existingAnswer = session.answers().stream()
-                .filter(item -> questionId.equals(item.questionId()))
-                .findFirst()
-                .orElse(null);
-        if (existingAnswer != null) {
-            if (existingAnswer.answer().equals(answer)) {
-                return session;
+        for (int attempt = 0; attempt < MAX_CONCURRENT_WRITE_ATTEMPTS; attempt++) {
+            InterviewSession session = getInterviewSession(sessionId, studentId);
+            if (!"IN_PROGRESS".equals(session.status())) {
+                throw new IllegalArgumentException("Interview session is already finished");
             }
-            throw new IllegalArgumentException("Interview question already has an answer");
+            if (safeQuestions(session.questions()).stream().noneMatch(question -> questionId.equals(question.questionId()))) {
+                throw new IllegalArgumentException("Interview question not found");
+            }
+            InterviewSessionAnswer existingAnswer = safeAnswers(session.answers()).stream()
+                    .filter(item -> questionId.equals(item.questionId()))
+                    .findFirst()
+                    .orElse(null);
+            if (existingAnswer != null) {
+                if (existingAnswer.answer().equals(answer)) {
+                    return session;
+                }
+                throw new IllegalArgumentException("Interview question already has an answer");
+            }
+            InterviewSessionQuestion expected = nextUnansweredQuestion(session);
+            if (expected == null || !expected.questionId().equals(questionId)) {
+                throw new IllegalArgumentException("Interview answers must be submitted in question order");
+            }
+            Instant now = Instant.now();
+            List<InterviewSessionAnswer> answers = new ArrayList<>(safeAnswers(session.answers()));
+            answers.add(new InterviewSessionAnswer(questionId, answer, now));
+            List<InterviewSessionQuestion> questions = new ArrayList<>(safeQuestions(session.questions()));
+            if (!expected.followUp()
+                    && needsFollowUp(answer)
+                    && questions.stream().noneMatch(question -> question.questionId().equals(expected.questionId() + "-F1"))) {
+                questions.add(followUpQuestion(session, expected));
+            }
+            InterviewSession updated = new InterviewSession(
+                    session.sessionId(),
+                    session.studentId(),
+                    session.resumeId(),
+                    session.jobId(),
+                    session.matchId(),
+                    session.targetRole(),
+                    session.contextSnapshot(),
+                    session.status(),
+                    questions.stream().sorted(Comparator.comparingInt(InterviewSessionQuestion::order)).toList(),
+                    List.copyOf(answers),
+                    session.report(),
+                    session.mocked(),
+                    session.createdAt(),
+                    now,
+                    session.completedAt());
+            if (interviewSessionStore.replaceInProgress(session, updated)) {
+                return updated;
+            }
         }
-        InterviewSessionQuestion expected = nextUnansweredQuestion(session);
-        if (expected == null || !expected.questionId().equals(questionId)) {
-            throw new IllegalArgumentException("Interview answers must be submitted in question order");
-        }
-        Instant now = Instant.now();
-        List<InterviewSessionAnswer> answers = new ArrayList<>(safeAnswers(session.answers()));
-        answers.add(new InterviewSessionAnswer(questionId, answer, now));
-        List<InterviewSessionQuestion> questions = new ArrayList<>(safeQuestions(session.questions()));
-        if (!expected.followUp()
-                && needsFollowUp(answer)
-                && questions.stream().noneMatch(question -> question.questionId().equals(expected.questionId() + "-F1"))) {
-            questions.add(followUpQuestion(session, expected));
-        }
-        InterviewSession updated = new InterviewSession(
-                session.sessionId(),
-                session.studentId(),
-                session.resumeId(),
-                session.jobId(),
-                session.matchId(),
-                session.targetRole(),
-                session.contextSnapshot(),
-                session.status(),
-                questions.stream().sorted(Comparator.comparingInt(InterviewSessionQuestion::order)).toList(),
-                List.copyOf(answers),
-                session.report(),
-                session.mocked(),
-                session.createdAt(),
-                now,
-                session.completedAt());
-        interviewSessionStore.save(updated);
-        return updated;
+        throw new IllegalStateException("Interview session was changed before the answer could be saved");
     }
 
     public InterviewSessionReport finishInterviewSession(String sessionId, String studentId) {
-        InterviewSession session = getInterviewSession(sessionId, studentId);
-        if (session.report() != null) {
-            return session.report();
-        }
-        if (!"IN_PROGRESS".equals(session.status()) || nextUnansweredQuestion(session) != null) {
-            throw new IllegalArgumentException("All interview questions must be answered before finish");
-        }
-        Map<String, InterviewSessionAnswer> answers = new HashMap<>();
-        for (InterviewSessionAnswer answer : safeAnswers(session.answers())) {
-            answers.put(answer.questionId(), answer);
-        }
-        List<InterviewQuestionFeedback> feedback = new ArrayList<>();
-        for (InterviewSessionQuestion question : session.questions()) {
-            InterviewSessionAnswer answer = answers.get(question.questionId());
-            InterviewFeedback result = aiCoachService.generateInterviewFeedback(new InterviewFeedbackRequest(
+        for (int attempt = 0; attempt < MAX_CONCURRENT_WRITE_ATTEMPTS; attempt++) {
+            InterviewSession session = getInterviewSession(sessionId, studentId);
+            if (session.report() != null) {
+                return session.report();
+            }
+            if (!"IN_PROGRESS".equals(session.status()) || nextUnansweredQuestion(session) != null) {
+                throw new IllegalArgumentException("All interview questions must be answered before finish");
+            }
+            Map<String, InterviewSessionAnswer> answers = new HashMap<>();
+            for (InterviewSessionAnswer answer : safeAnswers(session.answers())) {
+                answers.put(answer.questionId(), answer);
+            }
+            List<InterviewQuestionFeedback> feedback = new ArrayList<>();
+            for (InterviewSessionQuestion question : safeQuestions(session.questions())) {
+                InterviewSessionAnswer answer = answers.get(question.questionId());
+                InterviewFeedback result = aiCoachService.generateInterviewFeedback(new InterviewFeedbackRequest(
+                        session.studentId(),
+                        question.questionId(),
+                        question.question(),
+                        answer.answer(),
+                        session.targetRole()));
+                feedback.add(new InterviewQuestionFeedback(
+                        question.questionId(),
+                        result.score(),
+                        safeStrings(result.strengths()),
+                        safeStrings(result.gaps()),
+                        safeStrings(result.suggestions()),
+                        valueOr(result.summary(), "Interview feedback is unavailable"),
+                        result.mocked()));
+            }
+            InterviewSessionReport report = toReport(session.sessionId(), feedback);
+            Instant now = Instant.now();
+            InterviewSession completed = new InterviewSession(
+                    session.sessionId(),
                     session.studentId(),
-                    question.questionId(),
-                    question.question(),
-                    answer.answer(),
-                    session.targetRole()));
-            feedback.add(new InterviewQuestionFeedback(
-                    question.questionId(),
-                    result.score(),
-                    safeStrings(result.strengths()),
-                    safeStrings(result.gaps()),
-                    safeStrings(result.suggestions()),
-                    valueOr(result.summary(), "Interview feedback is unavailable"),
-                    result.mocked()));
+                    session.resumeId(),
+                    session.jobId(),
+                    session.matchId(),
+                    session.targetRole(),
+                    session.contextSnapshot(),
+                    "COMPLETED",
+                    session.questions(),
+                    session.answers(),
+                    report,
+                    session.mocked() || report.mocked(),
+                    session.createdAt(),
+                    now,
+                    now);
+            if (interviewSessionStore.replaceInProgress(session, completed)) {
+                return report;
+            }
         }
-        InterviewSessionReport report = toReport(session.sessionId(), feedback);
-        Instant now = Instant.now();
-        InterviewSession completed = new InterviewSession(
-                session.sessionId(),
-                session.studentId(),
-                session.resumeId(),
-                session.jobId(),
-                session.matchId(),
-                session.targetRole(),
-                session.contextSnapshot(),
-                "COMPLETED",
-                session.questions(),
-                session.answers(),
-                report,
-                session.mocked() || report.mocked(),
-                session.createdAt(),
-                now,
-                now);
-        interviewSessionStore.save(completed);
-        return report;
+        InterviewSession current = getInterviewSession(sessionId, studentId);
+        if (current.report() != null) {
+            return current.report();
+        }
+        throw new IllegalStateException("Interview session was changed before it could be finished");
     }
 
     private LearningPlan generateLearningPlan(
@@ -680,7 +702,7 @@ public class AiCareerCoreService {
         return questions;
     }
 
-    private String selectedInterviewSummary(String sessionId, String studentId, String targetRole) {
+    private String selectedInterviewSummary(String sessionId, String studentId, LearningPlan plan) {
         if (valueOr(sessionId) == null) {
             return null;
         }
@@ -688,8 +710,13 @@ public class AiCareerCoreService {
         if (session.report() == null || !"COMPLETED".equals(session.status())) {
             throw new IllegalArgumentException("Selected interview session is not completed");
         }
-        if (!targetRole.equals(session.targetRole())) {
+        if (!sameTargetRole(plan.targetRole(), session.targetRole())) {
             throw new IllegalArgumentException("Selected interview session has a different target role");
+        }
+        if (!sameReference(plan.resumeId(), session.resumeId())
+                || !sameReference(plan.jobId(), session.jobId())
+                || !sameReference(plan.matchId(), session.matchId())) {
+            throw new IllegalArgumentException("Selected interview session does not match the learning plan context");
         }
         return String.join("; ", session.report().recommendations());
     }
@@ -821,6 +848,18 @@ public class AiCareerCoreService {
     private static String valueOr(String value, String fallback) {
         String normalized = valueOr(value);
         return normalized == null ? fallback : normalized;
+    }
+
+    private static boolean sameTargetRole(String left, String right) {
+        String normalizedLeft = valueOr(left);
+        String normalizedRight = valueOr(right);
+        return normalizedLeft != null && normalizedRight != null && normalizedLeft.equalsIgnoreCase(normalizedRight);
+    }
+
+    private static boolean sameReference(String left, String right) {
+        String normalizedLeft = valueOr(left);
+        String normalizedRight = valueOr(right);
+        return normalizedLeft == null ? normalizedRight == null : normalizedLeft.equals(normalizedRight);
     }
 
     private static String displayList(List<String> values, String fallback) {

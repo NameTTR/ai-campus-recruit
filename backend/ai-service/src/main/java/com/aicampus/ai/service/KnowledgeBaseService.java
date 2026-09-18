@@ -371,13 +371,13 @@ public class KnowledgeBaseService {
         }
 
         if (!useAi) {
-            KnowledgeAnswerResponse response = localAnswer(query, chunks, citations, "AI generation disabled for load smoke.");
+            KnowledgeAnswerResponse response = localAnswer(query, chunks, citations, "当前为检索摘要，以下内容直接整理自已引用资料，未调用 AI 生成。");
             recordAnswerCall(start, query, response, true, "AI generation disabled");
             return response;
         }
 
         if (!dashScopeClient.isConfigured()) {
-            KnowledgeAnswerResponse response = localAnswer(query, chunks, citations, "DASHSCOPE_API_KEY is not configured.");
+            KnowledgeAnswerResponse response = localAnswer(query, chunks, citations, "AI 问答暂未启用，已提供可追溯的检索摘要。");
             recordAnswerCall(start, query, response, true, "DASHSCOPE_API_KEY is not configured");
             return response;
         }
@@ -401,9 +401,14 @@ public class KnowledgeBaseService {
         String userPrompt = buildAnswerPrompt(query, chunks);
         try {
             String answer = dashScopeClient.complete(systemPrompt, userPrompt, false);
+            if (answer == null || answer.isBlank()) {
+                KnowledgeAnswerResponse response = localAnswer(query, chunks, citations, "AI 未返回有效回答，已保留检索摘要和引用，可稍后重试。");
+                recordAnswerCall(start, userPrompt, response, true, "AI returned an empty answer");
+                return response;
+            }
             KnowledgeAnswerResponse response = new KnowledgeAnswerResponse(
                     query,
-                    normalizeGeneratedMarkdown(valueOr(answer, localAnswerText(query, chunks, citations))),
+                    normalizeGeneratedMarkdown(answer),
                     citations,
                     false,
                     "dashscope",
@@ -411,7 +416,7 @@ public class KnowledgeBaseService {
             recordAnswerCall(start, userPrompt, response, true, null);
             return response;
         } catch (RuntimeException ex) {
-            KnowledgeAnswerResponse response = localAnswer(query, chunks, citations, "DashScope generation failed: " + ex.getMessage());
+            KnowledgeAnswerResponse response = localAnswer(query, chunks, citations, "AI 服务暂时不可用，已保留检索摘要和引用，可稍后重试。");
             recordAnswerCall(start, userPrompt, response, true, ex.getMessage());
             return response;
         }

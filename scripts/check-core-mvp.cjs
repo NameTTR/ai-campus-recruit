@@ -53,6 +53,57 @@ function docx(text) {
 }
 
 async function main() {
+  if (process.argv.includes('--verify-optimizations')) {
+    const data = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
+    const student = await api('/api/auth/login', null, 'POST', { username: data.studentUsername, password })
+    const t = student.token
+    const resume = await api(`/api/resumes/${data.resumeId}`, t)
+    const unchanged = await api(`/api/resumes/${data.resumeId}/profile`, t, 'PATCH', {
+      education: resume.education, skills: resume.skills, projects: resume.projects
+    })
+    assert.equal(unchanged.diagnosis, resume.diagnosis, 'Unchanged profile must preserve diagnosis')
+    assert.equal(unchanged.score, resume.score)
+
+    const plan = await api(`/api/ai/learning/plans/${data.planId}`, t)
+    assert.equal(plan.status, 'ACTIVE', 'Use an active integration fixture plan')
+    const tasks = plan.tasks.filter(task => task.status === 'PENDING').slice(0, 2)
+    assert.equal(tasks.length, 2, 'Concurrent write verification requires two untouched fixture tasks')
+    const marker = `并发验证-${Date.now()}`
+    try {
+      const updates = await Promise.allSettled(tasks.map((task, index) =>
+        api(`/api/ai/learning/plans/${plan.planId}/tasks/${task.taskId}`, t, 'PUT', {
+          status: 'IN_PROGRESS', feedback: `${marker}-${index}`
+        })))
+      assert.ok(updates.every(result => result.status === 'fulfilled'), 'Both concurrent task updates must succeed')
+      const persisted = await api(`/api/ai/learning/plans/${plan.planId}`, t)
+      tasks.forEach((task, index) => {
+        const actual = persisted.tasks.find(item => item.taskId === task.taskId)
+        assert.equal(actual.status, 'IN_PROGRESS')
+        assert.equal(actual.feedback, `${marker}-${index}`, 'One task must not overwrite another task')
+      })
+    } finally {
+      // Restore only the two dedicated integration-fixture tasks after checking the writes.
+      for (const task of tasks) {
+        await api(`/api/ai/learning/plans/${plan.planId}/tasks/${task.taskId}`, t, 'PUT', {
+          status: task.status, feedback: task.feedback || ''
+        })
+      }
+    }
+
+    const session = await api(`/api/ai/interview/sessions/${data.sessionId}`, t)
+    assert.equal(session.status, 'COMPLETED')
+    await api(`/api/ai/interview/sessions/${session.sessionId}/questions/${session.answers[0].questionId}/answer`, t,
+      'PUT', { questionId: session.answers[0].questionId, answer: '已完成面试不可改写' }, true)
+    const repeatedReport = await api(`/api/ai/interview/sessions/${session.sessionId}/finish`, t, 'POST', {})
+    assert.deepEqual(repeatedReport, session.report, 'Finishing again must return the saved report')
+    const answer = await api('/api/ai/knowledge/answer', t, 'POST', { query: 'Redis 缓存', limit: 3, useAi: false })
+    assert.equal(answer.provider, 'local-rag-fallback')
+    assert.equal(answer.mocked, true)
+    assert.ok(answer.citations.length > 0)
+    assert.ok(answer.answer.includes('检索摘要'))
+    console.log('OPTIMIZATION_VERIFICATION_PASS: unchanged resume diagnosis, concurrent task writes, completed interview protection, idempotent report, retrieval-only citations')
+    return
+  }
   if (process.argv.includes('--verify-diagnosis')) {
     const data = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
     const student = await api('/api/auth/login', null, 'POST', { username: data.studentUsername, password })

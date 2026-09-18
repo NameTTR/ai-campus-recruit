@@ -35,18 +35,32 @@ public class PersistentLearningPlanStore implements LearningPlanStore {
     }
 
     @Override
-    public void replaceActiveWithRevision(
+    public boolean updateActive(LearningPlan expectedPlan, LearningPlan updatedPlan) {
+        try {
+            LearningPlanEntity expectedEntity = LearningPlanEntity.fromPlan(expectedPlan, objectMapper);
+            LearningPlanEntity updatedEntity = LearningPlanEntity.fromPlan(updatedPlan, objectMapper);
+            return mapper.updateIfCurrentActive(updatedEntity, expectedEntity.getPlanSnapshot()) == 1;
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to persist learning plan", ex);
+        }
+    }
+
+    @Override
+    public boolean replaceActiveWithRevision(
             LearningPlan activePlan,
             LearningPlan supersededPlan,
             LearningPlan revision) {
         try {
-            transactionTemplate.executeWithoutResult(status -> {
+            return Boolean.TRUE.equals(transactionTemplate.execute(status -> {
                 try {
+                    LearningPlanEntity activeEntity = LearningPlanEntity.fromPlan(activePlan, objectMapper);
                     LearningPlanEntity supersededEntity = LearningPlanEntity.fromPlan(supersededPlan, objectMapper);
-                    if (mapper.supersedeIfCurrentActive(supersededEntity, activePlan.version()) != 1) {
-                        throw new IllegalStateException("Learning plan was changed before it could be replanned");
+                    if (mapper.supersedeIfCurrentActive(
+                            supersededEntity, activePlan.version(), activeEntity.getPlanSnapshot()) != 1) {
+                        return false;
                     }
                     mapper.insert(LearningPlanEntity.fromPlan(revision, objectMapper));
+                    return true;
                 } catch (IllegalStateException ex) {
                     status.setRollbackOnly();
                     throw ex;
@@ -54,7 +68,7 @@ public class PersistentLearningPlanStore implements LearningPlanStore {
                     status.setRollbackOnly();
                     throw new IllegalStateException("Unable to persist learning plan revision", ex);
                 }
-            });
+            }));
         } catch (IllegalStateException ex) {
             throw ex;
         } catch (Exception ex) {

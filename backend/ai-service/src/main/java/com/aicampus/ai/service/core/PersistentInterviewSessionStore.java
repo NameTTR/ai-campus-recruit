@@ -28,6 +28,17 @@ public class PersistentInterviewSessionStore implements InterviewSessionStore {
     }
 
     @Override
+    public boolean replaceInProgress(InterviewSession expectedSession, InterviewSession updatedSession) {
+        try {
+            InterviewSessionEntity expectedEntity = InterviewSessionEntity.fromSession(expectedSession, objectMapper);
+            InterviewSessionEntity updatedEntity = InterviewSessionEntity.fromSession(updatedSession, objectMapper);
+            return mapper.updateIfCurrentInProgress(updatedEntity, expectedEntity.getSessionSnapshot()) == 1;
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to persist interview session", ex);
+        }
+    }
+
+    @Override
     public Optional<InterviewSession> findById(String sessionId) {
         try {
             InterviewSessionEntity entity = mapper.selectById(sessionId);
