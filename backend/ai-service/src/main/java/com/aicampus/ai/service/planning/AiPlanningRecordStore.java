@@ -6,6 +6,8 @@ import java.util.List;
 public interface AiPlanningRecordStore {
     void save(AiPlanningRecord record);
 
+    boolean existsById(String recordId);
+
     List<AiPlanningRecord> listByStudent(String studentId, int limit);
 
     List<AiPlanningRecord> listAll(int limit);

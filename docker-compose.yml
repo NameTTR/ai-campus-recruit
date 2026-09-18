@@ -19,8 +19,13 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-ai_campus_recruit}
       MYSQL_ROOT_HOST: "%"
       TZ: Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
     ports:
-      - "3306:3306"
+      - "${MYSQL_HOST_PORT:-3306}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     networks:
@@ -31,7 +36,7 @@ services:
     container_name: recruit-redis
     command: redis-server --appendonly yes
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     networks:
@@ -101,7 +106,15 @@ services:
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       DASHSCOPE_MODEL: ${DASHSCOPE_MODEL:-qwen-plus}
       DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      DASHSCOPE_MAX_TOKENS: ${DASHSCOPE_MAX_TOKENS:-8192}
       AI_SCREENING_PERSISTENCE_ENABLED: ${AI_SCREENING_PERSISTENCE_ENABLED:-true}
+      AI_PLANNING_PERSISTENCE_ENABLED: ${AI_PLANNING_PERSISTENCE_ENABLED:-true}
+      AI_CORE_PERSISTENCE_ENABLED: ${AI_CORE_PERSISTENCE_ENABLED:-true}
+      DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
+      RESUME_SERVICE_URI: http://resume-service:8103
+      JOB_SERVICE_URI: http://job-service:8104
+      MATCH_SERVICE_URI: http://match-service:8105
+      AI_KNOWLEDGE_PERSISTENCE_ENABLED: ${AI_KNOWLEDGE_PERSISTENCE_ENABLED:-true}
       AI_SCREENING_CACHE_TTL: ${AI_SCREENING_CACHE_TTL:-10m}
       AI_SCREENING_ROCKETMQ_ENABLED: ${AI_SCREENING_ROCKETMQ_ENABLED:-true}
       AI_SCREENING_ROCKETMQ_CONSUMER_GROUP: ${AI_SCREENING_ROCKETMQ_CONSUMER_GROUP:-ai-screening-consumer}
@@ -136,8 +149,17 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_ISSUER: ${JWT_ISSUER:-ai-campus-recruit}
       JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-86400}
+      AUTH_PERSISTENCE_ENABLED: ${AUTH_PERSISTENCE_ENABLED:-true}
+      DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
     depends_on:
-      - nacos
+      nacos:
+        condition: service_started
+      mysql:
+        condition: service_healthy
     ports:
       - "8101:8101"
     networks:
@@ -153,8 +175,16 @@ services:
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
+      USER_PERSISTENCE_ENABLED: ${USER_PERSISTENCE_ENABLED:-true}
+      DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
     depends_on:
-      - nacos
+      nacos:
+        condition: service_started
+      mysql:
+        condition: service_healthy
     ports:
       - "8102:8102"
     networks:
@@ -172,6 +202,7 @@ services:
       NACOS_SERVER_ADDR: nacos:8848
       AI_SERVICE_URI: http://ai-service:8106
       RESUME_PERSISTENCE_ENABLED: ${RESUME_PERSISTENCE_ENABLED:-true}
+      DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
       RESUME_CACHE_TTL: ${RESUME_CACHE_TTL:-10m}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       SPRING_DATASOURCE_USERNAME: root
@@ -206,6 +237,7 @@ services:
       NACOS_SERVER_ADDR: nacos:8848
       AI_SERVICE_URI: http://ai-service:8106
       JOB_PERSISTENCE_ENABLED: ${JOB_PERSISTENCE_ENABLED:-true}
+      DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
       JOB_CACHE_TTL: ${JOB_CACHE_TTL:-10m}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       SPRING_DATASOURCE_USERNAME: root
@@ -233,6 +265,10 @@ services:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
       MATCH_PERSISTENCE_ENABLED: ${MATCH_PERSISTENCE_ENABLED:-true}
+      DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
+      RESUME_SERVICE_URI: http://resume-service:8103
+      JOB_SERVICE_URI: http://job-service:8104
+      AI_SERVICE_URI: http://ai-service:8106
       MATCH_CACHE_TTL: ${MATCH_CACHE_TTL:-10m}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       SPRING_DATASOURCE_USERNAME: root
@@ -259,6 +295,7 @@ services:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
       DELIVERY_PERSISTENCE_ENABLED: ${DELIVERY_PERSISTENCE_ENABLED:-true}
+      DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
       DELIVERY_CACHE_TTL: ${DELIVERY_CACHE_TTL:-10m}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       SPRING_DATASOURCE_USERNAME: root
@@ -308,7 +345,7 @@ services:
       - match-service
       - delivery-service
     ports:
-      - "8080:8080"
+      - "${GATEWAY_HOST_PORT:-8080}:8080"
     networks:
       - recruit-net
 

@@ -13,25 +13,36 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 
 @Service
 public class AccountService {
     private final PasswordHasher passwordHasher;
+    private final AccountPersistence persistence;
     private final Map<String, AccountRecord> accountsByUserId = new ConcurrentHashMap<>();
     private final Map<String, String> userIdByUsername = new ConcurrentHashMap<>();
-    private final AtomicInteger studentSequence = new AtomicInteger(2);
-    private final AtomicInteger companySequence = new AtomicInteger(2);
-    private final AtomicInteger adminSequence = new AtomicInteger(2);
 
-    public AccountService(PasswordHasher passwordHasher) {
+    public AccountService(PasswordHasher passwordHasher, AccountPersistence persistence,
+            @Value("${demo.seed.enabled:${DEMO_SEED_ENABLED:false}}") boolean seedEnabled,
+            @Value("${BOOTSTRAP_ADMIN_PASSWORD:}") String bootstrapPassword) {
         this.passwordHasher = passwordHasher;
-        seed("S001", "student", "Student Demo", Role.STUDENT);
-        seed("C001", "company", "Company HR", Role.COMPANY);
-        seed("A001", "admin", "Admin Demo", Role.ADMIN);
-        seedDemoAccounts();
+        this.persistence = persistence;
+        persistence.load().forEach(record -> {
+            accountsByUserId.put(record.userId(), record);
+            userIdByUsername.put(record.username(), record.userId());
+        });
+        if (seedEnabled) {
+            seed("S001", "student", "Student Demo", Role.STUDENT);
+            seed("C001", "company", "Company HR", Role.COMPANY);
+            seed("A001", "admin", "Admin Demo", Role.ADMIN);
+            seedDemoAccounts();
+        } else if (bootstrapPassword != null && !bootstrapPassword.isBlank()
+                && accountsByUserId.values().stream().noneMatch(account -> account.role() == Role.ADMIN)) {
+            create(new AccountCreateRequest("admin", bootstrapPassword, "管理员", Role.ADMIN, AccountStatus.ACTIVE));
+        }
     }
 
     public AccountRecord authenticate(String username, String password) {
@@ -56,7 +67,7 @@ public class AccountService {
                 AccountStatus.ACTIVE));
     }
 
-    public AccountRecord create(AccountCreateRequest request) {
+    public synchronized AccountRecord create(AccountCreateRequest request) {
         Role role = request.role() == null ? Role.STUDENT : request.role();
         AccountStatus status = request.status() == null ? AccountStatus.ACTIVE : request.status();
         String username = normalizeUsername(request.username());
@@ -72,10 +83,11 @@ public class AccountService {
                 passwordHasher.hash(request.password()),
                 Instant.now(),
                 Instant.now());
-        String previous = userIdByUsername.putIfAbsent(username, userId);
-        if (previous != null) {
+        if (userIdByUsername.containsKey(username)) {
             throw new IllegalArgumentException("username already exists");
         }
+        persistence.insert(record);
+        userIdByUsername.put(username, userId);
         accountsByUserId.put(userId, record);
         return record;
     }
@@ -87,27 +99,30 @@ public class AccountService {
                 .toList();
     }
 
-    public AccountSummary updateStatus(String userId, AccountStatusUpdateRequest request) {
+    public synchronized AccountSummary updateStatus(String userId, AccountStatusUpdateRequest request) {
         AccountStatus status = request == null || request.status() == null ? AccountStatus.ACTIVE : request.status();
-        AccountRecord account = findByUserId(userId);
+        AccountRecord account = copyOf(findByUserId(userId));
         account.setStatus(status);
+        persistUpdate(account);
         return account.toSummary();
     }
 
-    public void changePassword(String userId, String currentPassword, String newPassword) {
-        AccountRecord account = findByUserId(userId);
+    public synchronized void changePassword(String userId, String currentPassword, String newPassword) {
+        AccountRecord account = copyOf(findByUserId(userId));
         ensureActive(account.userId());
         if (!passwordHasher.matches(currentPassword, account.passwordHash())) {
             throw new AuthAuthenticationException("invalid current password");
         }
         validatePassword(newPassword);
         account.setPasswordHash(passwordHasher.hash(newPassword));
+        persistUpdate(account);
     }
 
-    public void resetPassword(String userId, String newPassword) {
-        AccountRecord account = findByUserId(userId);
+    public synchronized void resetPassword(String userId, String newPassword) {
+        AccountRecord account = copyOf(findByUserId(userId));
         validatePassword(newPassword);
         account.setPasswordHash(passwordHasher.hash(newPassword));
+        persistUpdate(account);
     }
 
     public AccountRecord ensureActive(String userId) {
@@ -135,6 +150,7 @@ public class AccountService {
     }
 
     private void seed(String userId, String username, String displayName, Role role) {
+        if (accountsByUserId.containsKey(userId) || userIdByUsername.containsKey(username)) return;
         AccountRecord record = new AccountRecord(
                 userId,
                 username,
@@ -144,6 +160,7 @@ public class AccountService {
                 passwordHasher.hash("123456"),
                 Instant.now(),
                 Instant.now());
+        persistence.insert(record);
         accountsByUserId.put(userId, record);
         userIdByUsername.put(username, userId);
     }
@@ -160,17 +177,20 @@ public class AccountService {
             String userId = "A" + "%03d".formatted(i);
             seed(userId, "demo_admin_" + "%03d".formatted(i), "Operations Admin " + userId, Role.ADMIN);
         }
-        studentSequence.set(DemoDataFactory.DEFAULT_SIZE + 1);
-        companySequence.set(25);
-        adminSequence.set(13);
     }
 
     private String nextUserId(Role role) {
-        return switch (role) {
-            case COMPANY -> "C" + "%03d".formatted(companySequence.getAndIncrement());
-            case ADMIN -> "A" + "%03d".formatted(adminSequence.getAndIncrement());
-            case STUDENT -> "S" + "%03d".formatted(studentSequence.getAndIncrement());
-        };
+        return role.name().substring(0, 1) + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private AccountRecord copyOf(AccountRecord record) {
+        return new AccountRecord(record.userId(), record.username(), record.displayName(), record.role(),
+                record.status(), record.passwordHash(), record.createdAt(), record.updatedAt());
+    }
+
+    private void persistUpdate(AccountRecord record) {
+        persistence.update(record);
+        accountsByUserId.put(record.userId(), record);
     }
 
     private String normalizeUsername(String username) {
@@ -215,7 +235,7 @@ public class AccountService {
         private volatile String passwordHash;
         private volatile Instant updatedAt;
 
-        private AccountRecord(
+        AccountRecord(
                 String userId,
                 String username,
                 String displayName,
@@ -272,6 +292,10 @@ public class AccountService {
 
         public Instant createdAt() {
             return createdAt;
+        }
+
+        public Instant updatedAt() {
+            return updatedAt;
         }
 
         private void setStatus(AccountStatus status) {

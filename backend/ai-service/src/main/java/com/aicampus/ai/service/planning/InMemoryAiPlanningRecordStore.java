@@ -19,6 +19,16 @@ public class InMemoryAiPlanningRecordStore implements AiPlanningRecordStore {
     }
 
     @Override
+    public boolean existsById(String recordId) {
+        if (recordId == null || recordId.isBlank()) {
+            return false;
+        }
+        return records.values().stream()
+                .flatMap(List::stream)
+                .anyMatch(record -> recordId.trim().equals(record.recordId()));
+    }
+
+    @Override
     public List<AiPlanningRecord> listByStudent(String studentId, int limit) {
         if (studentId == null || studentId.isBlank()) {
             return List.of();

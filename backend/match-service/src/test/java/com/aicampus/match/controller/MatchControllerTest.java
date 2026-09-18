@@ -1,77 +1,127 @@
 package com.aicampus.match.controller;
 
-import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.aicampus.common.api.ApiResponse;
+import com.aicampus.common.dto.JobSummary;
+import com.aicampus.common.dto.ResumeSummary;
 import com.aicampus.match.MatchServiceApplication;
+import com.aicampus.match.client.JobClient;
+import com.aicampus.match.client.ResumeClient;
+import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest(classes = MatchServiceApplication.class, properties = "spring.cloud.nacos.discovery.enabled=false")
+@SpringBootTest(classes = MatchServiceApplication.class, properties = {
+        "spring.cloud.nacos.discovery.enabled=false",
+        "demo.seed.enabled=false"
+})
 @AutoConfigureMockMvc
 class MatchControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @MockBean
+    private ResumeClient resumeClient;
+
+    @MockBean
+    private JobClient jobClient;
+
+    @BeforeEach
+    void configureClients() {
+        when(resumeClient.detail(anyString(), anyString(), anyString())).thenAnswer(invocation -> {
+            String id = invocation.getArgument(0);
+            return "R-REAL".equals(id) ? ApiResponse.ok(resume()) : ApiResponse.fail("Resume not found");
+        });
+        when(jobClient.detail(anyString(), anyString(), anyString())).thenAnswer(invocation -> {
+            String id = invocation.getArgument(0);
+            return "J-REAL".equals(id) ? ApiResponse.ok(job()) : ApiResponse.fail("Job not found");
+        });
+    }
+
     @Test
-    void matchReturnsScoreAndSuggestions() throws Exception {
+    void matchUsesFetchedResumeAndJobSkillSnapshotsInsteadOfAConstantScore() throws Exception {
         mockMvc.perform(post("/api/matches/resume-job")
+                        .headers(studentHeaders("S-REAL"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"resumeId\":\"R001\",\"jobId\":\"J001\",\"studentId\":\"S001\"}"))
+                        .content("{\"resumeId\":\"R-REAL\",\"jobId\":\"J-REAL\",\"studentId\":\"S-REAL\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.score").value(88))
-                .andExpect(jsonPath("$.data.suggestions[0]").isNotEmpty());
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.score").value(50))
+                .andExpect(jsonPath("$.data.matchedSkills[0]").value("Spring Boot"))
+                .andExpect(jsonPath("$.data.missingSkills[0]").value("Docker"))
+                .andExpect(jsonPath("$.data.analysisSource").value("RULE_SKILL_COVERAGE"))
+                .andExpect(jsonPath("$.data.resumeSkillsSnapshot[0]").value("Java"))
+                .andExpect(jsonPath("$.data.requiredSkillsSnapshot[1]").value("Docker"));
     }
 
     @Test
-    void matchUsesStudentHeaderBeforeRequestStudentId() throws Exception {
+    void studentCannotForgeAnotherStudentOrMatchUnknownResources() throws Exception {
         mockMvc.perform(post("/api/matches/resume-job")
-                        .header("X-User-Id", "S-GATEWAY-001")
-                        .header("X-User-Role", "STUDENT")
+                        .headers(studentHeaders("S-REAL"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"resumeId\":\"R-GATEWAY-001\",\"jobId\":\"J001\",\"studentId\":\"S-BODY-001\"}"))
+                        .content("{\"resumeId\":\"R-REAL\",\"jobId\":\"J-REAL\",\"studentId\":\"S-FORGED\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.studentId").value("S-GATEWAY-001"))
-                .andExpect(jsonPath("$.data.resumeId").value("R-GATEWAY-001"));
-    }
-
-    @Test
-    void listByStudentReturnsSeedMatch() throws Exception {
-        mockMvc.perform(get("/api/matches/student/S001"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[*].matchId", hasItem("M001")));
-    }
-
-    @Test
-    void listReturnsBulkDemoMatches() throws Exception {
-        mockMvc.perform(get("/api/matches"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
-                .andExpect(jsonPath("$.data[*].matchId", hasItem("M001")));
-    }
-
-    @Test
-    void listByStudentUsesStudentHeaderBeforePathVariable() throws Exception {
+                .andExpect(jsonPath("$.code").value(1));
         mockMvc.perform(post("/api/matches/resume-job")
-                        .header("X-User-Id", "S-GATEWAY-002")
-                        .header("X-User-Role", "STUDENT")
+                        .headers(studentHeaders("S-REAL"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"resumeId\":\"R-GATEWAY-002\",\"jobId\":\"J001\",\"studentId\":\"S-BODY-002\"}"))
+                        .content("{\"resumeId\":\"R-NOT-FOUND\",\"jobId\":\"J-REAL\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Resume not found"));
+    }
+
+    @Test
+    void studentAndCompanyHistoryViewsEnforceOwnership() throws Exception {
+        mockMvc.perform(post("/api/matches/resume-job")
+                        .headers(studentHeaders("S-REAL"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"resumeId\":\"R-REAL\",\"jobId\":\"J-REAL\"}"))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/matches/student/S-BODY-002")
-                        .header("X-User-Id", "S-GATEWAY-002")
-                        .header("X-User-Role", "STUDENT"))
+        mockMvc.perform(get("/api/matches/student/S-OTHER").headers(studentHeaders("S-REAL")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].studentId").value("S-GATEWAY-002"));
+                .andExpect(jsonPath("$.code").value(1));
+        mockMvc.perform(get("/api/matches/job/J-REAL").headers(companyHeaders("C-REAL")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)));
+        mockMvc.perform(get("/api/matches/job/J-REAL").headers(companyHeaders("C-OTHER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1));
+    }
+
+    private static ResumeSummary resume() {
+        return new ResumeSummary("R-REAL", "S-REAL", "resume.docx", "Bachelor", List.of("Java", "SpringBoot"),
+                List.of("Project API"), "Extracted", 40, "key", "local", "SKIPPED", "DOCX", "TEXT_EXTRACTED", 120);
+    }
+
+    private static JobSummary job() {
+        return new JobSummary("J-REAL", "C-REAL", "C-REAL", "Platform Engineer", "Shanghai", "200/day",
+                List.of("Spring Boot", "Docker"), "Build platform APIs", "Not analyzed", "OPEN");
+    }
+
+    private static org.springframework.http.HttpHeaders studentHeaders(String studentId) {
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.add("X-User-Id", studentId);
+        headers.add("X-User-Role", "STUDENT");
+        return headers;
+    }
+
+    private static org.springframework.http.HttpHeaders companyHeaders(String companyId) {
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.add("X-User-Id", companyId);
+        headers.add("X-User-Role", "COMPANY");
+        return headers;
     }
 }

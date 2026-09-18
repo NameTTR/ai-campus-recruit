@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class NotificationCenterService {
+    @org.springframework.beans.factory.annotation.Value("${demo.seed.enabled:${DEMO_SEED_ENABLED:false}}")
+    private boolean seedEnabled;
     private final ConcurrentMap<String, NotificationMessage> notifications = new ConcurrentHashMap<>();
     private final DeliveryEventPublisher eventPublisher;
 
@@ -23,6 +25,7 @@ public class NotificationCenterService {
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDefaultNotifications() {
+        if (!seedEnabled) return;
         DemoDataFactory.notifications().forEach(this::seed);
         seed(new NotificationMessage(
                 "N-DEMO-STUDENT-001",

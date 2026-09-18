@@ -1,6 +1,7 @@
 package com.aicampus.job.service.store;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -67,7 +68,7 @@ class PersistentJobRecordStoreTest {
     }
 
     @Test
-    void databaseWriteAndReadFailuresFallBackToMemory() {
+    void databaseWriteAndReadFailuresArePropagatedInsteadOfFallingBackToMemory() {
         JobRecordMapper mapper = mock(JobRecordMapper.class);
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
         when(mapper.updateById(any(JobRecordEntity.class))).thenThrow(new RuntimeException("database write unavailable"));
@@ -81,11 +82,12 @@ class PersistentJobRecordStoreTest {
                 new ObjectMapper().findAndRegisterModules(),
                 properties());
 
-        store.save(job);
-
-        assertThat(store.findById("J-FALLBACK-001")).contains(job);
-        assertThat(store.listAll()).containsExactly(job);
-        verify(redisTemplate).delete("job:records:list:ALL");
+        assertThatThrownBy(() -> store.save(job))
+                .hasMessageContaining("database write unavailable");
+        assertThatThrownBy(() -> store.findById("J-FALLBACK-001"))
+                .hasMessageContaining("database read unavailable");
+        assertThatThrownBy(store::listAll)
+                .hasMessageContaining("database read unavailable");
     }
 
     private static JobProperties properties() {

@@ -30,7 +30,11 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
             "/api/auth/logout",
             "/actuator",
             "/v3/api-docs",
-            "/swagger-ui");
+            "/swagger-ui",
+            "/doc.html",
+            "/webjars",
+            "/swagger-resources",
+            "/favicon.ico");
 
     private final JwtTokenService jwtTokenService;
     private final boolean enabled;
@@ -203,6 +207,7 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
             return Permission.STUDENT_INTERVIEW_WRITE;
         }
         if (path.startsWith("/api/ai/coach")
+                || path.startsWith("/api/ai/learning")
                 || path.startsWith("/api/ai/resume/rewrite")
                 || path.startsWith("/api/ai/career")) {
             return Permission.STUDENT_INTERVIEW_WRITE;

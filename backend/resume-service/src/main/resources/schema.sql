@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS resume_summary_record (
     parse_status VARCHAR(64) NOT NULL DEFAULT 'UNKNOWN',
     parsed_text_length INT NOT NULL DEFAULT 0,
     parsed_text MEDIUMTEXT NOT NULL,
+    diagnosis_history LONGTEXT NOT NULL,
     created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     KEY idx_resume_summary_record_student_updated (student_id, updated_at),

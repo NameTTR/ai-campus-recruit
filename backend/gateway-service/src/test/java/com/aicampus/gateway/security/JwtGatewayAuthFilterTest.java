@@ -12,6 +12,23 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 class JwtGatewayAuthFilterTest {
+    @Test
+    void companyCannotGenerateStudentLearningPlans() {
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/ai/learning/plans")
+                .header("Authorization", "Bearer " + jwtTokenService.issue("C001", "HR", Role.COMPANY)).build());
+        filter.filter(exchange, passThrough()).block();
+        assertThat(exchange.getResponse().getStatusCode().value()).isEqualTo(403);
+    }
+
+    @Test
+    void learningRequestsReceiveVerifiedStudentIdentity() {
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/ai/learning/plans")
+                .header("Authorization", "Bearer " + jwtTokenService.issue("S001", "Student", Role.STUDENT))
+                .header("X-User-Id", "S002").build());
+        var chain = new CapturingChain();
+        filter.filter(exchange, chain).block();
+        assertThat(chain.exchange.getRequest().getHeaders().getFirst("X-User-Id")).isEqualTo("S001");
+    }
     private static final String SECRET = "gateway-test-secret-that-is-long-enough";
     private final JwtGatewayAuthFilter filter = new JwtGatewayAuthFilter(SECRET, "ai-campus-test", 86400, true);
     private final JwtTokenService jwtTokenService = new JwtTokenService(SECRET, "ai-campus-test", 86400);

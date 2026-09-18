@@ -3,6 +3,7 @@ package com.aicampus.ai.service.knowledge;
 import com.aicampus.common.dto.KnowledgeDocument;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -24,6 +25,52 @@ public class InMemoryKnowledgeBaseStore implements KnowledgeBaseStore {
                 }
             }
         }
+    }
+
+    @Override
+    public KnowledgeDocument updateRoles(String documentId, List<String> roles) {
+        if (documentId == null || documentId.isBlank()) {
+            return null;
+        }
+        KnowledgeDocument updated = documents.computeIfPresent(documentId, (ignored, document) -> new KnowledgeDocument(
+                document.documentId(),
+                document.title(),
+                document.content(),
+                document.category(),
+                document.source(),
+                document.tags(),
+                roles,
+                document.createdBy(),
+                document.createdAt()));
+        if (updated == null) {
+            return null;
+        }
+        chunks.replaceAll((ignored, chunk) -> Objects.equals(documentId, chunk.documentId())
+                ? new KnowledgeChunkRecord(
+                chunk.chunkId(),
+                chunk.documentId(),
+                chunk.chunkIndex(),
+                chunk.title(),
+                chunk.text(),
+                chunk.category(),
+                chunk.source(),
+                chunk.tags(),
+                roles,
+                chunk.createdBy(),
+                chunk.createdAt(),
+                chunk.embedding())
+                : chunk);
+        return updated;
+    }
+
+    @Override
+    public boolean delete(String documentId) {
+        if (documentId == null || documentId.isBlank()) {
+            return false;
+        }
+        KnowledgeDocument removed = documents.remove(documentId);
+        chunks.entrySet().removeIf(entry -> documentId.equals(entry.getValue().documentId()));
+        return removed != null;
     }
 
     @Override

@@ -31,6 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/deliveries")
 public class DeliveryController {
+    @org.springframework.beans.factory.annotation.Value("${demo.seed.enabled:${DEMO_SEED_ENABLED:false}}")
+    private boolean seedEnabled;
     private static final Map<String, String> JOB_COMPANIES = Map.of(
             "J001", "C001",
             "J002", "C001",
@@ -47,6 +49,7 @@ public class DeliveryController {
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDefaultRecords() {
+        if (!seedEnabled) return;
         DemoDataFactory.deliveries().forEach(this::seed);
         seed(new DeliveryRecord("D001", "S001", "R001", "J001", "C001", "PDF", "SEEDED", 62, DeliveryStatus.SUBMITTED, LocalDateTime.now().minusDays(1)));
         seed(new DeliveryRecord("D002", "S002", "R002", "J001", "C001", "DOCX", "UNPARSED", 0, DeliveryStatus.VIEWED, LocalDateTime.now().minusHours(20)));

@@ -11,6 +11,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice(basePackages = "com.aicampus.auth")
 public class AuthExceptionHandler {
+    @ExceptionHandler(IllegalStateException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ApiResponse<Boolean> unavailable(IllegalStateException ex) {
+        return new ApiResponse<>(503, "Account storage is unavailable; changes were not saved", false);
+    }
     @ExceptionHandler({JwtTokenException.class, AuthAuthenticationException.class})
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ApiResponse<Boolean> unauthorized(RuntimeException ex) {

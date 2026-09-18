@@ -78,7 +78,7 @@ public class KnowledgeFileIngestionService implements DisposableBean {
             throw new IllegalArgumentException("Failed to read knowledge file: " + safeMessage(ex), ex);
         }
         String sha256 = sha256(bytes);
-        KnowledgeFileIngestionJob reusable = jobStore.findReusableBySha256(sha256);
+        KnowledgeFileIngestionJob reusable = reusableIfDocumentStillAvailable(jobStore.findReusableBySha256(sha256));
 
         Instant now = Instant.now();
         KnowledgeFileIngestionJob job = new KnowledgeFileIngestionJob(
@@ -132,6 +132,22 @@ public class KnowledgeFileIngestionService implements DisposableBean {
                 splitCsv(tags, List.of("uploaded", extension)),
                 splitCsv(roles, List.of("ADMIN"))));
         return queuedJob;
+    }
+
+    private KnowledgeFileIngestionJob reusableIfDocumentStillAvailable(KnowledgeFileIngestionJob reusable) {
+        if (reusable == null) {
+            return null;
+        }
+        if (KnowledgeIngestionStatuses.UPLOADED.equals(reusable.status())
+                || KnowledgeIngestionStatuses.PARSING.equals(reusable.status())
+                || KnowledgeIngestionStatuses.INDEXING.equals(reusable.status())) {
+            return reusable;
+        }
+        String documentId = valueOr(reusable.documentId(), "");
+        if (!documentId.isBlank() && knowledgeBaseService.exists(documentId)) {
+            return reusable;
+        }
+        return null;
     }
 
     public List<KnowledgeFileIngestionJob> list(String status, Integer limit) {

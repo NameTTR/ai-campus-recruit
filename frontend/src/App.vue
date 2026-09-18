@@ -2,23 +2,12 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  BarChart3,
-  Bell,
   Bot,
   BriefcaseBusiness,
-  CalendarDays,
-  ClipboardList,
-  Clock3,
-  Database,
   FileText,
-  GraduationCap,
   Library,
   LogOut,
-  Plus,
   Route,
-  Rocket,
-  Send,
-  ServerCog,
   ShieldCheck
 } from 'lucide-vue-next'
 import { clearAuthSession, getAuthSession } from './api/client'
@@ -38,42 +27,27 @@ const section = computed(() => route.path.split('/')[1] || 'student')
 
 const navGroups = {
   student: {
-    title: '学生端模块',
+    title: '学生工作台',
     items: [
-      { path: '/student/resume', label: '简历诊断', icon: FileText },
-      { path: '/student/plan', label: 'AI 求职规划', icon: Route },
+      { path: '/student/resume', label: '简历', icon: FileText },
       { path: '/student/jobs', label: '岗位匹配', icon: BriefcaseBusiness },
-      { path: '/student/interview', label: 'AI 模拟面试', icon: Bot },
-      { path: '/student/schedule', label: '面试日程', icon: CalendarDays },
-      { path: '/student/notifications', label: '通知中心', icon: Bell },
-      { path: '/student/knowledge', label: 'RAG 知识库', icon: Library },
-      { path: '/student/history', label: '面试记录', icon: Clock3 },
-      { path: '/student/lifecycle', label: '简历闭环', icon: ClipboardList },
-      { path: '/student/deliveries', label: '投递记录', icon: Send }
+      { path: '/student/plan', label: '学习路径', icon: Route },
+      { path: '/student/interview', label: '模拟面试', icon: Bot },
+      { path: '/student/knowledge', label: '知识库', icon: Library }
     ]
   },
   company: {
-    title: '企业端模块',
+    title: '企业工作台',
     items: [
-      { path: '/company/publish', label: '发布岗位', icon: Plus },
       { path: '/company/jobs', label: '岗位管理', icon: BriefcaseBusiness },
-      { path: '/company/deliveries', label: '投递审核', icon: ClipboardList },
-      { path: '/company/schedule', label: '面试日程', icon: CalendarDays },
-      { path: '/company/notifications', label: '通知中心', icon: Bell },
-      { path: '/company/screening', label: 'AI 异步初筛', icon: Bot }
+      { path: '/company/publish', label: '发布岗位', icon: FileText }
     ]
   },
   admin: {
-    title: '学校端模块',
+    title: '就业管理',
     items: [
-      { path: '/admin/overview', label: '数据概览', icon: GraduationCap },
-      { path: '/admin/status', label: '投递状态', icon: BarChart3 },
-      { path: '/admin/accounts', label: '用户权限', icon: ShieldCheck },
-      { path: '/admin/ai', label: 'AI 与 RAG 运维', icon: Bot },
-      { path: '/admin/audit', label: '审计数据中心', icon: Database },
-      { path: '/admin/system', label: '系统状态', icon: ServerCog },
-      { path: '/admin/deploy', label: '部署向导', icon: Rocket },
-      { path: '/admin/guidance', label: '就业指导', icon: ClipboardList }
+      { path: '/admin/accounts', label: '账号管理', icon: ShieldCheck },
+      { path: '/admin/ai', label: '知识库管理', icon: Library }
     ]
   }
 } as const
@@ -92,7 +66,7 @@ function logout() {
     <aside v-if="authed" class="side-nav">
       <div class="brand">
         <div class="brand-mark">AI</div>
-        <div>
+        <div class="brand-copy">
           <strong>Campus Recruit</strong>
           <span>{{ userName }} · {{ userId }} · {{ role }}</span>
         </div>
@@ -123,3 +97,7 @@ function logout() {
     </main>
   </div>
 </template>
+
+<style scoped>
+.brand-copy{min-width:0}.brand-copy span{overflow-wrap:anywhere;word-break:break-word}
+</style>

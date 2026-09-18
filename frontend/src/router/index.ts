@@ -12,11 +12,16 @@ const router = createRouter({
     { path: '/', redirect: '/login' },
     { path: '/login', component: LoginView },
     { path: '/student', redirect: '/student/resume' },
-    { path: '/student/:module', component: StudentView },
-    { path: '/company', redirect: '/company/publish' },
-    { path: '/company/:module', component: CompanyView },
-    { path: '/admin', redirect: '/admin/overview' },
-    { path: '/admin/:module', component: AdminView }
+    { path: '/student/history', redirect: { path: '/student/interview', query: { tab: 'history' } } },
+    { path: '/student/:module(resume|jobs|plan|interview|knowledge)', component: StudentView },
+    { path: '/student/:pathMatch(.*)*', redirect: '/student/resume' },
+    { path: '/company', redirect: '/company/jobs' },
+    { path: '/company/:module(publish|jobs)', component: CompanyView },
+    { path: '/company/:pathMatch(.*)*', redirect: '/company/jobs' },
+    { path: '/admin', redirect: { path: '/admin/ai', query: { tab: 'documents' } } },
+    { path: '/admin/:module(accounts|ai)', component: AdminView },
+    { path: '/admin/:pathMatch(.*)*', redirect: { path: '/admin/ai', query: { tab: 'documents' } } },
+    { path: '/:pathMatch(.*)*', redirect: '/login' }
   ]
 })
 
@@ -40,10 +45,10 @@ router.beforeEach((to) => {
 
 function roleHome(role: Role | undefined) {
   if (role === 'COMPANY') {
-    return '/company/publish'
+    return '/company/jobs'
   }
   if (role === 'ADMIN') {
-    return '/admin/overview'
+    return { path: '/admin/ai', query: { tab: 'documents' } }
   }
   return '/student/resume'
 }

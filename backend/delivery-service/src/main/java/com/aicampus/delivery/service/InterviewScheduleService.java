@@ -17,6 +17,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class InterviewScheduleService {
+    @org.springframework.beans.factory.annotation.Value("${demo.seed.enabled:${DEMO_SEED_ENABLED:false}}")
+    private boolean seedEnabled;
     private final ConcurrentMap<String, InterviewSchedule> schedules = new ConcurrentHashMap<>();
     private final NotificationCenterService notificationCenterService;
     private final DeliveryEventPublisher eventPublisher;
@@ -30,6 +32,7 @@ public class InterviewScheduleService {
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDefaultSchedules() {
+        if (!seedEnabled) return;
         DemoDataFactory.interviewSchedules().forEach(this::seed);
         seed(new InterviewSchedule(
                 "IS-DEMO-001",

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.aicampus.ai.service.knowledge.InMemoryKnowledgeBaseStore;
 import com.aicampus.ai.service.knowledge.KnowledgeBaseProperties;
 import com.aicampus.ai.service.knowledge.KnowledgeChunkRecord;
+import com.aicampus.common.dto.KnowledgeAnswerRequest;
 import com.aicampus.common.dto.KnowledgeDocument;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
@@ -14,28 +15,28 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
 class KnowledgeBaseServiceTest {
     @Test
-    void seedDefaultDocumentsUpgradesExistingSystemSeedDocuments() {
+    void seedDefaultDocumentsDoesNotOverwriteExistingSystemDocumentEdits() {
         InMemoryKnowledgeBaseStore store = new InMemoryKnowledgeBaseStore();
         store.save(new KnowledgeDocument(
                         "KB-DEMO-001",
-                        "Old Java guide",
-                        "Old demo content",
+                        "Edited Java guide",
+                        "An administrator edited this internal knowledge document.",
                         "interview",
-                        "seed",
-                        List.of("old"),
-                        List.of("STUDENT", "ADMIN"),
+                        "internal-corpus:v3.10",
+                        List.of("edited"),
+                        List.of("ADMIN"),
                         "system",
                         LocalDateTime.now().minusDays(5)),
                 List.of(new KnowledgeChunkRecord(
                         "KB-DEMO-001-CH-001",
                         "KB-DEMO-001",
                         1,
-                        "Old Java guide",
-                        "Old demo content",
+                        "Edited Java guide",
+                        "An administrator edited this internal knowledge document.",
                         "interview",
-                        "seed",
-                        List.of("old"),
-                        List.of("STUDENT", "ADMIN"),
+                        "internal-corpus:v3.10",
+                        List.of("edited"),
+                        List.of("ADMIN"),
                         "system",
                         LocalDateTime.now().minusDays(5),
                         List.of())));
@@ -44,16 +45,17 @@ class KnowledgeBaseServiceTest {
 
         service.seedDefaultDocuments();
 
-        KnowledgeDocument upgraded = store.listDocuments().stream()
+        KnowledgeDocument retained = store.listDocuments().stream()
                 .filter(document -> document.documentId().equals("KB-DEMO-001"))
                 .findFirst()
                 .orElseThrow();
-        assertThat(upgraded.source()).isEqualTo("internal-corpus:v3.10");
-        assertThat(upgraded.content()).contains("MyBatis Plus");
+        assertThat(retained.source()).isEqualTo("internal-corpus:v3.10");
+        assertThat(retained.content()).isEqualTo("An administrator edited this internal knowledge document.");
+        assertThat(retained.roles()).containsExactly("ADMIN");
         assertThat(store.listChunks())
                 .anySatisfy(chunk -> {
                     assertThat(chunk.documentId()).isEqualTo("KB-DEMO-001");
-                    assertThat(chunk.text()).contains("MyBatis Plus");
+                    assertThat(chunk.text()).contains("administrator edited");
                 });
         assertThat(service.stats().documentCount()).isGreaterThanOrEqualTo(12);
     }
@@ -86,14 +88,69 @@ class KnowledgeBaseServiceTest {
         assertThat(manual.createdBy()).isEqualTo("A001");
     }
 
+    @Test
+    void answerNormalizesEscapedMarkdownHeadingsFromAiProvider() {
+        InMemoryKnowledgeBaseStore store = new InMemoryKnowledgeBaseStore();
+        KnowledgeDocument document = new KnowledgeDocument(
+                "KB-RAG-HEADING",
+                "Java 面试知识",
+                "Java 面试回答需要先给结论，再解释关键知识点和项目证据。",
+                "interview",
+                "test",
+                List.of("Java", "interview"),
+                List.of("STUDENT", "ADMIN"),
+                "system",
+                LocalDateTime.now());
+        KnowledgeBaseService service = service(store, new StubDashScopeClient("""
+                \\## 结论
+
+                这里应该被渲染成真正的二级标题。
+
+                ```java
+                // 代码块里的 \\## 不应该被当成标题处理
+                ```
+                """));
+        service.saveDocument(document);
+
+        String answer = service.answer(new KnowledgeAnswerRequest("Java 面试", "STUDENT", 3, true)).answer();
+
+        assertThat(answer).contains("## 结论");
+        assertThat(answer).doesNotContain("\\## 结论");
+        assertThat(answer).contains("// 代码块里的 \\## 不应该被当成标题处理");
+    }
+
     private KnowledgeBaseService service(InMemoryKnowledgeBaseStore store) {
+        return service(store, new DashScopeClient("", "qwen-plus", "http://localhost"));
+    }
+
+    private KnowledgeBaseService service(InMemoryKnowledgeBaseStore store, DashScopeClient dashScopeClient) {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         return new KnowledgeBaseService(
                 store,
-                new DashScopeClient("", "qwen-plus", "http://localhost"),
+                dashScopeClient,
                 new AiObservabilityService(),
                 new KnowledgeBaseProperties(),
                 objectMapper,
-                new PathMatchingResourcePatternResolver());
+                new PathMatchingResourcePatternResolver(),
+                true);
+    }
+
+    private static final class StubDashScopeClient extends DashScopeClient {
+        private final String response;
+
+        private StubDashScopeClient(String response) {
+            super("test-key", "qwen-plus", "http://localhost");
+            this.response = response;
+        }
+
+        @Override
+        public boolean isConfigured() {
+            return true;
+        }
+
+        @Override
+        public String complete(String systemPrompt, String userPrompt, boolean jsonMode) {
+            return response;
+        }
     }
 }

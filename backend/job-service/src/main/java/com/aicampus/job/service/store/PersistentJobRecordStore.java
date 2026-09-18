@@ -7,13 +7,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.lang.Nullable;
 
+/** MySQL remains authoritative when job persistence is enabled; Redis is cache-only. */
 public class PersistentJobRecordStore implements JobRecordStore {
-    private static final Logger log = LoggerFactory.getLogger(PersistentJobRecordStore.class);
     private static final TypeReference<List<JobSummary>> JOB_LIST_TYPE = new TypeReference<>() {
     };
 
@@ -23,7 +21,6 @@ public class PersistentJobRecordStore implements JobRecordStore {
     private final ObjectMapper objectMapper;
     private final Duration cacheTtl;
     private final String listCacheKey;
-    private final JobRecordStore fallbackStore = new InMemoryJobRecordStore();
 
     public PersistentJobRecordStore(
             JobRecordMapper mapper,
@@ -39,32 +36,17 @@ public class PersistentJobRecordStore implements JobRecordStore {
 
     @Override
     public void save(JobSummary job) {
-        try {
-            JobRecordEntity entity = JobRecordEntity.fromJob(job, objectMapper);
-            if (mapper.updateById(entity) == 0) {
-                mapper.insert(entity);
-            }
-            fallbackStore.save(job);
-            evictListCache();
-        } catch (Exception ex) {
-            log.warn("Failed to persist job record {}, falling back to in-memory store",
-                    job == null ? "" : job.jobId(), ex);
-            fallbackStore.save(job);
-            evictListCache();
+        JobRecordEntity entity = JobRecordEntity.fromJob(job, objectMapper);
+        if (mapper.updateById(entity) == 0) {
+            mapper.insert(entity);
         }
+        evictListCache();
     }
 
     @Override
     public Optional<JobSummary> findById(String jobId) {
-        try {
-            JobRecordEntity entity = mapper.selectById(jobId);
-            if (entity != null) {
-                return Optional.of(entity.toJob(objectMapper));
-            }
-        } catch (Exception ex) {
-            log.warn("Failed to query job record {} from database, falling back to in-memory store", jobId, ex);
-        }
-        return fallbackStore.findById(jobId);
+        JobRecordEntity entity = mapper.selectById(jobId);
+        return entity == null ? Optional.empty() : Optional.of(entity.toJob(objectMapper));
     }
 
     @Override
@@ -73,20 +55,14 @@ public class PersistentJobRecordStore implements JobRecordStore {
         if (cachedJobs != null) {
             return cachedJobs;
         }
-
-        try {
-            List<JobSummary> jobs = mapper.selectList(Wrappers.<JobRecordEntity>lambdaQuery()
-                            .orderByDesc(JobRecordEntity::getUpdatedAt)
-                            .orderByDesc(JobRecordEntity::getCreatedAt))
-                    .stream()
-                    .map(entity -> entity.toJob(objectMapper))
-                    .toList();
-            writeListCache(jobs);
-            return jobs;
-        } catch (Exception ex) {
-            log.warn("Failed to query job records from database, falling back to in-memory store", ex);
-            return fallbackStore.listAll();
-        }
+        List<JobSummary> jobs = mapper.selectList(Wrappers.<JobRecordEntity>lambdaQuery()
+                        .orderByDesc(JobRecordEntity::getUpdatedAt)
+                        .orderByDesc(JobRecordEntity::getCreatedAt))
+                .stream()
+                .map(entity -> entity.toJob(objectMapper))
+                .toList();
+        writeListCache(jobs);
+        return jobs;
     }
 
     @Nullable
@@ -96,12 +72,8 @@ public class PersistentJobRecordStore implements JobRecordStore {
         }
         try {
             String payload = redisTemplate.opsForValue().get(listCacheKey);
-            if (payload == null || payload.isBlank()) {
-                return null;
-            }
-            return objectMapper.readValue(payload, JOB_LIST_TYPE);
-        } catch (Exception ex) {
-            log.warn("Failed to read job records cache for key {}", listCacheKey, ex);
+            return payload == null || payload.isBlank() ? null : objectMapper.readValue(payload, JOB_LIST_TYPE);
+        } catch (Exception ignored) {
             return null;
         }
     }
@@ -112,8 +84,8 @@ public class PersistentJobRecordStore implements JobRecordStore {
         }
         try {
             redisTemplate.opsForValue().set(listCacheKey, objectMapper.writeValueAsString(jobs), cacheTtl);
-        } catch (Exception ex) {
-            log.warn("Failed to write job records cache for key {}", listCacheKey, ex);
+        } catch (Exception ignored) {
+            // Cache failure never changes the result of the authoritative database write.
         }
     }
 
@@ -123,8 +95,8 @@ public class PersistentJobRecordStore implements JobRecordStore {
         }
         try {
             redisTemplate.delete(listCacheKey);
-        } catch (Exception ex) {
-            log.warn("Failed to evict job records cache key {}", listCacheKey, ex);
+        } catch (Exception ignored) {
+            // Cache invalidation is best effort.
         }
     }
 }

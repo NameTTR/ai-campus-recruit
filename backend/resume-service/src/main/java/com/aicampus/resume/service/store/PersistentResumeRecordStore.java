@@ -1,24 +1,23 @@
 package com.aicampus.resume.service.store;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.lang.Nullable;
 
+/**
+ * MySQL is authoritative whenever resume persistence is enabled. Redis is only a best-effort cache.
+ */
 public class PersistentResumeRecordStore implements ResumeRecordStore {
-    private static final Logger log = LoggerFactory.getLogger(PersistentResumeRecordStore.class);
-
     private final ResumeRecordMapper mapper;
     @Nullable
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final Duration cacheTtl;
     private final String cacheKeyPrefix;
-    private final ResumeRecordStore fallbackStore = new InMemoryResumeRecordStore();
 
     public PersistentResumeRecordStore(
             ResumeRecordMapper mapper,
@@ -34,19 +33,11 @@ public class PersistentResumeRecordStore implements ResumeRecordStore {
 
     @Override
     public void save(ResumeRecord record) {
-        try {
-            ResumeRecordEntity entity = ResumeRecordEntity.fromRecord(record, objectMapper);
-            if (mapper.updateById(entity) == 0) {
-                mapper.insert(entity);
-            }
-            fallbackStore.save(record);
-            writeDetailCache(record);
-        } catch (Exception ex) {
-            log.warn("Failed to persist resume record {}, falling back to in-memory store",
-                    record == null ? "" : record.summary().resumeId(), ex);
-            fallbackStore.save(record);
-            evictDetailCache(record == null ? null : record.summary().resumeId());
+        ResumeRecordEntity entity = ResumeRecordEntity.fromRecord(record, objectMapper);
+        if (mapper.updateById(entity) == 0) {
+            mapper.insert(entity);
         }
+        writeDetailCache(record);
     }
 
     @Override
@@ -56,47 +47,44 @@ public class PersistentResumeRecordStore implements ResumeRecordStore {
             return cachedRecord;
         }
 
-        try {
-            ResumeRecordEntity entity = mapper.selectById(resumeId);
-            if (entity != null) {
-                ResumeRecord record = entity.toRecord(objectMapper);
-                writeDetailCache(record);
-                return Optional.of(record);
-            }
-        } catch (Exception ex) {
-            log.warn("Failed to query resume record {} from database, falling back to in-memory store", resumeId, ex);
+        ResumeRecordEntity entity = mapper.selectById(resumeId);
+        if (entity == null) {
+            return Optional.empty();
         }
-        return fallbackStore.findById(resumeId);
+        ResumeRecord record = entity.toRecord(objectMapper);
+        writeDetailCache(record);
+        return Optional.of(record);
     }
 
     @Override
     public List<ResumeRecord> listAll() {
-        try {
-            return mapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers.<ResumeRecordEntity>lambdaQuery()
-                            .orderByDesc(ResumeRecordEntity::getUpdatedAt)
-                            .orderByAsc(ResumeRecordEntity::getResumeId))
-                    .stream()
-                    .map(entity -> entity.toRecord(objectMapper))
-                    .toList();
-        } catch (Exception ex) {
-            log.warn("Failed to query resume records from database, falling back to in-memory store", ex);
-            return fallbackStore.listAll();
+        return mapper.selectList(Wrappers.<ResumeRecordEntity>lambdaQuery()
+                        .orderByDesc(ResumeRecordEntity::getUpdatedAt)
+                        .orderByAsc(ResumeRecordEntity::getResumeId))
+                .stream()
+                .map(entity -> entity.toRecord(objectMapper))
+                .toList();
+    }
+
+    @Override
+    public boolean delete(String resumeId) {
+        boolean deleted = mapper.deleteById(resumeId) > 0;
+        if (deleted) {
+            evictDetailCache(resumeId);
         }
+        return deleted;
     }
 
     private Optional<ResumeRecord> readDetailCache(String resumeId) {
         if (redisTemplate == null) {
             return Optional.empty();
         }
-        String cacheKey = buildDetailCacheKey(resumeId);
         try {
-            String payload = redisTemplate.opsForValue().get(cacheKey);
-            if (payload == null || payload.isBlank()) {
-                return Optional.empty();
-            }
-            return Optional.of(objectMapper.readValue(payload, ResumeRecord.class));
-        } catch (Exception ex) {
-            log.warn("Failed to read resume detail cache for key {}", cacheKey, ex);
+            String payload = redisTemplate.opsForValue().get(buildDetailCacheKey(resumeId));
+            return payload == null || payload.isBlank()
+                    ? Optional.empty()
+                    : Optional.of(objectMapper.readValue(payload, ResumeRecord.class));
+        } catch (Exception ignored) {
             return Optional.empty();
         }
     }
@@ -105,11 +93,13 @@ public class PersistentResumeRecordStore implements ResumeRecordStore {
         if (redisTemplate == null) {
             return;
         }
-        String cacheKey = buildDetailCacheKey(record.summary().resumeId());
         try {
-            redisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(record), cacheTtl);
-        } catch (Exception ex) {
-            log.warn("Failed to write resume detail cache for key {}", cacheKey, ex);
+            redisTemplate.opsForValue().set(
+                    buildDetailCacheKey(record.summary().resumeId()),
+                    objectMapper.writeValueAsString(record),
+                    cacheTtl);
+        } catch (Exception ignored) {
+            // Cache is not the persistence source of truth.
         }
     }
 
@@ -117,19 +107,14 @@ public class PersistentResumeRecordStore implements ResumeRecordStore {
         if (redisTemplate == null || resumeId == null || resumeId.isBlank()) {
             return;
         }
-        String cacheKey = buildDetailCacheKey(resumeId);
         try {
-            redisTemplate.delete(cacheKey);
-        } catch (Exception ex) {
-            log.warn("Failed to evict resume detail cache key {}", cacheKey, ex);
+            redisTemplate.delete(buildDetailCacheKey(resumeId));
+        } catch (Exception ignored) {
+            // A stale cache is preferable to masking a successful database write.
         }
     }
 
     private String buildDetailCacheKey(String resumeId) {
-        return cacheKeyPrefix + ":detail:" + cacheSegment(resumeId);
-    }
-
-    private static String cacheSegment(String value) {
-        return value == null || value.isBlank() ? "UNKNOWN" : value.trim();
+        return cacheKeyPrefix + ":detail:" + (resumeId == null || resumeId.isBlank() ? "UNKNOWN" : resumeId.trim());
     }
 }

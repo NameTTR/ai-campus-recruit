@@ -43,6 +43,9 @@ public class JobRecordEntity {
     @TableField("ai_summary")
     private String aiSummary;
 
+    @TableField("status")
+    private String status;
+
     @TableField("created_at")
     private LocalDateTime createdAt;
 
@@ -60,6 +63,7 @@ public class JobRecordEntity {
         entity.setRequiredSkills(writeSkills(job.requiredSkills(), objectMapper));
         entity.setDescription(job.description());
         entity.setAiSummary(job.aiSummary());
+        entity.setStatus(job.status());
         entity.setUpdatedAt(LocalDateTime.now());
         return entity;
     }
@@ -74,7 +78,8 @@ public class JobRecordEntity {
                 salaryRange,
                 readSkills(requiredSkills, objectMapper),
                 description,
-                aiSummary);
+                aiSummary,
+                status == null || status.isBlank() || "PUBLISHED".equalsIgnoreCase(status) ? "OPEN" : status);
     }
 
     private static String writeSkills(List<String> skills, ObjectMapper objectMapper) {
@@ -166,6 +171,14 @@ public class JobRecordEntity {
 
     public void setAiSummary(String aiSummary) {
         this.aiSummary = aiSummary;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
     }
 
     public LocalDateTime getCreatedAt() {

@@ -8,13 +8,11 @@ import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.lang.Nullable;
 
+/** MySQL persists the rule inputs and result; Redis only accelerates read lists. */
 public class PersistentMatchRecordStore implements MatchRecordStore {
-    private static final Logger log = LoggerFactory.getLogger(PersistentMatchRecordStore.class);
     private static final TypeReference<List<MatchResult>> MATCH_LIST_TYPE = new TypeReference<>() {
     };
 
@@ -24,7 +22,6 @@ public class PersistentMatchRecordStore implements MatchRecordStore {
     private final ObjectMapper objectMapper;
     private final Duration cacheTtl;
     private final String cacheKeyPrefix;
-    private final MatchRecordStore fallbackStore = new InMemoryMatchRecordStore();
 
     public PersistentMatchRecordStore(
             MatchRecordMapper mapper,
@@ -40,87 +37,61 @@ public class PersistentMatchRecordStore implements MatchRecordStore {
 
     @Override
     public void save(MatchResult match) {
-        try {
-            MatchRecordEntity entity = MatchRecordEntity.fromMatch(match, objectMapper);
-            if (mapper.updateById(entity) == 0) {
-                mapper.insert(entity);
-            }
-            fallbackStore.save(match);
-            evictRelatedCaches(match.studentId(), match.jobId());
-        } catch (Exception ex) {
-            log.warn("Failed to persist match record {}, falling back to in-memory store",
-                    match == null ? "" : match.matchId(), ex);
-            fallbackStore.save(match);
-            evictRelatedCaches(match == null ? null : match.studentId(), match == null ? null : match.jobId());
+        MatchRecordEntity entity = MatchRecordEntity.fromMatch(match, objectMapper);
+        if (mapper.updateById(entity) == 0) {
+            mapper.insert(entity);
         }
+        evictRelatedCaches(match.studentId(), match.jobId());
     }
 
     @Override
     public List<MatchResult> listAll() {
         String cacheKey = buildAllCacheKey();
-        List<MatchResult> cachedMatches = readCache(cacheKey);
-        if (cachedMatches != null) {
-            return cachedMatches;
+        List<MatchResult> cached = readCache(cacheKey);
+        if (cached != null) {
+            return cached;
         }
-
-        try {
-            List<MatchResult> matches = mapper.selectList(Wrappers.<MatchRecordEntity>lambdaQuery()
-                            .orderByDesc(MatchRecordEntity::getCreatedAt))
-                    .stream()
-                    .map(entity -> entity.toMatch(objectMapper))
-                    .toList();
-            writeCache(cacheKey, matches);
-            return matches;
-        } catch (Exception ex) {
-            log.warn("Failed to query match records from database, falling back to in-memory store", ex);
-            return fallbackStore.listAll();
-        }
+        List<MatchResult> matches = mapper.selectList(Wrappers.<MatchRecordEntity>lambdaQuery()
+                        .orderByDesc(MatchRecordEntity::getCreatedAt))
+                .stream()
+                .map(entity -> entity.toMatch(objectMapper))
+                .toList();
+        writeCache(cacheKey, matches);
+        return matches;
     }
 
     @Override
     public List<MatchResult> listByStudent(String studentId) {
         String cacheKey = buildStudentCacheKey(studentId);
-        List<MatchResult> cachedMatches = readCache(cacheKey);
-        if (cachedMatches != null) {
-            return cachedMatches;
+        List<MatchResult> cached = readCache(cacheKey);
+        if (cached != null) {
+            return cached;
         }
-
-        try {
-            List<MatchResult> matches = mapper.selectList(Wrappers.<MatchRecordEntity>lambdaQuery()
-                            .eq(MatchRecordEntity::getStudentId, studentId)
-                            .orderByDesc(MatchRecordEntity::getCreatedAt))
-                    .stream()
-                    .map(entity -> entity.toMatch(objectMapper))
-                    .toList();
-            writeCache(cacheKey, matches);
-            return matches;
-        } catch (Exception ex) {
-            log.warn("Failed to query student match records from database, falling back to in-memory store", ex);
-            return fallbackStore.listByStudent(studentId);
-        }
+        List<MatchResult> matches = mapper.selectList(Wrappers.<MatchRecordEntity>lambdaQuery()
+                        .eq(MatchRecordEntity::getStudentId, studentId)
+                        .orderByDesc(MatchRecordEntity::getCreatedAt))
+                .stream()
+                .map(entity -> entity.toMatch(objectMapper))
+                .toList();
+        writeCache(cacheKey, matches);
+        return matches;
     }
 
     @Override
     public List<MatchResult> listByJob(String jobId) {
         String cacheKey = buildJobCacheKey(jobId);
-        List<MatchResult> cachedMatches = readCache(cacheKey);
-        if (cachedMatches != null) {
-            return cachedMatches;
+        List<MatchResult> cached = readCache(cacheKey);
+        if (cached != null) {
+            return cached;
         }
-
-        try {
-            List<MatchResult> matches = mapper.selectList(Wrappers.<MatchRecordEntity>lambdaQuery()
-                            .eq(MatchRecordEntity::getJobId, jobId)
-                            .orderByDesc(MatchRecordEntity::getCreatedAt))
-                    .stream()
-                    .map(entity -> entity.toMatch(objectMapper))
-                    .toList();
-            writeCache(cacheKey, matches);
-            return matches;
-        } catch (Exception ex) {
-            log.warn("Failed to query job match records from database, falling back to in-memory store", ex);
-            return fallbackStore.listByJob(jobId);
-        }
+        List<MatchResult> matches = mapper.selectList(Wrappers.<MatchRecordEntity>lambdaQuery()
+                        .eq(MatchRecordEntity::getJobId, jobId)
+                        .orderByDesc(MatchRecordEntity::getCreatedAt))
+                .stream()
+                .map(entity -> entity.toMatch(objectMapper))
+                .toList();
+        writeCache(cacheKey, matches);
+        return matches;
     }
 
     @Nullable
@@ -130,12 +101,8 @@ public class PersistentMatchRecordStore implements MatchRecordStore {
         }
         try {
             String payload = redisTemplate.opsForValue().get(cacheKey);
-            if (payload == null || payload.isBlank()) {
-                return null;
-            }
-            return objectMapper.readValue(payload, MATCH_LIST_TYPE);
-        } catch (Exception ex) {
-            log.warn("Failed to read match records cache for key {}", cacheKey, ex);
+            return payload == null || payload.isBlank() ? null : objectMapper.readValue(payload, MATCH_LIST_TYPE);
+        } catch (Exception ignored) {
             return null;
         }
     }
@@ -146,8 +113,8 @@ public class PersistentMatchRecordStore implements MatchRecordStore {
         }
         try {
             redisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(matches), cacheTtl);
-        } catch (Exception ex) {
-            log.warn("Failed to write match records cache for key {}", cacheKey, ex);
+        } catch (Exception ignored) {
+            // Cache failure never creates an in-memory persistence substitute.
         }
     }
 
@@ -155,15 +122,14 @@ public class PersistentMatchRecordStore implements MatchRecordStore {
         if (redisTemplate == null) {
             return;
         }
-
-        Set<String> cacheKeys = new LinkedHashSet<>();
-        cacheKeys.add(buildAllCacheKey());
-        cacheKeys.add(buildStudentCacheKey(studentId));
-        cacheKeys.add(buildJobCacheKey(jobId));
+        Set<String> keys = new LinkedHashSet<>();
+        keys.add(buildAllCacheKey());
+        keys.add(buildStudentCacheKey(studentId));
+        keys.add(buildJobCacheKey(jobId));
         try {
-            redisTemplate.delete(cacheKeys);
-        } catch (Exception ex) {
-            log.warn("Failed to evict match records cache keys {}", cacheKeys, ex);
+            redisTemplate.delete(keys);
+        } catch (Exception ignored) {
+            // Cache eviction remains best effort.
         }
     }
 

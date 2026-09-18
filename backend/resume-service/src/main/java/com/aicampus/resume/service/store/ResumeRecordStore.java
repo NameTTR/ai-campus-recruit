@@ -9,4 +9,6 @@ public interface ResumeRecordStore {
     Optional<ResumeRecord> findById(String resumeId);
 
     List<ResumeRecord> listAll();
+
+    boolean delete(String resumeId);
 }

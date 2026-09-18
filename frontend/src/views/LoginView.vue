@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { LogIn } from 'lucide-vue-next'
@@ -10,17 +10,29 @@ const form = reactive({
   username: 'student',
   password: '123456'
 })
+const loading = ref(false)
 
 async function submit() {
-  const result = await login(form.username, form.password)
-  saveAuthSession(result)
-  ElMessage.success('登录成功')
-  const target = result.role === 'COMPANY'
-    ? '/company/publish'
-    : result.role === 'ADMIN'
-      ? '/admin/overview'
-      : '/student/resume'
-  router.push(target)
+  if (!form.username.trim() || !form.password) {
+    ElMessage.warning('请输入账号和密码')
+    return
+  }
+  loading.value = true
+  try {
+    const result = await login(form.username.trim(), form.password)
+    saveAuthSession(result)
+    ElMessage.success('登录成功')
+    const target = result.role === 'COMPANY'
+      ? '/company/jobs'
+      : result.role === 'ADMIN'
+        ? '/admin/ai?tab=documents'
+        : '/student/resume'
+    router.push(target)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '登录失败')
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -30,12 +42,12 @@ async function submit() {
     <p>校园招聘匹配工作台</p>
     <el-form label-position="top" @submit.prevent="submit">
       <el-form-item label="账号">
-        <el-segmented v-model="form.username" :options="['student', 'company', 'admin']" />
+        <el-input v-model="form.username" autocomplete="username" placeholder="输入账号" />
       </el-form-item>
       <el-form-item label="密码">
         <el-input v-model="form.password" type="password" show-password />
       </el-form-item>
-      <el-button type="primary" size="large" style="width: 100%" @click="submit">
+      <el-button type="primary" size="large" style="width: 100%" :loading="loading" @click="submit">
         <LogIn :size="18" />
         登录
       </el-button>

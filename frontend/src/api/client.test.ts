@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  batchDeleteKnowledgeDocuments,
   changeAccountPassword,
   createAccount,
   createCandidateScreenTask,
+  createLearningPlan,
   createDelivery,
   createInterviewSchedule,
   createKnowledgeDocument,
+  deleteKnowledgeDocument,
+  deleteResume,
+  downloadAdminAuditExport,
   exportAdminAudit,
   getAuthSession,
   getKnowledgeBaseStats,
@@ -35,8 +40,10 @@ import {
   listMyCandidateScreenRecords,
   listMyInterviewSchedules,
   listMyNotifications,
+  listResumes,
   listInterviewRecords,
   listKnowledgeDocuments,
+  listJobs,
   listCompanyDeliveries,
   listCompanyInterviewSchedules,
   listCompanyNotifications,
@@ -47,10 +54,14 @@ import {
   screenCandidate,
   searchAiKnowledge,
   searchKnowledgeBase,
+  analyzeResume,
   submitInterviewFeedback,
   retryCandidateScreenTask,
+  saveInterviewSessionAnswer,
   rewriteResume,
   uploadKnowledgeFile,
+  uploadResume,
+  updateKnowledgeDocumentRoles,
   updateInterviewScheduleStatus,
   updateAccountStatus
 } from './client'
@@ -204,6 +215,28 @@ describe('api fallback behavior', () => {
     expect(result.token).toBe('demo-company-token')
   })
 
+  it('calls login endpoint when gateway is configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          token: 'real-jwt-token',
+          userId: 'S001',
+          displayName: 'Student Demo',
+          role: 'STUDENT'
+        }
+      })
+    } as Response)
+
+    const result = await login('student', '123456')
+
+    expect(result.token).toBe('real-jwt-token')
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/auth/login', expect.any(Object))
+  })
+
   it('saves login session with user identity', () => {
     saveAuthSession({
       token: 'session-token',
@@ -226,6 +259,43 @@ describe('api fallback behavior', () => {
 
     expect(result.score).toBe(88)
     expect(result.suggestions.length).toBeGreaterThan(0)
+  })
+
+  it('returns broad offline job positions across technical and non-technical fields', async () => {
+    const jobs = await listJobs()
+    const titles = jobs.map((job) => job.title)
+    const skills = jobs.flatMap((job) => job.requiredSkills)
+    const searchableText = jobs
+      .flatMap((job) => [job.title, job.description, job.aiSummary, ...job.requiredSkills])
+      .join(' ')
+
+    expect(jobs.length).toBeGreaterThanOrEqual(50)
+    expect(new Set(titles).size).toBeGreaterThanOrEqual(50)
+    expect(jobs[0]).toMatchObject({
+      jobId: 'J001',
+      companyId: 'C001',
+      companyName: '星河科技',
+      title: 'Java 后端实习生'
+    })
+    expect(skills).toEqual(expect.arrayContaining([
+      'Java',
+      'Vue',
+      'RAG',
+      'SQL',
+      '数学基础',
+      '客户开发',
+      '商品运营',
+      '简历筛选',
+      '会计基础',
+      '运输调度'
+    ]))
+    expect(searchableText).toEqual(expect.stringContaining('AI 应用开发实习生'))
+    expect(searchableText).toEqual(expect.stringContaining('小学数学教师'))
+    expect(searchableText).toEqual(expect.stringContaining('销售管培生'))
+    expect(searchableText).toEqual(expect.stringContaining('电商运营实习生'))
+    expect(searchableText).toEqual(expect.stringContaining('财务助理'))
+    expect(searchableText).toEqual(expect.stringContaining('酒店前厅管培生'))
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('sends current student identity when matching resume and job', async () => {
@@ -340,6 +410,200 @@ describe('api fallback behavior', () => {
     expect(result.objectKey).toBe('resumes/R001/demo-resume.pdf')
     expect(result.storageProvider).toBe('local-demo')
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('lists resume summaries through gateway when configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: [
+          {
+            resumeId: 'R777',
+            studentId: 'S001',
+            fileName: 'resume-777.pdf',
+            education: '软件工程本科',
+            skills: ['Java'],
+            projects: ['校园招聘平台'],
+            diagnosis: '已读取简历正文',
+            score: 70,
+            objectKey: 'resumes/R777/resume-777.pdf',
+            storageProvider: 'local-demo',
+            storageStatus: 'SKIPPED',
+            sourceFormat: 'PDF',
+            parseStatus: 'TEXT_EXTRACTED',
+            parsedTextLength: 100
+          }
+        ]
+      })
+    } as Response)
+
+    const result = await listResumes()
+
+    expect(result).toHaveLength(1)
+    expect(result[0].resumeId).toBe('R777')
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/resumes', expect.any(Object))
+  })
+
+  it('uploads resume through gateway when configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    saveAuthSession({
+      token: 'student-token',
+      userId: 'S001',
+      displayName: 'Session Student',
+      role: 'STUDENT'
+    })
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          resumeId: 'R888',
+          studentId: 'S001',
+          fileName: 'new-resume.pdf',
+          education: '软件工程本科',
+          skills: ['Java'],
+          projects: ['校园招聘平台'],
+          diagnosis: '已读取简历正文',
+          score: 70,
+          objectKey: 'resumes/R888/new-resume.pdf',
+          storageProvider: 'local-demo',
+          storageStatus: 'SKIPPED',
+          sourceFormat: 'PDF',
+          parseStatus: 'TEXT_EXTRACTED',
+          parsedTextLength: 100
+        }
+      })
+    } as Response)
+
+    const result = await uploadResume(new File(['resume'], 'new-resume.pdf', { type: 'application/pdf' }))
+
+    expect(result.resumeId).toBe('R888')
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/resumes/upload', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(requestInit.body).toBeInstanceOf(FormData)
+    expect(new Headers(requestInit.headers).get('Authorization')).toBe('Bearer student-token')
+  })
+
+  it('does not fallback or keep invalid session when resume upload is unauthorized', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    saveAuthSession({
+      token: 'expired-token',
+      userId: 'S001',
+      displayName: 'Session Student',
+      role: 'STUDENT'
+    })
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ code: 401, message: 'unauthorized', data: null })
+    } as Response)
+
+    await expect(uploadResume(new File(['resume'], 'new-resume.pdf', { type: 'application/pdf' })))
+      .rejects.toThrow('登录已失效，请重新登录')
+    expect(getAuthSession()).toBeNull()
+  })
+
+  it('calls resume analyze endpoint when gateway is configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          resumeId: 'R777',
+          studentId: 'S001',
+          fileName: 'resume.pdf',
+          education: '软件工程本科',
+          skills: ['Java', 'Spring Boot'],
+          projects: ['校园招聘平台'],
+          diagnosis: '诊断已生成',
+          score: 86,
+          objectKey: 'resumes/R777/resume.pdf',
+          storageProvider: 'local-demo',
+          storageStatus: 'SKIPPED',
+          sourceFormat: 'PDF',
+          parseStatus: 'TEXT_EXTRACTED',
+          parsedTextLength: 120
+        }
+      })
+    } as Response)
+
+    const result = await analyzeResume('R777', { targetJob: '小学语文教师' })
+
+    expect(result.resumeId).toBe('R777')
+    expect(result.diagnosis).toBe('诊断已生成')
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/resumes/R777/analyze', expect.any(Object))
+    expect(vi.mocked(fetch).mock.calls[0][1]?.body).toBe(JSON.stringify({ targetJob: '小学语文教师' }))
+  })
+
+  it('surfaces resume analyze api failures when gateway is configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 1,
+        message: 'Resume not found',
+        data: null
+      })
+    } as Response)
+
+    await expect(analyzeResume('R404')).rejects.toThrow('Resume not found')
+  })
+
+  it('clears invalid session when resume analyze is unauthorized', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    saveAuthSession({
+      token: 'expired-token',
+      userId: 'S001',
+      displayName: 'Session Student',
+      role: 'STUDENT'
+    })
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ code: 401, message: 'unauthorized', data: null })
+    } as Response)
+
+    await expect(analyzeResume('R001')).rejects.toThrow('登录已失效，请重新登录')
+    expect(getAuthSession()).toBeNull()
+  })
+
+  it('deletes resume through gateway when configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: true
+      })
+    } as Response)
+
+    const result = await deleteResume('R777')
+
+    expect(result).toBe(true)
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/resumes/R777', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(requestInit.method).toBe('DELETE')
+  })
+
+  it('surfaces resume delete api failures when gateway is configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 1,
+        message: 'Resume not found',
+        data: null
+      })
+    } as Response)
+
+    await expect(deleteResume('R404')).rejects.toThrow('Resume not found')
   })
 
   it('returns interview question fallback when gateway is offline', async () => {
@@ -1201,6 +1465,80 @@ describe('api fallback behavior', () => {
     expect(JSON.parse(String(requestInit.body))).toEqual(payload)
   })
 
+  it('updates knowledge document roles through patch endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          documentId: 'KB-900',
+          title: 'Offer checklist',
+          content: 'Confirm offer timeline and interview feedback.',
+          category: 'offer',
+          source: 'admin-console',
+          tags: ['offer'],
+          roles: ['STUDENT', 'ADMIN'],
+          createdBy: 'A001',
+          createdAt: '2026-06-12T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await updateKnowledgeDocumentRoles('KB-900', [' STUDENT ', 'ADMIN'])
+
+    expect(result.roles).toEqual(['STUDENT', 'ADMIN'])
+    expect(fetch).toHaveBeenCalledWith('/api/ai/knowledge/documents/KB-900/roles', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(requestInit.method).toBe('PATCH')
+    expect(JSON.parse(String(requestInit.body))).toEqual({ roles: ['STUDENT', 'ADMIN'] })
+  })
+
+  it('deletes knowledge document through delete endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: true
+      })
+    } as Response)
+
+    const result = await deleteKnowledgeDocument('KB-900')
+
+    expect(result).toBe(true)
+    expect(fetch).toHaveBeenCalledWith('/api/ai/knowledge/documents/KB-900', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(requestInit.method).toBe('DELETE')
+  })
+
+  it('batch deletes knowledge documents through batch endpoint when ai proxy is configured', async () => {
+    vi.stubEnv('VITE_AI_PROXY_TARGET', 'http://127.0.0.1:8106')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: {
+          requestedCount: 2,
+          deletedCount: 2,
+          deletedDocumentIds: ['KB-901', 'KB-902'],
+          missingDocumentIds: []
+        }
+      })
+    } as Response)
+
+    const result = await batchDeleteKnowledgeDocuments([' KB-901 ', 'KB-902', 'KB-901'])
+
+    expect(result.deletedCount).toBe(2)
+    expect(fetch).toHaveBeenCalledWith('/api/ai/knowledge/documents/batch-delete', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(requestInit.method).toBe('POST')
+    expect(JSON.parse(String(requestInit.body))).toEqual({ documentIds: ['KB-901', 'KB-902'] })
+  })
+
   it('uploads rag file through fallback ingestion when gateway is offline', async () => {
     const file = new File(['RAG handbook content'], 'bulk-handbook.pdf', { type: 'application/pdf' })
 
@@ -1802,5 +2140,116 @@ describe('api fallback behavior', () => {
       limit: 20,
       format: 'CSV'
     })
+  })
+
+  it('downloads an admin audit export through the configured api base with bearer authorization', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080/')
+    localStorage.setItem('token', 'audit-download-token')
+    const createObjectUrl = vi.fn(() => 'blob:audit-export')
+    const revokeObjectUrl = vi.fn()
+    const appendChild = vi.spyOn(document.body, 'appendChild')
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+    vi.stubGlobal('URL', {
+      createObjectURL: createObjectUrl,
+      revokeObjectURL: revokeObjectUrl
+    })
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      blob: () => Promise.resolve(new Blob(['auditId,entityType\nAUD-001,DELIVERY'], { type: 'text/csv' }))
+    } as Response)
+
+    try {
+      const fileName = await downloadAdminAuditExport({
+        exportId: 'EXP-001',
+        format: 'CSV',
+        fileName: 'audit-export',
+        downloadUrl: '/api/admin/audit/export/EXP-001',
+        expiresAt: '2026-06-10T02:00:00Z',
+        rowCount: 1,
+        generatedAt: '2026-06-10T00:00:00Z',
+        query: {}
+      })
+
+      expect(fileName).toBe('audit-export.csv')
+      expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/admin/audit/export/EXP-001', expect.any(Object))
+      const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+      expect(requestInit.method).toBe('GET')
+      expect(new Headers(requestInit.headers).get('Authorization')).toBe('Bearer audit-download-token')
+      const anchor = appendChild.mock.calls[0][0] as HTMLAnchorElement
+      expect(anchor.href).toBe('blob:audit-export')
+      expect(anchor.download).toBe('audit-export.csv')
+      expect(anchorClick).toHaveBeenCalledOnce()
+      expect(createObjectUrl).toHaveBeenCalledOnce()
+      expect(revokeObjectUrl).toHaveBeenCalledWith('blob:audit-export')
+      expect(document.body.contains(anchor)).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('rejects a failed admin audit export download', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 410,
+      json: () => Promise.resolve({ message: '导出链接已过期' })
+    } as Response)
+
+    await expect(downloadAdminAuditExport({
+      exportId: 'EXP-001',
+      format: 'CSV',
+      fileName: 'audit-export.csv',
+      downloadUrl: '/api/admin/audit/export/EXP-001',
+      expiresAt: '2026-06-10T02:00:00Z',
+      rowCount: 1,
+      generatedAt: '2026-06-10T00:00:00Z',
+      query: {}
+    })).rejects.toThrow('导出链接已过期')
+  })
+
+  it('creates a learning plan through the authenticated persistent endpoint', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:18080')
+    localStorage.setItem('token', 'learning-token')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        data: {
+          planId: 'PLAN-001', studentId: 'S001', targetRole: 'Java 后端实习生', weeklyHours: 6,
+          durationWeeks: 8, status: 'ACTIVE', version: 1, tasks: [], createdAt: '2026-06-10T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await createLearningPlan({ resumeId: 'R001', jobId: 'J001', targetRole: 'Java 后端实习生' })
+
+    expect(result.planId).toBe('PLAN-001')
+    expect(fetch).toHaveBeenCalledWith('http://localhost:18080/api/ai/learning/plans', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(new Headers(requestInit.headers).get('Authorization')).toBe('Bearer learning-token')
+    expect(JSON.parse(String(requestInit.body))).toMatchObject({ resumeId: 'R001', jobId: 'J001' })
+  })
+
+  it('saves an interview answer with the path and body question identifiers aligned', async () => {
+    vi.stubEnv('VITE_API_PROXY_TARGET', 'http://localhost:8080')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 0,
+        data: {
+          sessionId: 'SESSION-001', studentId: 'S001', targetRole: 'Java 后端实习生', status: 'IN_PROGRESS',
+          questions: [{ questionId: 'Q-001', question: '介绍一个项目' }],
+          answers: [{ questionId: 'Q-001', answer: '我的回答' }],
+          createdAt: '2026-06-10T00:00:00Z', updatedAt: '2026-06-10T00:01:00Z'
+        }
+      })
+    } as Response)
+
+    const result = await saveInterviewSessionAnswer('SESSION-001', 'Q-001', '我的回答')
+
+    expect(result.answers[0].answer).toBe('我的回答')
+    expect(fetch).toHaveBeenCalledWith('/api/ai/interview/sessions/SESSION-001/answers/Q-001', expect.any(Object))
+    const requestInit = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(requestInit.body))).toEqual({ questionId: 'Q-001', answer: '我的回答' })
   })
 })

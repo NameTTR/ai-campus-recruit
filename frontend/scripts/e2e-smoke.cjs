@@ -8,69 +8,55 @@ const localPort = process.env.E2E_PORT || '5174'
 const rawBaseUrl = process.env.E2E_BASE_URL || `http://127.0.0.1:${localPort}`
 const baseUrl = rawBaseUrl.replace(/\/+$/, '')
 const artifactsDir = process.env.E2E_ARTIFACTS_DIR || path.join(rootDir, '.e2e-artifacts')
+const coreFixturePath = path.resolve(rootDir, '../logs/core-mvp-verification.json')
+const coreFixturePassword = process.env.MVP_SMOKE_PASSWORD || 'Verification123!'
+const persistedTaskFeedback = 'MVP-已完成并保存'
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 let devServer
 
 async function main() {
   fs.mkdirSync(artifactsDir, { recursive: true })
+  const coreFixture = readCoreFixture()
   await ensureFrontend()
   const browser = await startBrowser()
   const client = await connect(browser.webSocketDebuggerUrl)
   try {
     await enablePage(client, 1440, 980)
-    await loginAsStudent(client)
-    await assertText(client, ['Campus Recruit'])
+    if (coreFixture) {
+      await verifyCoreFixture(client, coreFixture)
+    } else {
+      await loginAs(client, 'student', 'STUDENT', '/student/resume')
+    }
+    await assertText(client, ['Campus Recruit', '简历', '岗位匹配', '学习路径', '模拟面试', '知识库'])
+    await assertNoText(client, ['投递记录', '通知中心', '简历闭环'])
     await screenshot(client, '01-student-resume.png')
 
     await navigate(client, `${baseUrl}/student/plan`)
-    await clickButton(client, '生成改写')
-    await clickButton(client, '生成规划')
-    await assertText(client, ['AI 求职规划', '优化摘要', '准备度', '生成历史'])
+    await assertText(client, ['学习路径', '学习计划'])
     await screenshot(client, '02-student-plan.png')
-    await clickButton(client, '生成顾问建议')
-    await assertText(client, ['优先行动', '风险提醒', '学习路径', '面试训练'])
-    await screenshot(client, '02b-student-coach-advice.png')
 
-    await navigate(client, `${baseUrl}/student/knowledge`)
-    await assertText(client, ['AI 引用回答', 'RAG'])
-    await screenshot(client, '02c-student-rag.png')
+    await navigate(client, `${baseUrl}/student/history`)
+    await waitForExpression(client, "location.pathname === '/student/interview' && new URLSearchParams(location.search).get('tab') === 'history'")
+    await assertText(client, ['模拟面试', '面试记录'])
+    await navigate(client, `${baseUrl}/student/deliveries`)
+    await waitForExpression(client, "location.pathname === '/student/resume'")
 
-    await navigate(client, `${baseUrl}/student/jobs`)
-    await clickButton(client, '匹配')
-    await clickButton(client, '投递')
-    await assertText(client, ['匹配结果', '推荐岗位'])
-    await screenshot(client, '03-student-delivery.png')
-
-    await setSession(client, 'ADMIN', 'A001', 'admin')
-    await navigate(client, `${baseUrl}/admin/overview`)
-    await assertText(client, ['学校就业看板', '周投递趋势', '转化漏斗', '技能需求 Top', '风险告警'])
-    await screenshot(client, '04-admin-overview.png')
-
-    await navigate(client, `${baseUrl}/admin/accounts?tab=list`)
-    await assertText(client, ['当前权限', '账号列表', '用户账号', '筛选'])
-    await screenshot(client, '04a-admin-accounts-list.png')
-
-    await navigate(client, `${baseUrl}/admin/ai`)
-    await assertText(client, ['总览', 'AI 调用次数', 'RAG 文档数', '知识库存储'])
-    await screenshot(client, '04b-admin-ai-overview.png')
-    await navigate(client, `${baseUrl}/admin/ai?tab=rag-upload`)
-    await assertText(client, ['RAG 知识库文档上传', '等待上传', '上传到 RAG 知识库', '支持格式'])
-    await screenshot(client, '04ba-admin-ai-rag-upload.png')
-    await navigate(client, `${baseUrl}/admin/ai?tab=ingestions`)
-    await assertText(client, ['RAG 导入任务', '任务', '来源', '状态'])
-    await screenshot(client, '04bb-admin-ai-ingestions.png')
-    await navigate(client, `${baseUrl}/admin/ai?tab=documents`)
-    await assertText(client, ['RAG 知识文档', '分类', '来源', '文档'])
-    await screenshot(client, '04c-admin-ai-knowledge-documents.png')
-    await navigate(client, `${baseUrl}/admin/ai?tab=create`)
-    await assertText(client, ['手工新增知识文档', '标题', '内容', '创建文档'])
-    await screenshot(client, '04d-admin-ai-knowledge-form.png')
-
-    await setSession(client, 'COMPANY', 'C001', 'company')
+    await loginAs(client, 'company', 'COMPANY', '/company/jobs')
+    await assertText(client, ['岗位管理', '发布岗位'])
+    await navigate(client, `${baseUrl}/company/publish`)
+    await assertText(client, ['发布岗位', '岗位信息'])
     await navigate(client, `${baseUrl}/company/screening`)
-    await assertText(client, ['AI 异步初筛'])
-    await screenshot(client, '05-company-screening.png')
+    await waitForExpression(client, "location.pathname === '/company/jobs'")
+    await screenshot(client, '03-company-jobs.png')
+
+    await loginAs(client, 'admin', 'ADMIN', '/admin/ai')
+    await assertText(client, ['知识库管理', '知识文档', '手工新增', '上传导入'])
+    await navigate(client, `${baseUrl}/admin/accounts`)
+    await assertText(client, ['账号管理', '账号筛选', '创建账号', '账号列表'])
+    await navigate(client, `${baseUrl}/admin/overview`)
+    await waitForExpression(client, "location.pathname === '/admin/ai'")
+    await screenshot(client, '04-admin-knowledge.png')
 
     console.log(`E2E smoke passed. Screenshots: ${artifactsDir}`)
   } catch (error) {
@@ -88,6 +74,80 @@ async function main() {
       await stopProcessTree(devServer)
     }
   }
+}
+
+function readCoreFixture() {
+  if (!fs.existsSync(coreFixturePath)) {
+    return null
+  }
+  let fixture
+  try {
+    fixture = JSON.parse(fs.readFileSync(coreFixturePath, 'utf8'))
+  } catch (error) {
+    throw new Error(`Unable to read core MVP fixture ${coreFixturePath}: ${error.message}`)
+  }
+  for (const field of ['studentUsername', 'planId', 'sessionId']) {
+    if (typeof fixture[field] !== 'string' || !fixture[field].trim()) {
+      throw new Error(`Core MVP fixture is missing ${field}: ${coreFixturePath}`)
+    }
+  }
+  return fixture
+}
+
+async function verifyCoreFixture(client, fixture) {
+  console.log(`Core MVP fixture detected for ${fixture.studentUsername}; checking persisted student data.`)
+  await loginAs(client, fixture.studentUsername, 'STUDENT', '/student/resume', coreFixturePassword)
+  const plan = await fetchFixtureData(client, `/api/ai/learning/plans/${encodeURIComponent(fixture.planId)}`)
+  const session = await fetchFixtureData(client, `/api/ai/interview/sessions/${encodeURIComponent(fixture.sessionId)}`)
+  if (plan.status !== 'ACTIVE' || !Number.isInteger(plan.version)) {
+    throw new Error(`Fixture plan is not an active version: ${fixture.planId}`)
+  }
+  const completedTask = plan.tasks?.find((task) => task.status === 'COMPLETED'
+    && task.feedback === persistedTaskFeedback)
+  if (!completedTask) {
+    throw new Error(`Fixture plan does not contain the persisted completed task: ${fixture.planId}`)
+  }
+  if (session.status !== 'COMPLETED' || !session.report) {
+    throw new Error(`Fixture interview session is missing its completed report: ${fixture.sessionId}`)
+  }
+
+  await navigate(client, `${baseUrl}/student/plan`)
+  await assertText(client, ['学习路径', '学习计划', '任务进度', plan.targetRole, `V${plan.version}`, '当前可编辑版本'])
+  await assertSelectDisplay(client, `V${plan.version}`)
+  await assertPersistedTask(client, persistedTaskFeedback)
+  await screenshot(client, '00-core-fixture-learning-plan.png')
+
+  await navigate(client, `${baseUrl}/student/history`)
+  await waitForExpression(client, "location.pathname === '/student/interview' && new URLSearchParams(location.search).get('tab') === 'history'")
+  await assertText(client, ['模拟面试', '面试记录', 'COMPLETED'])
+  await navigate(client, `${baseUrl}/student/interview`)
+  await assertText(client, [
+    '模拟面试',
+    '面试报告',
+    String(session.report.overallScore),
+    session.report.recommendations[0]
+  ])
+  await screenshot(client, '00-core-fixture-interview-report.png')
+}
+
+async function fetchFixtureData(client, route) {
+  const response = await client.send('Runtime.evaluate', {
+    expression: `(async () => {
+      const token = localStorage.getItem('token');
+      const response = await fetch(${JSON.stringify(route)}, {
+        headers: token ? { Authorization: token.toLowerCase().startsWith('bearer ') ? token : 'Bearer ' + token } : {}
+      });
+      const body = await response.json();
+      return { ok: response.ok, body };
+    })()`,
+    awaitPromise: true,
+    returnByValue: true
+  })
+  const value = response.result.value
+  if (!value?.ok || value.body?.code !== 0 || !value.body?.data) {
+    throw new Error(`Unable to load fixture data from ${route}`)
+  }
+  return value.body.data
 }
 
 async function ensureFrontend() {
@@ -218,22 +278,28 @@ async function enablePage(client, width, height) {
   })
 }
 
-async function loginAsStudent(client) {
+async function loginAs(client, username, role, expectedPath, password = '123456') {
   await navigate(client, `${baseUrl}/login`)
+  await fillInput(client, 'input[autocomplete="username"]', username)
+  await fillInput(client, 'input[type="password"]', password)
   await clickButton(client, '登录')
-  await waitForExpression(client, "localStorage.getItem('role') === 'STUDENT' && location.pathname.startsWith('/student')")
+  await waitForExpression(client, `localStorage.getItem('role') === ${JSON.stringify(role)} && location.pathname === ${JSON.stringify(expectedPath)}`)
 }
 
-async function setSession(client, role, userId, displayName) {
-  await navigate(client, `${baseUrl}/login`)
-  await client.send('Runtime.evaluate', {
-    expression: `
-      localStorage.setItem('token', 'demo-${role.toLowerCase()}-token');
-      localStorage.setItem('role', '${role}');
-      localStorage.setItem('userId', '${userId}');
-      localStorage.setItem('displayName', '${displayName}');
-    `
-  })
+async function fillInput(client, selector, value) {
+  const success = await elementBox(client, `(() => {
+    const input = document.querySelector(${JSON.stringify(selector)});
+    if (!input) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`)
+  if (!success) {
+    throw new Error(`Input not available: ${selector}`)
+  }
+  await sleep(200)
 }
 
 async function navigate(client, url) {
@@ -286,6 +352,40 @@ async function assertText(client, expectedParts) {
   }
   const missing = expectedParts.filter((part) => !latestText.includes(part))
   throw new Error(`Missing text: ${missing.join(', ')}`)
+}
+
+async function assertNoText(client, unexpectedParts) {
+  const text = await bodyText(client)
+  const found = unexpectedParts.filter((part) => text.includes(part))
+  if (found.length) {
+    throw new Error(`Unexpected text: ${found.join(', ')}`)
+  }
+}
+
+async function assertSelectDisplay(client, expected) {
+  for (let index = 0; index < 30; index += 1) {
+    const found = await elementBox(client, `(() => [...document.querySelectorAll('.el-select')]
+      .some((select) => select.innerText.includes(${JSON.stringify(expected)})))()`)
+    if (found) {
+      return
+    }
+    await sleep(500)
+  }
+  throw new Error(`Missing select display containing: ${expected}`)
+}
+
+async function assertPersistedTask(client, feedback) {
+  for (let index = 0; index < 30; index += 1) {
+    const found = await elementBox(client, `(() => [...document.querySelectorAll('.task-row')]
+      .some((row) => row.innerText.includes('已完成')
+        && [...row.querySelectorAll('input, textarea')]
+          .some((input) => input.value === ${JSON.stringify(feedback)} && !input.disabled)))()`)
+    if (found) {
+      return
+    }
+    await sleep(500)
+  }
+  throw new Error(`Persisted completed task is not selected and editable: ${feedback}`)
 }
 
 async function waitForText(client, expected) {

@@ -5,123 +5,280 @@ import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.AiAnalyzeRequest;
 import com.aicampus.common.dto.AiAnalyzeResponse;
 import com.aicampus.common.dto.JobPostRequest;
+import com.aicampus.common.dto.JobStatusUpdateRequest;
 import com.aicampus.common.dto.JobSummary;
+import com.aicampus.job.client.AiAnalyzeClient;
 import com.aicampus.job.service.store.JobRecordStore;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestClient;
 
 @CrossOrigin
 @RestController
 @RequestMapping("/api/jobs")
 public class JobController {
-    private final JobRecordStore jobStore;
-    private final RestClient restClient;
+    private static final String OPEN = "OPEN";
+    private static final String CLOSED = "CLOSED";
 
-    public JobController(JobRecordStore jobStore, @Value("${services.ai:http://localhost:8106}") String aiServiceUrl) {
+    private final JobRecordStore jobStore;
+    private final AiAnalyzeClient aiAnalyzeClient;
+    private final boolean demoSeedEnabled;
+
+    public JobController(
+            JobRecordStore jobStore,
+            AiAnalyzeClient aiAnalyzeClient,
+            @Value("${demo.seed.enabled:false}") boolean demoSeedEnabled) {
         this.jobStore = jobStore;
-        this.restClient = RestClient.create(aiServiceUrl);
+        this.aiAnalyzeClient = aiAnalyzeClient;
+        this.demoSeedEnabled = demoSeedEnabled;
     }
 
     @EventListener(ApplicationReadyEvent.class)
-    public void seedDefaultJobs() {
-        DemoDataFactory.jobs().forEach(job -> jobStore.findById(job.jobId())
-                .ifPresentOrElse(existing -> {
-                }, () -> jobStore.save(job)));
-        JobSummary seed = new JobSummary("J001", "C001", "星河科技", "Java 后端实习生", "杭州",
-                "180-260/天", List.of("Java", "Spring Boot", "MySQL", "Redis"),
-                "参与招聘平台、数据看板和中台接口开发。", "适合具备 Java Web 项目经验的应届生。");
-        jobStore.findById(seed.jobId())
-                .ifPresentOrElse(existing -> {
-                }, () -> jobStore.save(seed));
+    public void seedDemoJobs() {
+        if (!demoSeedEnabled) {
+            return;
+        }
+        DemoDataFactory.jobs().forEach(job -> {
+            if (jobStore.findById(job.jobId()).isEmpty()) {
+                jobStore.save(job);
+            }
+        });
     }
 
     @PostMapping
-    public ApiResponse<JobSummary> create(@RequestBody JobPostRequest request,
+    public ApiResponse<JobSummary> create(
+            @RequestBody(required = false) JobPostRequest request,
             @RequestHeader(value = "X-User-Id", required = false) String userId,
             @RequestHeader(value = "X-User-Role", required = false) String role) {
-        String jobId = "J" + UUID.randomUUID().toString().substring(0, 8);
-        request = new JobPostRequest(effectiveCompanyId(role, userId, request.companyId()), request.title(),
-                request.city(), request.salaryRange(), request.requiredSkills(), request.description());
-        JobSummary job = new JobSummary(jobId, emptyDefault(request.companyId(), "C001"), "星河科技",
-                request.title(), request.city(), request.salaryRange(), safeList(request.requiredSkills()),
-                request.description(), "待 AI 分析");
+        String companyId = effectiveCompanyId(request, userId, role);
+        if (companyId == null) {
+            return ApiResponse.fail("Only an authenticated company or administrator can create a job");
+        }
+        String validationError = validatePost(request);
+        if (validationError != null) {
+            return ApiResponse.fail(validationError);
+        }
+
+        JobSummary job = new JobSummary(
+                "J" + UUID.randomUUID().toString().substring(0, 8),
+                companyId,
+                companyId,
+                request.title().trim(),
+                request.city().trim(),
+                request.salaryRange().trim(),
+                normalizedList(request.requiredSkills()),
+                request.description().trim(),
+                "Not analyzed",
+                OPEN);
         jobStore.save(job);
         return ApiResponse.ok(job);
     }
 
     @GetMapping
-    public ApiResponse<List<JobSummary>> list() {
-        return ApiResponse.ok(jobStore.listAll());
+    public ApiResponse<List<JobSummary>> list(
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role) {
+        if (isAdmin(role)) {
+            return ApiResponse.ok(jobStore.listAll());
+        }
+        if (isCompany(role) && !isBlank(userId)) {
+            return ApiResponse.ok(jobStore.listAll().stream()
+                    .filter(job -> job.companyId().equals(userId.trim()))
+                    .toList());
+        }
+        return ApiResponse.ok(jobStore.listAll().stream()
+                .filter(job -> OPEN.equals(statusOrOpen(job.status())))
+                .toList());
     }
 
     @GetMapping("/{id}")
-    public ApiResponse<JobSummary> detail(@PathVariable("id") String id) {
-        return ApiResponse.ok(jobStore.findById(id)
-                .or(() -> jobStore.findById("J001"))
-                .orElseGet(JobController::defaultJob));
+    public ApiResponse<JobSummary> detail(
+            @PathVariable("id") String id,
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role) {
+        JobSummary job = jobStore.findById(id).orElse(null);
+        if (job == null) {
+            return ApiResponse.fail("Job not found");
+        }
+        if (!canView(job, userId, role)) {
+            return ApiResponse.fail("You do not have permission to access this job");
+        }
+        return ApiResponse.ok(job);
+    }
+
+    @PutMapping("/{id}")
+    public ApiResponse<JobSummary> update(
+            @PathVariable("id") String id,
+            @RequestBody(required = false) JobPostRequest request,
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role) {
+        JobSummary current = jobStore.findById(id).orElse(null);
+        if (current == null) {
+            return ApiResponse.fail("Job not found");
+        }
+        if (!canManage(current, userId, role)) {
+            return ApiResponse.fail("You do not have permission to update this job");
+        }
+        String validationError = validatePost(request);
+        if (validationError != null) {
+            return ApiResponse.fail(validationError);
+        }
+        if (!isAdmin(role) && !isBlank(request.companyId()) && !current.companyId().equals(request.companyId().trim())) {
+            return ApiResponse.fail("A company cannot transfer a job to another owner");
+        }
+
+        String companyId = isAdmin(role) && !isBlank(request.companyId())
+                ? request.companyId().trim()
+                : current.companyId();
+        JobSummary updated = new JobSummary(
+                current.jobId(), companyId, companyId, request.title().trim(), request.city().trim(),
+                request.salaryRange().trim(), normalizedList(request.requiredSkills()), request.description().trim(),
+                current.aiSummary(), statusOrOpen(current.status()));
+        jobStore.save(updated);
+        return ApiResponse.ok(updated);
+    }
+
+    @PostMapping("/{id}/status")
+    public ApiResponse<JobSummary> updateStatus(
+            @PathVariable("id") String id,
+            @RequestBody(required = false) JobStatusUpdateRequest request,
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role) {
+        JobSummary current = jobStore.findById(id).orElse(null);
+        if (current == null) {
+            return ApiResponse.fail("Job not found");
+        }
+        if (!canManage(current, userId, role)) {
+            return ApiResponse.fail("You do not have permission to change this job status");
+        }
+        String status = request == null || isBlank(request.status()) ? null : request.status().trim().toUpperCase(Locale.ROOT);
+        if (!OPEN.equals(status) && !CLOSED.equals(status)) {
+            return ApiResponse.fail("status must be OPEN or CLOSED");
+        }
+        JobSummary updated = new JobSummary(
+                current.jobId(), current.companyId(), current.companyName(), current.title(), current.city(),
+                current.salaryRange(), current.requiredSkills(), current.description(), current.aiSummary(), status);
+        jobStore.save(updated);
+        return ApiResponse.ok(updated);
     }
 
     @PostMapping("/{id}/analyze")
-    public ApiResponse<JobSummary> analyze(@PathVariable("id") String id) {
-        JobSummary current = jobStore.findById(id)
-                .or(() -> jobStore.findById("J001"))
-                .orElseGet(JobController::defaultJob);
-        String aiSummary = callAi(current);
-        JobSummary analyzed = new JobSummary(current.jobId(), current.companyId(), current.companyName(),
-                current.title(), current.city(), current.salaryRange(), current.requiredSkills(),
-                current.description(), aiSummary);
+    public ApiResponse<JobSummary> analyze(
+            @PathVariable("id") String id,
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role) {
+        JobSummary current = jobStore.findById(id).orElse(null);
+        if (current == null) {
+            return ApiResponse.fail("Job not found");
+        }
+        if (!canManage(current, userId, role)) {
+            return ApiResponse.fail("You do not have permission to analyze this job");
+        }
+        JobSummary analyzed = new JobSummary(
+                current.jobId(), current.companyId(), current.companyName(), current.title(), current.city(),
+                current.salaryRange(), current.requiredSkills(), current.description(), callAi(current),
+                statusOrOpen(current.status()));
         jobStore.save(analyzed);
         return ApiResponse.ok(analyzed);
     }
 
-    private static JobSummary defaultJob() {
-        return new JobSummary("J001", "C001", "星河科技", "Java 后端实习生", "杭州",
-                "180-260/天", List.of("Java", "Spring Boot", "MySQL", "Redis"),
-                "参与招聘平台、数据看板和中台接口开发。", "适合具备 Java Web 项目经验的应届生。");
-    }
-
     private String callAi(JobSummary job) {
         try {
-            ApiResponse<AiAnalyzeResponse> response = restClient.post()
-                    .uri("/api/ai/analyze")
-                    .body(new AiAnalyzeRequest("job", job.description(), "岗位：" + job.title()))
-                    .retrieve()
-                    .body(new ParameterizedTypeReference<>() {
-                    });
-            if (response != null && response.data() != null) {
+            ApiResponse<AiAnalyzeResponse> response = aiAnalyzeClient.analyze(new AiAnalyzeRequest(
+                    "job",
+                    job.description(),
+                    "Analyze required skills and responsibilities for " + job.title()));
+            if (response != null && response.data() != null && !isBlank(response.data().content())) {
                 return response.data().content();
             }
         } catch (RuntimeException ignored) {
-            return "岗位要求偏工程实践，建议候选人突出接口开发、数据库设计和 Redis 使用经验。";
+            // The deterministic description below is an explicit local fallback.
         }
-        return "岗位适合 Java 基础扎实、具备 Spring Boot 项目经验的学生。";
+        return "RULE_FALLBACK: required skills=" + String.join(", ", job.requiredSkills())
+                + "; responsibilities are taken from the posted job description.";
     }
 
-    private static String emptyDefault(String value, String defaultValue) {
-        return value == null || value.isBlank() ? defaultValue : value;
-    }
-
-    private static String effectiveCompanyId(String role, String userId, String requestedCompanyId) {
-        if ("COMPANY".equalsIgnoreCase(emptyDefault(role, "")) && userId != null && !userId.isBlank()) {
+    private static String effectiveCompanyId(JobPostRequest request, String userId, String role) {
+        if (isCompany(role) && !isBlank(userId)) {
             return userId.trim();
         }
-        return emptyDefault(requestedCompanyId, "C001");
+        if (isAdmin(role) && request != null && !isBlank(request.companyId())) {
+            return request.companyId().trim();
+        }
+        return null;
     }
 
-    private static List<String> safeList(List<String> values) {
-        return values == null || values.isEmpty() ? List.of("Java", "Spring Boot") : values;
+    private static String validatePost(JobPostRequest request) {
+        if (request == null) {
+            return "Job request body is required";
+        }
+        if (isBlank(request.title())) {
+            return "title is required";
+        }
+        if (isBlank(request.city())) {
+            return "city is required";
+        }
+        if (isBlank(request.salaryRange())) {
+            return "salaryRange is required";
+        }
+        if (normalizedList(request.requiredSkills()).isEmpty()) {
+            return "At least one required skill is required";
+        }
+        if (isBlank(request.description())) {
+            return "description is required";
+        }
+        return null;
+    }
+
+    private static boolean canView(JobSummary job, String userId, String role) {
+        return OPEN.equals(statusOrOpen(job.status())) || isAdmin(role) || isCompanyOwner(job, userId, role);
+    }
+
+    private static boolean canManage(JobSummary job, String userId, String role) {
+        return isAdmin(role) || isCompanyOwner(job, userId, role);
+    }
+
+    private static boolean isCompanyOwner(JobSummary job, String userId, String role) {
+        return isCompany(role) && !isBlank(userId) && job.companyId().equals(userId.trim());
+    }
+
+    private static boolean isCompany(String role) {
+        return "COMPANY".equalsIgnoreCase(role);
+    }
+
+    private static boolean isAdmin(String role) {
+        return "ADMIN".equalsIgnoreCase(role);
+    }
+
+    private static List<String> normalizedList(List<String> values) {
+        if (values == null) {
+            return List.of();
+        }
+        return new ArrayList<>(values.stream()
+                .filter(value -> !isBlank(value))
+                .map(String::trim)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)));
+    }
+
+    private static String statusOrOpen(String status) {
+        return CLOSED.equalsIgnoreCase(status) || "UNPUBLISHED".equalsIgnoreCase(status) ? CLOSED : OPEN;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }

@@ -11,7 +11,20 @@ public record JobSummary(
         String salaryRange,
         List<String> requiredSkills,
         String description,
-        String aiSummary
+        String aiSummary,
+        String status
 ) {
+    public JobSummary(
+            String jobId,
+            String companyId,
+            String companyName,
+            String title,
+            String city,
+            String salaryRange,
+            List<String> requiredSkills,
+            String description,
+            String aiSummary) {
+        this(jobId, companyId, companyName, title, city, salaryRange, requiredSkills, description, aiSummary,
+                "OPEN");
+    }
 }
-

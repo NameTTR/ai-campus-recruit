@@ -86,6 +86,38 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
     }
 
     @Override
+    public void deleteDocument(String documentId, List<String> chunkIds) {
+        if (!hasText(documentId)) {
+            return;
+        }
+        List<String> ids = chunkIds == null
+                ? List.of()
+                : chunkIds.stream()
+                .filter(MilvusKnowledgeVectorIndex::hasText)
+                .distinct()
+                .toList();
+        ids.forEach(indexedChunks::remove);
+        if (!ensureCollection()) {
+            return;
+        }
+        try {
+            String filter = ids.isEmpty()
+                    ? "document_id == \"" + escapeFilterValue(documentId) + "\""
+                    : "chunk_id in [" + ids.stream()
+                    .map(id -> "\"" + escapeFilterValue(id) + "\"")
+                    .collect(java.util.stream.Collectors.joining(",")) + "]";
+            JsonNode response = post("/v2/vectordb/entities/delete", Map.of(
+                    "collectionName", properties.getCollection(),
+                    "filter", filter));
+            if (!success(response)) {
+                markUnavailable("Milvus delete failed: " + responseSummary(response));
+            }
+        } catch (RuntimeException ex) {
+            markUnavailable("Milvus delete failed: " + safeMessage(ex));
+        }
+    }
+
+    @Override
     public List<KnowledgeVectorMatch> search(List<Double> queryEmbedding, String role, int limit) {
         if (queryEmbedding == null || queryEmbedding.isEmpty() || limit <= 0) {
             return List.of();
@@ -273,6 +305,10 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
 
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private static String escapeFilterValue(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private static String truncate(String value, int maxLength) {

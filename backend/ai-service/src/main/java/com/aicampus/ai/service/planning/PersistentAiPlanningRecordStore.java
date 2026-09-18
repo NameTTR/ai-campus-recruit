@@ -34,6 +34,19 @@ public class PersistentAiPlanningRecordStore implements AiPlanningRecordStore {
     }
 
     @Override
+    public boolean existsById(String recordId) {
+        if (recordId == null || recordId.isBlank()) {
+            return false;
+        }
+        try {
+            return mapper.selectById(recordId.trim()) != null;
+        } catch (Exception ex) {
+            log.warn("Failed to verify AI planning record {}", recordId, ex);
+            return fallbackStore.existsById(recordId);
+        }
+    }
+
+    @Override
     public List<AiPlanningRecord> listByStudent(String studentId, int limit) {
         if (studentId == null || studentId.isBlank()) {
             return List.of();

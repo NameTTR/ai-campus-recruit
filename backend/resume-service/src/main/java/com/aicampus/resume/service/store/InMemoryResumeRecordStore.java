@@ -25,4 +25,9 @@ public class InMemoryResumeRecordStore implements ResumeRecordStore {
                 .sorted(Comparator.comparing(record -> record.summary().resumeId()))
                 .toList();
     }
+
+    @Override
+    public boolean delete(String resumeId) {
+        return resumeId != null && resumes.remove(resumeId) != null;
+    }
 }

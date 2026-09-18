@@ -19,6 +19,13 @@ dashscope:
   model: ${DASHSCOPE_MODEL:qwen-plus}
   base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
   temperature: ${DASHSCOPE_TEMPERATURE:0.2}
+  max-tokens: ${DASHSCOPE_MAX_TOKENS:8192}
+  connect-timeout: ${DASHSCOPE_CONNECT_TIMEOUT:10s}
+  read-timeout: ${DASHSCOPE_READ_TIMEOUT:120s}
+
+demo:
+  seed:
+    enabled: ${DEMO_SEED_ENABLED:false}
 
 ai:
   screening:
@@ -37,6 +44,12 @@ ai:
   planning:
     persistence:
       enabled: ${AI_PLANNING_PERSISTENCE_ENABLED:false}
+  core:
+    persistence:
+      enabled: ${AI_CORE_PERSISTENCE_ENABLED:false}
+    context:
+      connect-timeout: ${AI_CORE_CONTEXT_CONNECT_TIMEOUT:2s}
+      read-timeout: ${AI_CORE_CONTEXT_READ_TIMEOUT:5s}
   knowledge:
     persistence:
       enabled: ${AI_KNOWLEDGE_PERSISTENCE_ENABLED:false}
@@ -75,3 +88,8 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+knife4j:
+  enable: ${KNIFE4J_ENABLED:true}
+  setting:
+    language: zh_cn

@@ -10,6 +10,14 @@ spring:
         enabled: ${NACOS_ENABLED:false}
         server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
 
+services:
+  resume: ${RESUME_SERVICE_URI:http://localhost:8103}
+  job: ${JOB_SERVICE_URI:http://localhost:8104}
+
+demo:
+  seed:
+    enabled: ${DEMO_SEED_ENABLED:false}
+
 match:
   persistence:
     enabled: ${MATCH_PERSISTENCE_ENABLED:false}
@@ -31,3 +39,8 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+knife4j:
+  enable: ${KNIFE4J_ENABLED:true}
+  setting:
+    language: zh_cn

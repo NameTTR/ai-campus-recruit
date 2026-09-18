@@ -1,6 +1,7 @@
 package com.aicampus.resume.service.store;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -100,7 +101,7 @@ class PersistentResumeRecordStoreTest {
     }
 
     @Test
-    void databaseWriteAndReadFailuresFallBackToMemoryAndEvictCache() {
+    void databaseWriteAndReadFailuresArePropagatedInsteadOfFallingBackToMemory() {
         ResumeRecordMapper mapper = mock(ResumeRecordMapper.class);
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
         when(mapper.updateById(any(ResumeRecordEntity.class)))
@@ -114,10 +115,34 @@ class PersistentResumeRecordStoreTest {
                 new ObjectMapper().findAndRegisterModules(),
                 properties());
 
-        store.save(record);
+        assertThatThrownBy(() -> store.save(record))
+                .hasMessageContaining("database write unavailable");
+        assertThatThrownBy(() -> store.findById("R-FALLBACK-001"))
+                .hasMessageContaining("database read unavailable");
+    }
 
-        assertThat(store.findById("R-FALLBACK-001")).contains(record);
-        verify(redisTemplate).delete("resume:summaries:detail:R-FALLBACK-001");
+    @Test
+    void deleteRemovesDatabaseRowAndDetailCacheWithoutAnInMemoryFallback() {
+        ResumeRecordMapper mapper = mock(ResumeRecordMapper.class);
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(mapper.updateById(any(ResumeRecordEntity.class))).thenReturn(1);
+        when(mapper.deleteById("R-DELETE-001")).thenReturn(1);
+
+        PersistentResumeRecordStore store = new PersistentResumeRecordStore(
+                mapper,
+                redisTemplate,
+                new ObjectMapper().findAndRegisterModules(),
+                properties());
+        store.save(record("R-DELETE-001", "Persistent delete parsed resume text."));
+
+        boolean deleted = store.delete("R-DELETE-001");
+
+        assertThat(deleted).isTrue();
+        verify(mapper).deleteById("R-DELETE-001");
+        verify(redisTemplate).delete("resume:summaries:detail:R-DELETE-001");
     }
 
     private static ResumeProperties properties() {

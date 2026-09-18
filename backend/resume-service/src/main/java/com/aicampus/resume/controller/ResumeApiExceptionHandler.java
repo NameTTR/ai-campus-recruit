@@ -1,6 +1,7 @@
 package com.aicampus.resume.controller;
 
 import com.aicampus.common.api.ApiResponse;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -12,6 +13,12 @@ import org.springframework.web.multipart.support.MissingServletRequestPartExcept
 
 @RestControllerAdvice(basePackages = "com.aicampus.resume")
 public class ResumeApiExceptionHandler {
+    @ExceptionHandler({DataAccessException.class, IllegalStateException.class})
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ApiResponse<Void> unavailable(Exception ex) {
+        return ApiResponse.fail("Resume data service is temporarily unavailable");
+    }
+
     @ExceptionHandler({
             MissingServletRequestPartException.class,
             MissingServletRequestParameterException.class,

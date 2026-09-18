@@ -42,6 +42,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -50,6 +51,9 @@ import org.springframework.stereotype.Service;
 public class AiCoachService {
     private static final String SYSTEM_PROMPT =
             "你是校园招聘平台的职业规划与面试辅导助手，输出简洁、结构化、可执行的中文建议。";
+    private static final int DEFAULT_INTERVIEW_QUESTION_COUNT = 3;
+    private static final int MAX_INTERVIEW_QUESTION_COUNT = 20;
+    private static final int DEFAULT_INTERVIEW_KNOWLEDGE_LIMIT = 6;
     private static final List<String> DEFAULT_SKILLS = List.of("Java", "Spring Boot", "MySQL");
     private static final List<String> DEFAULT_STRENGTHS = List.of(
             "回答能围绕题目展开，具备基本岗位理解",
@@ -130,8 +134,10 @@ public class AiCoachService {
     private final CandidateScreenRecordStore candidateScreenRecordStore;
     private final AiPlanningRecordStore aiPlanningRecordStore;
     private final AiObservabilityService observabilityService;
+    private final boolean demoSeedEnabled;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, List<InterviewRecord>> interviewRecords = new ConcurrentHashMap<>();
+    private KnowledgeBaseService knowledgeBaseService;
 
     public AiCoachService(DashScopeClient dashScopeClient) {
         this(dashScopeClient, new InMemoryCandidateScreenRecordStore(), new InMemoryAiPlanningRecordStore(), new AiObservabilityService());
@@ -141,12 +147,21 @@ public class AiCoachService {
         this(dashScopeClient, candidateScreenRecordStore, new InMemoryAiPlanningRecordStore(), new AiObservabilityService());
     }
 
-    @Autowired
     public AiCoachService(
             DashScopeClient dashScopeClient,
             CandidateScreenRecordStore candidateScreenRecordStore,
             AiPlanningRecordStore aiPlanningRecordStore,
             AiObservabilityService observabilityService) {
+        this(dashScopeClient, candidateScreenRecordStore, aiPlanningRecordStore, observabilityService, false);
+    }
+
+    @Autowired
+    public AiCoachService(
+            DashScopeClient dashScopeClient,
+            CandidateScreenRecordStore candidateScreenRecordStore,
+            AiPlanningRecordStore aiPlanningRecordStore,
+            AiObservabilityService observabilityService,
+            @Value("${demo.seed.enabled:${DEMO_SEED_ENABLED:false}}") boolean demoSeedEnabled) {
         this.dashScopeClient = dashScopeClient;
         this.candidateScreenRecordStore = candidateScreenRecordStore == null
                 ? new InMemoryCandidateScreenRecordStore()
@@ -157,15 +172,33 @@ public class AiCoachService {
         this.observabilityService = observabilityService == null
                 ? new AiObservabilityService()
                 : observabilityService;
+        this.demoSeedEnabled = demoSeedEnabled;
+    }
+
+    @Autowired(required = false)
+    public void setKnowledgeBaseService(KnowledgeBaseService knowledgeBaseService) {
+        this.knowledgeBaseService = knowledgeBaseService;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDemoAiData() {
-        DemoDataFactory.candidateScreenRecords().forEach(candidateScreenRecordStore::save);
-        DemoDataFactory.planningRecords().forEach(aiPlanningRecordStore::save);
+        if (!demoSeedEnabled) {
+            return;
+        }
+        DemoDataFactory.candidateScreenRecords().stream()
+                .filter(record -> !candidateScreenRecordStore.existsById(record.screeningId()))
+                .forEach(candidateScreenRecordStore::save);
+        DemoDataFactory.planningRecords().stream()
+                .filter(record -> !aiPlanningRecordStore.existsById(record.recordId()))
+                .forEach(aiPlanningRecordStore::save);
         DemoDataFactory.aiCallRecords().forEach(observabilityService::seed);
-        DemoDataFactory.interviewRecords().forEach(record ->
-                interviewRecords.computeIfAbsent(record.studentId(), ignored -> new CopyOnWriteArrayList<>()).add(record));
+        DemoDataFactory.interviewRecords().forEach(record -> {
+            List<InterviewRecord> records = interviewRecords.computeIfAbsent(
+                    record.studentId(), ignored -> new CopyOnWriteArrayList<>());
+            if (records.stream().noneMatch(existing -> existing.recordId().equals(record.recordId()))) {
+                records.add(record);
+            }
+        });
     }
 
     public AiAnalyzeResponse analyze(AiAnalyzeRequest request) {
@@ -258,24 +291,29 @@ public class AiCoachService {
 
     public List<InterviewQuestion> generateInterviewQuestions(InterviewQuestionRequest request) {
         long startedAt = System.nanoTime();
-        String prompt = buildInterviewQuestionPrompt(request);
+        int questionCount = interviewQuestionCount(request);
+        List<AiSearchResult> knowledge = retrieveInterviewKnowledge(request);
+        String prompt = buildInterviewQuestionPrompt(request, questionCount, knowledge);
         if (!dashScopeClient.isConfigured()) {
-            List<InterviewQuestion> questions = mockInterviewQuestions(request);
+            List<InterviewQuestion> questions = mockInterviewQuestions(request, questionCount, knowledge);
             recordDashScopeCall("interview-questions", true, true, startedAt, prompt, String.valueOf(questions.size()), dashScopeClient.status().fallbackReason());
             return questions;
         }
         try {
             String content = dashScopeClient.complete(SYSTEM_PROMPT, prompt, true);
-            List<InterviewQuestion> questions = parseInterviewQuestions(content);
-            if (questions.size() >= 3) {
+            List<InterviewQuestion> questions = withKnowledgeReferences(parseInterviewQuestions(content), knowledge)
+                    .stream()
+                    .limit(questionCount)
+                    .toList();
+            if (questions.size() >= questionCount) {
                 recordDashScopeCall("interview-questions", true, false, startedAt, prompt, content, null);
                 return questions;
             }
-            List<InterviewQuestion> fallback = mockInterviewQuestions(request);
+            List<InterviewQuestion> fallback = mockInterviewQuestions(request, questionCount, knowledge);
             recordDashScopeCall("interview-questions", false, true, startedAt, prompt, content, "AI response did not contain enough questions");
             return fallback;
         } catch (RuntimeException ex) {
-            List<InterviewQuestion> questions = mockInterviewQuestions(request);
+            List<InterviewQuestion> questions = mockInterviewQuestions(request, questionCount, knowledge);
             recordDashScopeCall("interview-questions", false, true, startedAt, prompt, String.valueOf(questions.size()), ex.getMessage());
             return questions;
         }
@@ -629,6 +667,9 @@ public class AiCoachService {
                 业务上下文：%s
                 待分析内容：%s
 
+                如果任务类型是 resume，必须以业务上下文或待分析内容中的目标岗位为准进行简历诊断；
+                不要因为简历正文未写求职意向就忽略目标岗位，结论首句必须出现目标岗位名称。
+
                 请返回：
                 1. 核心判断
                 2. 优势
@@ -736,16 +777,24 @@ public class AiCoachService {
                 coachWeeks(request));
     }
 
-    private String buildInterviewQuestionPrompt(InterviewQuestionRequest request) {
+    private String buildInterviewQuestionPrompt(
+            InterviewQuestionRequest request,
+            int questionCount,
+            List<AiSearchResult> knowledge) {
         return """
-                请为校园招聘候选人生成 3 道模拟面试题。
+                请为校园招聘候选人生成 %d 道模拟面试题。
                 只返回 JSON 对象，格式为：{"questions": [...]}。
+                如果提供了 RAG 知识库依据，题目和答题要点必须优先结合这些依据生成，不要编造依据外的事实。
+                每道题的 referencePoints 至少包含 1 条可落地答题要点；knowledgeReferences 填入使用到的知识库标题或摘要，最多 3 条。
 
                 候选人：%s
                 简历：%s
                 岗位：%s
                 目标岗位：%s
                 技能：%s
+                题目数量：%d
+                RAG 知识库依据：
+                %s
 
                 每项必须包含：
                 - questionId: 字符串
@@ -753,12 +802,16 @@ public class AiCoachService {
                 - difficulty: 基础、中等、进阶之一
                 - question: 面试题正文
                 - referencePoints: 字符串数组，2 到 4 个答题要点
+                - knowledgeReferences: 字符串数组，列出引用的知识库标题或摘要
                 """.formatted(
+                questionCount,
                 valueOr(request == null ? null : request.studentId(), "S001"),
                 valueOr(request == null ? null : request.resumeId(), "R001"),
                 valueOr(request == null ? null : request.jobId(), "J001"),
                 targetRole(request),
-                String.join("、", safeList(request == null ? null : request.skills(), DEFAULT_SKILLS)));
+                String.join("、", safeList(request == null ? null : request.skills(), DEFAULT_SKILLS)),
+                questionCount,
+                formatInterviewKnowledge(knowledge));
     }
 
     private String buildInterviewFeedbackPrompt(InterviewFeedbackRequest request) {
@@ -971,7 +1024,8 @@ public class AiCoachService {
                     safeList(question.referencePoints(), List.of(
                             "结合项目背景",
                             "说明技术取舍",
-                            "补充结果指标"))));
+                            "补充结果指标")),
+                    safeList(question.knowledgeReferences(), List.of())));
         }
         return normalized;
     }
@@ -1010,7 +1064,11 @@ public class AiCoachService {
     private AiAnalyzeResponse mockAnalyze(AiAnalyzeRequest request) {
         String type = taskType(request);
         String content = switch (type) {
-            case "resume" -> "简历基础较完整，Java、Spring Boot、数据库能力与后端岗位匹配。建议补充项目规模、性能指标、部署方式和个人职责。";
+            case "resume" -> {
+                String targetRole = analyzeTargetRole(request);
+                yield "围绕「" + targetRole
+                        + "」诊断：简历基础信息可用，但需要补充与该岗位直接相关的经历、能力证据、量化成果和示例改写。";
+            }
             case "job" -> "岗位偏 Java 后端工程实践，重点关注 Spring Boot、MySQL、Redis、接口设计和团队协作能力。";
             case "match" -> "候选人与岗位匹配度较高，优势在 Java Web 技术栈，短板是企业级微服务和消息队列经验需要补强。";
             default -> "已生成演示分析结果。建议补充结构化信息以提高 AI 判断质量。";
@@ -1118,21 +1176,142 @@ public class AiCoachService {
                 true);
     }
 
-    private List<InterviewQuestion> mockInterviewQuestions(InterviewQuestionRequest request) {
+    private List<AiSearchResult> retrieveInterviewKnowledge(InterviewQuestionRequest request) {
+        if (request != null && Boolean.FALSE.equals(request.useRag())) {
+            return List.of();
+        }
+        if (knowledgeBaseService == null) {
+            return List.of();
+        }
+        String query = String.join(" ",
+                targetRole(request),
+                String.join(" ", safeList(request == null ? null : request.skills(), DEFAULT_SKILLS)),
+                "面试 题目 答题要点 项目 追问");
+        int limit = request == null || request.knowledgeLimit() == null
+                ? DEFAULT_INTERVIEW_KNOWLEDGE_LIMIT
+                : Math.max(1, Math.min(12, request.knowledgeLimit()));
+        try {
+            return knowledgeBaseService.search(new com.aicampus.common.dto.KnowledgeSearchRequest(query, "STUDENT", limit))
+                    .results();
+        } catch (RuntimeException ignored) {
+            return List.of();
+        }
+    }
+
+    private static int interviewQuestionCount(InterviewQuestionRequest request) {
+        int count = request == null || request.questionCount() == null
+                ? DEFAULT_INTERVIEW_QUESTION_COUNT
+                : request.questionCount();
+        return Math.max(1, Math.min(MAX_INTERVIEW_QUESTION_COUNT, count));
+    }
+
+    private static String formatInterviewKnowledge(List<AiSearchResult> knowledge) {
+        if (knowledge == null || knowledge.isEmpty()) {
+            return "无可用 RAG 依据，请仅结合候选人目标岗位和技能生成通用面试题。";
+        }
+        List<String> lines = new ArrayList<>();
+        int index = 1;
+        for (AiSearchResult item : knowledge) {
+            lines.add("[%d] %s：%s".formatted(
+                    index,
+                    valueOr(item == null ? null : item.title(), "知识库片段"),
+                    valueOr(item == null ? null : item.summary(), "")));
+            index++;
+        }
+        return String.join("\n", lines);
+    }
+
+    private static List<InterviewQuestion> withKnowledgeReferences(
+            List<InterviewQuestion> questions,
+            List<AiSearchResult> knowledge) {
+        if (questions == null || questions.isEmpty()) {
+            return List.of();
+        }
+        List<String> references = knowledgeReferences(knowledge);
+        if (references.isEmpty()) {
+            return questions;
+        }
+        return questions.stream()
+                .map(question -> question == null ? null : new InterviewQuestion(
+                        question.questionId(),
+                        question.category(),
+                        question.difficulty(),
+                        question.question(),
+                        question.referencePoints(),
+                        safeList(question.knowledgeReferences(), references)))
+                .filter(question -> question != null)
+                .toList();
+    }
+
+    private static List<String> knowledgeReferences(List<AiSearchResult> knowledge) {
+        if (knowledge == null || knowledge.isEmpty()) {
+            return List.of();
+        }
+        return knowledge.stream()
+                .filter(item -> item != null)
+                .limit(3)
+                .map(item -> valueOr(item.title(), "知识库片段") + "：" + truncateText(valueOr(item.summary(), ""), 90))
+                .toList();
+    }
+
+    private List<InterviewQuestion> mockInterviewQuestions(
+            InterviewQuestionRequest request,
+            int questionCount,
+            List<AiSearchResult> knowledge) {
         String role = targetRole(request);
         List<String> skills = safeList(request == null ? null : request.skills(), DEFAULT_SKILLS);
-        String primarySkill = skills.get(0);
-        String secondarySkill = skills.size() > 1 ? skills.get(1) : primarySkill;
-        return List.of(
-                new InterviewQuestion("IQ-001", "项目深挖", "中等",
-                        "请结合一个项目说明你如何使用 " + primarySkill + " 解决核心业务问题，并说明你的个人贡献。",
-                        List.of("项目背景和业务目标", "关键技术方案与取舍", "个人负责的模块", "可量化结果或复盘")),
-                new InterviewQuestion("IQ-002", "技术基础", "中等",
-                        "面向 " + role + " 岗位，如果接口响应变慢，你会如何从应用、数据库和缓存三个层面排查？",
-                        List.of("先确认监控和日志", "分析 SQL 与索引", "检查缓存命中率", "说明压测或复现方式")),
-                new InterviewQuestion("IQ-003", "行为面试", "基础",
-                        "请讲一次你在团队协作中推动问题解决的经历，并说明如何和同学或业务方沟通。",
-                        List.of("使用 STAR 结构", "说明冲突或阻塞点", "突出沟通动作", "总结经验迁移到 " + secondarySkill + " 相关项目")));
+        List<String> references = knowledgeReferences(knowledge);
+        List<InterviewQuestion> templates = new ArrayList<>();
+        for (int index = 0; index < Math.max(questionCount, 3); index++) {
+            String primarySkill = skills.get(index % skills.size());
+            String secondarySkill = skills.get((index + 1) % skills.size());
+            AiSearchResult evidence = knowledge == null || knowledge.isEmpty() ? null : knowledge.get(index % knowledge.size());
+            String evidenceTitle = evidence == null ? "你的项目经历" : evidence.title();
+            int number = index + 1;
+            int pattern = index % 5;
+            if (pattern == 0) {
+                templates.add(new InterviewQuestion(
+                        "IQ-RAG-" + String.format("%03d", number),
+                        "项目深挖",
+                        "中等",
+                        "请结合 " + evidenceTitle + "，说明你如何使用 " + primarySkill + " 解决核心业务问题，并讲清楚个人贡献。",
+                        List.of("项目背景和业务目标", "关键技术方案与取舍", "个人负责的模块", "可量化结果或复盘"),
+                        references));
+            } else if (pattern == 1) {
+                templates.add(new InterviewQuestion(
+                        "IQ-RAG-" + String.format("%03d", number),
+                        "技术基础",
+                        "中等",
+                        "面向 " + role + " 岗位，如果 " + primarySkill + " 相关接口响应变慢，你会如何从应用、数据库和缓存三个层面排查？",
+                        List.of("先确认监控和日志", "分析 SQL 与索引", "检查缓存命中率", "说明压测或复现方式"),
+                        references));
+            } else if (pattern == 2) {
+                templates.add(new InterviewQuestion(
+                        "IQ-RAG-" + String.format("%03d", number),
+                        "项目深挖",
+                        "进阶",
+                        "如果让你基于知识库中的场景优化 " + secondarySkill + " 方案，你会如何设计指标、灰度和回滚策略？",
+                        List.of("先定义成功指标", "说明技术方案和备选方案", "补充灰度验证", "明确回滚和风险控制"),
+                        references));
+            } else if (pattern == 3) {
+                templates.add(new InterviewQuestion(
+                        "IQ-RAG-" + String.format("%03d", number),
+                        "技术基础",
+                        "基础",
+                        "请解释 " + primarySkill + " 在 " + role + " 项目中的典型使用场景，并说明你会如何证明它真的生效。",
+                        List.of("说明使用场景", "解释核心原理", "给出日志或指标证据", "说明边界和风险"),
+                        references));
+            } else {
+                templates.add(new InterviewQuestion(
+                        "IQ-RAG-" + String.format("%03d", number),
+                        "行为面试",
+                        "基础",
+                        "请讲一次你围绕 " + secondarySkill + " 推动问题解决的经历，并说明如何和同学或业务方沟通。",
+                        List.of("使用 STAR 结构", "说明冲突或阻塞点", "突出沟通动作", "总结经验迁移到后续项目"),
+                        references));
+            }
+        }
+        return templates.stream().limit(questionCount).toList();
     }
 
     private InterviewFeedback mockInterviewFeedback(InterviewFeedbackRequest request) {
@@ -1230,6 +1409,32 @@ public class AiCoachService {
         return valueOr(request == null ? null : request.taskType(), "general");
     }
 
+    private static String analyzeTargetRole(AiAnalyzeRequest request) {
+        String combined = valueOr(request == null ? null : request.context(), "") + "\n"
+                + valueOr(request == null ? null : request.content(), "");
+        for (String marker : List.of("本次诊断目标岗位：", "目标岗位：", "岗位：")) {
+            int start = combined.indexOf(marker);
+            if (start >= 0) {
+                String rest = combined.substring(start + marker.length());
+                int end = firstDelimiterIndex(rest);
+                String role = end >= 0 ? rest.substring(0, end) : rest;
+                return valueOr(role.trim(), "目标岗位");
+            }
+        }
+        return "目标岗位";
+    }
+
+    private static int firstDelimiterIndex(String value) {
+        int result = -1;
+        for (String delimiter : List.of("\n", "；", ";", "，", ",")) {
+            int index = value.indexOf(delimiter);
+            if (index >= 0 && (result < 0 || index < result)) {
+                result = index;
+            }
+        }
+        return result;
+    }
+
     private static String targetRole(InterviewQuestionRequest request) {
         return valueOr(request == null ? null : request.targetRole(), "Java 后端实习生");
     }
@@ -1316,6 +1521,14 @@ public class AiCoachService {
 
     private static String valueOr(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static String truncateText(String value, int maxLength) {
+        String safe = valueOr(value, "");
+        if (safe.length() <= maxLength) {
+            return safe;
+        }
+        return safe.substring(0, Math.max(0, maxLength - 1)) + "…";
     }
 
     private static int clamp(int score) {

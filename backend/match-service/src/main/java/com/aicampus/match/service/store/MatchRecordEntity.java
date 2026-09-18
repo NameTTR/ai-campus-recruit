@@ -40,6 +40,21 @@ public class MatchRecordEntity {
     @TableField("suggestions")
     private String suggestions;
 
+    @TableField("matched_skills")
+    private String matchedSkills;
+
+    @TableField("missing_skills")
+    private String missingSkills;
+
+    @TableField("analysis_source")
+    private String analysisSource;
+
+    @TableField("resume_skills_snapshot")
+    private String resumeSkillsSnapshot;
+
+    @TableField("required_skills_snapshot")
+    private String requiredSkillsSnapshot;
+
     @TableField("created_at")
     private LocalDateTime createdAt;
 
@@ -53,6 +68,11 @@ public class MatchRecordEntity {
         entity.setStrengths(writeStringList(match.strengths(), objectMapper));
         entity.setGaps(writeStringList(match.gaps(), objectMapper));
         entity.setSuggestions(writeStringList(match.suggestions(), objectMapper));
+        entity.setMatchedSkills(writeStringList(match.matchedSkills(), objectMapper));
+        entity.setMissingSkills(writeStringList(match.missingSkills(), objectMapper));
+        entity.setAnalysisSource(match.analysisSource());
+        entity.setResumeSkillsSnapshot(writeStringList(match.resumeSkillsSnapshot(), objectMapper));
+        entity.setRequiredSkillsSnapshot(writeStringList(match.requiredSkillsSnapshot(), objectMapper));
         return entity;
     }
 
@@ -65,7 +85,12 @@ public class MatchRecordEntity {
                 score == null ? 0 : score,
                 readStringList(strengths, objectMapper),
                 readStringList(gaps, objectMapper),
-                readStringList(suggestions, objectMapper));
+                readStringList(suggestions, objectMapper),
+                readStringList(matchedSkills, objectMapper),
+                readStringList(missingSkills, objectMapper),
+                analysisSource == null || analysisSource.isBlank() ? "LEGACY" : analysisSource,
+                readStringList(resumeSkillsSnapshot, objectMapper),
+                readStringList(requiredSkillsSnapshot, objectMapper));
     }
 
     private static String writeStringList(List<String> values, ObjectMapper objectMapper) {
@@ -149,6 +174,46 @@ public class MatchRecordEntity {
 
     public void setSuggestions(String suggestions) {
         this.suggestions = suggestions;
+    }
+
+    public String getMatchedSkills() {
+        return matchedSkills;
+    }
+
+    public void setMatchedSkills(String matchedSkills) {
+        this.matchedSkills = matchedSkills;
+    }
+
+    public String getMissingSkills() {
+        return missingSkills;
+    }
+
+    public void setMissingSkills(String missingSkills) {
+        this.missingSkills = missingSkills;
+    }
+
+    public String getAnalysisSource() {
+        return analysisSource;
+    }
+
+    public void setAnalysisSource(String analysisSource) {
+        this.analysisSource = analysisSource;
+    }
+
+    public String getResumeSkillsSnapshot() {
+        return resumeSkillsSnapshot;
+    }
+
+    public void setResumeSkillsSnapshot(String resumeSkillsSnapshot) {
+        this.resumeSkillsSnapshot = resumeSkillsSnapshot;
+    }
+
+    public String getRequiredSkillsSnapshot() {
+        return requiredSkillsSnapshot;
+    }
+
+    public void setRequiredSkillsSnapshot(String requiredSkillsSnapshot) {
+        this.requiredSkillsSnapshot = requiredSkillsSnapshot;
     }
 
     public LocalDateTime getCreatedAt() {

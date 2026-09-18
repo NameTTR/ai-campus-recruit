@@ -1,5 +1,6 @@
 package com.aicampus.resume.service.store;
 
+import com.aicampus.common.dto.ResumeDiagnosis;
 import com.aicampus.common.dto.ResumeSummary;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
@@ -14,6 +15,8 @@ import java.util.List;
 @TableName("resume_summary_record")
 public class ResumeRecordEntity {
     private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
+    };
+    private static final TypeReference<List<ResumeDiagnosis>> DIAGNOSIS_LIST_TYPE = new TypeReference<>() {
     };
 
     @TableId(value = "resume_id", type = IdType.INPUT)
@@ -61,6 +64,9 @@ public class ResumeRecordEntity {
     @TableField("parsed_text")
     private String parsedText;
 
+    @TableField("diagnosis_history")
+    private String diagnosisHistory;
+
     @TableField("created_at")
     private LocalDateTime createdAt;
 
@@ -85,6 +91,7 @@ public class ResumeRecordEntity {
         entity.setParseStatus(summary.parseStatus());
         entity.setParsedTextLength(summary.parsedTextLength());
         entity.setParsedText(record.parsedText());
+        entity.setDiagnosisHistory(writeDiagnoses(record.diagnoses(), objectMapper));
         entity.setUpdatedAt(LocalDateTime.now());
         return entity;
     }
@@ -105,7 +112,7 @@ public class ResumeRecordEntity {
                 sourceFormat,
                 parseStatus,
                 parsedTextLength);
-        return new ResumeRecord(summary, parsedText);
+        return new ResumeRecord(summary, parsedText, readDiagnoses(diagnosisHistory, objectMapper));
     }
 
     private static String writeList(List<String> values, ObjectMapper objectMapper) {
@@ -124,6 +131,25 @@ public class ResumeRecordEntity {
             return objectMapper.readValue(values, STRING_LIST_TYPE);
         } catch (JsonProcessingException ex) {
             return List.of();
+        }
+    }
+
+    private static String writeDiagnoses(List<ResumeDiagnosis> values, ObjectMapper objectMapper) {
+        try {
+            return objectMapper.writeValueAsString(values == null ? List.of() : values);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Unable to serialize resume diagnosis history", ex);
+        }
+    }
+
+    private static List<ResumeDiagnosis> readDiagnoses(String values, ObjectMapper objectMapper) {
+        if (values == null || values.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(values, DIAGNOSIS_LIST_TYPE);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Unable to deserialize resume diagnosis history", ex);
         }
     }
 
@@ -245,6 +271,14 @@ public class ResumeRecordEntity {
 
     public void setParsedText(String parsedText) {
         this.parsedText = parsedText;
+    }
+
+    public String getDiagnosisHistory() {
+        return diagnosisHistory;
+    }
+
+    public void setDiagnosisHistory(String diagnosisHistory) {
+        this.diagnosisHistory = diagnosisHistory;
     }
 
     public LocalDateTime getCreatedAt() {

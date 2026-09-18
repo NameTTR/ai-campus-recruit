@@ -3,43 +3,33 @@ package com.aicampus.ai.service.knowledge;
 import com.aicampus.common.dto.KnowledgeFileIngestionJob;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class PersistentKnowledgeIngestionJobStore implements KnowledgeIngestionJobStore {
-    private static final Logger log = LoggerFactory.getLogger(PersistentKnowledgeIngestionJobStore.class);
-
     private final KnowledgeIngestionJobMapper mapper;
-    private final KnowledgeIngestionJobStore fallbackStore;
 
     public PersistentKnowledgeIngestionJobStore(KnowledgeIngestionJobMapper mapper, int maxJobs) {
         this.mapper = mapper;
-        this.fallbackStore = new InMemoryKnowledgeIngestionJobStore(maxJobs);
     }
 
     @Override
     public KnowledgeFileIngestionJob create(KnowledgeFileIngestionJob job) {
-        fallbackStore.create(job);
         try {
             mapper.insert(KnowledgeIngestionJobEntity.fromJob(job));
             return job;
         } catch (Exception ex) {
-            log.warn("Failed to persist knowledge ingestion job {}, using in-memory fallback",
-                    job == null ? "" : job.jobId(), ex);
-            return job;
+            throw new IllegalStateException("Knowledge ingestion database is unavailable", ex);
         }
     }
 
     @Override
     public KnowledgeFileIngestionJob update(KnowledgeFileIngestionJob job) {
-        fallbackStore.update(job);
         try {
-            mapper.updateById(KnowledgeIngestionJobEntity.fromJob(job));
+            if (mapper.updateById(KnowledgeIngestionJobEntity.fromJob(job)) != 1) {
+                throw new IllegalStateException("Knowledge ingestion job was not saved");
+            }
             return job;
         } catch (Exception ex) {
-            log.warn("Failed to update knowledge ingestion job {}, using in-memory fallback",
-                    job == null ? "" : job.jobId(), ex);
-            return job;
+            throw new IllegalStateException("Knowledge ingestion database is unavailable", ex);
         }
     }
 
@@ -64,8 +54,7 @@ public class PersistentKnowledgeIngestionJobStore implements KnowledgeIngestionJ
                     .map(KnowledgeIngestionJobEntity::toJob)
                     .orElse(null);
         } catch (Exception ex) {
-            log.warn("Failed to query knowledge ingestion duplicate by sha256, using in-memory fallback", ex);
-            return fallbackStore.findReusableBySha256(sha256);
+            throw new IllegalStateException("Knowledge ingestion database is unavailable", ex);
         }
     }
 
@@ -82,8 +71,7 @@ public class PersistentKnowledgeIngestionJobStore implements KnowledgeIngestionJ
                     .map(KnowledgeIngestionJobEntity::toJob)
                     .toList();
         } catch (Exception ex) {
-            log.warn("Failed to list knowledge ingestion jobs, using in-memory fallback", ex);
-            return fallbackStore.list(status, limit);
+            throw new IllegalStateException("Knowledge ingestion database is unavailable", ex);
         }
     }
 
@@ -105,7 +93,7 @@ public class PersistentKnowledgeIngestionJobStore implements KnowledgeIngestionJ
                             job.chunkCount()))
                     .forEach(this::update);
         } catch (Exception ex) {
-            log.warn("Failed to mark interrupted knowledge ingestion jobs", ex);
+            throw new IllegalStateException("Knowledge ingestion recovery failed", ex);
         }
     }
 

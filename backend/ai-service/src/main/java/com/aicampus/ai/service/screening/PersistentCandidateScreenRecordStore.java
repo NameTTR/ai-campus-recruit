@@ -55,6 +55,19 @@ public class PersistentCandidateScreenRecordStore implements CandidateScreenReco
     }
 
     @Override
+    public boolean existsById(String screeningId) {
+        if (screeningId == null || screeningId.isBlank()) {
+            return false;
+        }
+        try {
+            return mapper.selectById(screeningId.trim()) != null;
+        } catch (Exception ex) {
+            log.warn("Failed to verify candidate screening record {}", screeningId, ex);
+            return fallbackStore.existsById(screeningId);
+        }
+    }
+
+    @Override
     public List<CandidateScreenRecord> list(String companyId, String deliveryId) {
         String companyFilter = blankToNull(companyId);
         String deliveryFilter = blankToNull(deliveryId);

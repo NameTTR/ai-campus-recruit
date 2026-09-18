@@ -2,6 +2,7 @@ package com.aicampus.ai.controller;
 
 import com.aicampus.ai.service.AiCoachService;
 import com.aicampus.ai.service.KnowledgeBaseService;
+import com.aicampus.ai.service.core.AiCareerCoreService;
 import com.aicampus.ai.service.knowledge.KnowledgeFileIngestionService;
 import com.aicampus.ai.service.knowledge.KnowledgeVectorIndex;
 import com.aicampus.ai.service.screening.CandidateScreenTaskService;
@@ -26,15 +27,28 @@ import com.aicampus.common.dto.InterviewFeedback;
 import com.aicampus.common.dto.InterviewFeedbackRequest;
 import com.aicampus.common.dto.InterviewQuestion;
 import com.aicampus.common.dto.InterviewQuestionRequest;
+import com.aicampus.common.dto.InterviewSession;
+import com.aicampus.common.dto.InterviewSessionAnswerRequest;
+import com.aicampus.common.dto.InterviewSessionCreateRequest;
+import com.aicampus.common.dto.InterviewSessionQuestion;
+import com.aicampus.common.dto.InterviewSessionReport;
 import com.aicampus.common.dto.InterviewRecord;
 import com.aicampus.common.dto.KnowledgeAnswerRequest;
 import com.aicampus.common.dto.KnowledgeAnswerResponse;
 import com.aicampus.common.dto.KnowledgeBaseStats;
 import com.aicampus.common.dto.KnowledgeDocument;
+import com.aicampus.common.dto.KnowledgeDocumentBatchDeleteRequest;
+import com.aicampus.common.dto.KnowledgeDocumentBatchDeleteResult;
 import com.aicampus.common.dto.KnowledgeDocumentRequest;
+import com.aicampus.common.dto.KnowledgeDocumentRolesRequest;
 import com.aicampus.common.dto.KnowledgeFileIngestionJob;
 import com.aicampus.common.dto.KnowledgeSearchRequest;
 import com.aicampus.common.dto.KnowledgeVectorStatus;
+import com.aicampus.common.dto.LearningPlan;
+import com.aicampus.common.dto.LearningPlanCreateRequest;
+import com.aicampus.common.dto.LearningPlanReplanRequest;
+import com.aicampus.common.dto.LearningTask;
+import com.aicampus.common.dto.LearningTaskUpdateRequest;
 import com.aicampus.common.dto.ResumeRewriteRequest;
 import com.aicampus.common.dto.ResumeRewriteResponse;
 import com.aicampus.common.enums.CandidateScreenTaskSource;
@@ -42,7 +56,9 @@ import io.swagger.v3.oas.annotations.Operation;
 import java.util.List;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -50,6 +66,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.multipart.MultipartFile;
 
 @CrossOrigin
@@ -62,6 +79,7 @@ public class AiController {
     private static final String ROLE_STUDENT = "STUDENT";
 
     private final AiCoachService aiCoachService;
+    private final AiCareerCoreService aiCareerCoreService;
     private final CandidateScreenTaskService candidateScreenTaskService;
     private final KnowledgeBaseService knowledgeBaseService;
     private final KnowledgeFileIngestionService knowledgeFileIngestionService;
@@ -69,11 +87,13 @@ public class AiController {
 
     public AiController(
             AiCoachService aiCoachService,
+            AiCareerCoreService aiCareerCoreService,
             CandidateScreenTaskService candidateScreenTaskService,
             KnowledgeBaseService knowledgeBaseService,
             KnowledgeFileIngestionService knowledgeFileIngestionService,
             KnowledgeVectorIndex knowledgeVectorIndex) {
         this.aiCoachService = aiCoachService;
+        this.aiCareerCoreService = aiCareerCoreService;
         this.candidateScreenTaskService = candidateScreenTaskService;
         this.knowledgeBaseService = knowledgeBaseService;
         this.knowledgeFileIngestionService = knowledgeFileIngestionService;
@@ -126,6 +146,140 @@ public class AiController {
         return ApiResponse.ok(aiCoachService.listAllPlanningRecords(limit));
     }
 
+    @Operation(summary = "Create a student learning plan")
+    @PostMapping("/learning/plans")
+    public ApiResponse<LearningPlan> createLearningPlan(
+            @RequestBody LearningPlanCreateRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        String studentId = resolveCoreStudentId(request == null ? null : request.studentId(), userId, userRole);
+        return ApiResponse.ok(aiCareerCoreService.createLearningPlan(studentId, userRole, request));
+    }
+
+    @Operation(summary = "List the current student's learning plans")
+    @GetMapping("/learning/plans")
+    public ApiResponse<List<LearningPlan>> learningPlans(
+            @RequestParam(required = false) String studentId,
+            @RequestParam(required = false) Integer limit,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(aiCareerCoreService.listLearningPlans(
+                resolveCoreStudentId(studentId, userId, userRole), limit));
+    }
+
+    @Operation(summary = "Get a student learning plan")
+    @GetMapping("/learning/plans/{planId}")
+    public ApiResponse<LearningPlan> learningPlan(
+            @PathVariable String planId,
+            @RequestParam(required = false) String studentId,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(aiCareerCoreService.getLearningPlan(
+                planId, resolveCoreStudentId(studentId, userId, userRole)));
+    }
+
+    @Operation(summary = "Update a learning task status and feedback")
+    @PutMapping("/learning/plans/{planId}/tasks/{taskId}")
+    public ApiResponse<LearningTask> updateLearningTask(
+            @PathVariable String planId,
+            @PathVariable String taskId,
+            @RequestParam(required = false) String studentId,
+            @RequestBody LearningTaskUpdateRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(aiCareerCoreService.updateLearningTask(
+                planId,
+                taskId,
+                resolveCoreStudentId(studentId, userId, userRole),
+                request));
+    }
+
+    @Operation(summary = "Create a revised learning plan")
+    @PostMapping("/learning/plans/{planId}/replan")
+    public ApiResponse<LearningPlan> replan(
+            @PathVariable String planId,
+            @RequestParam(required = false) String studentId,
+            @RequestBody LearningPlanReplanRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        String resolvedStudentId = resolveCoreStudentId(studentId, userId, userRole);
+        return ApiResponse.ok(aiCareerCoreService.replan(planId, resolvedStudentId, userRole, request));
+    }
+
+    @Operation(summary = "List all versions of a learning plan")
+    @GetMapping("/learning/plans/{planId}/versions")
+    public ApiResponse<List<LearningPlan>> learningPlanVersions(
+            @PathVariable String planId,
+            @RequestParam(required = false) String studentId,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(aiCareerCoreService.listLearningPlanVersions(
+                planId, resolveCoreStudentId(studentId, userId, userRole)));
+    }
+
+    @Operation(summary = "Create a student interview session")
+    @PostMapping("/interview/sessions")
+    public ApiResponse<InterviewSession> createInterviewSession(
+            @RequestBody InterviewSessionCreateRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        String studentId = resolveCoreStudentId(request == null ? null : request.studentId(), userId, userRole);
+        return ApiResponse.ok(sanitizeInterviewSession(
+                aiCareerCoreService.createInterviewSession(studentId, userRole, request)));
+    }
+
+    @Operation(summary = "List the current student's interview sessions")
+    @GetMapping("/interview/sessions")
+    public ApiResponse<List<InterviewSession>> interviewSessions(
+            @RequestParam(required = false) String studentId,
+            @RequestParam(required = false) Integer limit,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(aiCareerCoreService.listInterviewSessions(
+                        resolveCoreStudentId(studentId, userId, userRole), limit)
+                .stream()
+                .map(this::sanitizeInterviewSession)
+                .toList());
+    }
+
+    @Operation(summary = "Get a student interview session")
+    @GetMapping("/interview/sessions/{sessionId}")
+    public ApiResponse<InterviewSession> interviewSession(
+            @PathVariable String sessionId,
+            @RequestParam(required = false) String studentId,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(sanitizeInterviewSession(aiCareerCoreService.getInterviewSession(
+                sessionId, resolveCoreStudentId(studentId, userId, userRole))));
+    }
+
+    @Operation(summary = "Answer the next interview question")
+    @PutMapping("/interview/sessions/{sessionId}/questions/{questionId}/answer")
+    public ApiResponse<InterviewSession> answerInterviewQuestion(
+            @PathVariable String sessionId,
+            @PathVariable String questionId,
+            @RequestParam(required = false) String studentId,
+            @RequestBody InterviewSessionAnswerRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(sanitizeInterviewSession(aiCareerCoreService.answerInterviewQuestion(
+                sessionId,
+                questionId,
+                resolveCoreStudentId(studentId, userId, userRole),
+                request)));
+    }
+
+    @Operation(summary = "Finish an interview session and generate its report")
+    @PostMapping("/interview/sessions/{sessionId}/finish")
+    public ApiResponse<InterviewSessionReport> finishInterviewSession(
+            @PathVariable String sessionId,
+            @RequestParam(required = false) String studentId,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(aiCareerCoreService.finishInterviewSession(
+                sessionId, resolveCoreStudentId(studentId, userId, userRole)));
+    }
+
     @Operation(summary = "Search campus recruitment knowledge with local AI ranking")
     @PostMapping("/search")
     public ApiResponse<AiSearchResponse> search(@RequestBody AiSearchRequest request) {
@@ -138,6 +292,39 @@ public class AiController {
             @RequestBody KnowledgeDocumentRequest request,
             @RequestHeader(value = X_USER_ID, required = false) String userId) {
         return ApiResponse.ok(knowledgeBaseService.create(request, valueOr(userId, "system")));
+    }
+
+    @Operation(summary = "Update readable roles for a RAG knowledge document")
+    @PatchMapping("/knowledge/documents/{documentId}/roles")
+    public ApiResponse<KnowledgeDocument> updateKnowledgeDocumentRoles(
+            @PathVariable String documentId,
+            @RequestBody KnowledgeDocumentRolesRequest request) {
+        KnowledgeDocument document = knowledgeBaseService.updateRoles(documentId, request);
+        if (document == null) {
+            return ApiResponse.fail("Knowledge document not found");
+        }
+        return ApiResponse.ok(document);
+    }
+
+    @Operation(summary = "Delete a RAG knowledge document")
+    @DeleteMapping("/knowledge/documents/{documentId}")
+    public ApiResponse<Boolean> deleteKnowledgeDocument(@PathVariable String documentId) {
+        if (!knowledgeBaseService.delete(documentId)) {
+            return ApiResponse.fail("Knowledge document not found");
+        }
+        return ApiResponse.ok(true);
+    }
+
+    @Operation(summary = "Batch delete RAG knowledge documents")
+    @PostMapping("/knowledge/documents/batch-delete")
+    public ApiResponse<KnowledgeDocumentBatchDeleteResult> batchDeleteKnowledgeDocuments(
+            @RequestBody KnowledgeDocumentBatchDeleteRequest request) {
+        KnowledgeDocumentBatchDeleteResult result = knowledgeBaseService.deleteBatch(
+                request == null ? List.of() : request.documentIds());
+        if (result.requestedCount() == 0) {
+            return ApiResponse.fail("documentIds is required");
+        }
+        return ApiResponse.ok(result);
     }
 
     @Operation(summary = "List RAG knowledge documents")
@@ -385,7 +572,15 @@ public class AiController {
         if (sameText(studentId, request.studentId())) {
             return request;
         }
-        return new InterviewQuestionRequest(studentId, request.resumeId(), request.jobId(), request.targetRole(), request.skills());
+        return new InterviewQuestionRequest(
+                studentId,
+                request.resumeId(),
+                request.jobId(),
+                request.targetRole(),
+                request.skills(),
+                request.questionCount(),
+                request.useRag(),
+                request.knowledgeLimit());
     }
 
     private InterviewFeedbackRequest resolveStudentRequest(InterviewFeedbackRequest request, String userId, String userRole) {
@@ -463,6 +658,62 @@ public class AiController {
             return userId.trim();
         }
         return requestStudentId;
+    }
+
+    private String resolveCoreStudentId(String requestStudentId, String userId, String userRole) {
+        if (isRole(userRole, ROLE_COMPANY)) {
+            throw new IllegalArgumentException("Company accounts cannot access student AI workflows");
+        }
+        if (isRole(userRole, ROLE_STUDENT)) {
+            if (!hasText(userId)) {
+                throw new IllegalArgumentException("Student identity is required");
+            }
+            return userId.trim();
+        }
+        if (hasText(userId) || hasText(userRole)) {
+            throw new IllegalArgumentException("Student role is required for this workflow");
+        }
+        if (!hasText(requestStudentId)) {
+            throw new IllegalArgumentException("Student identity is required");
+        }
+        return requestStudentId.trim();
+    }
+
+    private InterviewSession sanitizeInterviewSession(InterviewSession session) {
+        if (session == null || !"IN_PROGRESS".equals(session.status())) {
+            return session;
+        }
+        List<InterviewSessionQuestion> questions = session.questions().stream()
+                .map(question -> session.answers().stream()
+                        .anyMatch(answer -> question.questionId().equals(answer.questionId()))
+                        ? question
+                        : new InterviewSessionQuestion(
+                                question.questionId(),
+                                question.order(),
+                                question.mainQuestionId(),
+                                question.category(),
+                                question.difficulty(),
+                                question.question(),
+                                List.of(),
+                                question.followUp(),
+                                question.generationSource()))
+                .toList();
+        return new InterviewSession(
+                session.sessionId(),
+                session.studentId(),
+                session.resumeId(),
+                session.jobId(),
+                session.matchId(),
+                session.targetRole(),
+                session.contextSnapshot(),
+                session.status(),
+                questions,
+                session.answers(),
+                session.report(),
+                session.mocked(),
+                session.createdAt(),
+                session.updatedAt(),
+                session.completedAt());
     }
 
     private boolean isRole(String userRole, String expectedRole) {

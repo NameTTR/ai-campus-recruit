@@ -3,25 +3,25 @@ package com.aicampus.ai.service.knowledge;
 import com.aicampus.common.dto.KnowledgeDocument;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import javax.sql.DataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 public class PersistentKnowledgeBaseStore implements KnowledgeBaseStore {
-    private static final Logger log = LoggerFactory.getLogger(PersistentKnowledgeBaseStore.class);
-
     private final KnowledgeDocumentMapper documentMapper;
     private final KnowledgeChunkMapper chunkMapper;
-    private final InMemoryKnowledgeBaseStore fallbackStore = new InMemoryKnowledgeBaseStore();
+    private final TransactionTemplate transaction;
 
-    public PersistentKnowledgeBaseStore(KnowledgeDocumentMapper documentMapper, KnowledgeChunkMapper chunkMapper) {
+    public PersistentKnowledgeBaseStore(KnowledgeDocumentMapper documentMapper, KnowledgeChunkMapper chunkMapper,
+            DataSource dataSource) {
         this.documentMapper = documentMapper;
         this.chunkMapper = chunkMapper;
+        this.transaction = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
     }
 
     @Override
     public void save(KnowledgeDocument document, List<KnowledgeChunkRecord> chunks) {
-        fallbackStore.save(document, chunks);
-        try {
+        transaction.executeWithoutResult(status -> {
             KnowledgeDocumentEntity entity = KnowledgeDocumentEntity.fromDocument(document);
             if (documentMapper.selectById(document.documentId()) == null) {
                 documentMapper.insert(entity);
@@ -35,10 +35,36 @@ public class PersistentKnowledgeBaseStore implements KnowledgeBaseStore {
                     chunkMapper.insert(KnowledgeChunkEntity.fromRecord(chunk));
                 }
             }
-        } catch (Exception ex) {
-            log.warn("Failed to persist knowledge document {}, using in-memory fallback",
-                    document == null ? "" : document.documentId(), ex);
-        }
+        });
+    }
+
+    @Override
+    public KnowledgeDocument updateRoles(String documentId, List<String> roles) {
+        return transaction.execute(status -> {
+            KnowledgeDocumentEntity entity = documentMapper.selectById(documentId);
+            if (entity == null) {
+                throw new IllegalArgumentException("Knowledge document not found");
+            }
+            entity.setRoles(roles);
+            documentMapper.updateById(entity);
+            chunkMapper.selectList(Wrappers.<KnowledgeChunkEntity>lambdaQuery()
+                            .eq(KnowledgeChunkEntity::getDocumentId, documentId))
+                    .forEach(chunk -> {
+                        chunk.setRoles(roles);
+                        chunkMapper.updateById(chunk);
+                    });
+            return entity.toDocument();
+        });
+    }
+
+    @Override
+    public boolean delete(String documentId) {
+        return Boolean.TRUE.equals(transaction.execute(status -> {
+            chunkMapper.delete(Wrappers.<KnowledgeChunkEntity>lambdaQuery()
+                    .eq(KnowledgeChunkEntity::getDocumentId, documentId));
+            int deleted = documentMapper.deleteById(documentId);
+            return deleted > 0;
+        }));
     }
 
     @Override
@@ -50,8 +76,7 @@ public class PersistentKnowledgeBaseStore implements KnowledgeBaseStore {
                     .map(KnowledgeDocumentEntity::toDocument)
                     .toList();
         } catch (Exception ex) {
-            log.warn("Failed to query knowledge documents from database, using in-memory fallback", ex);
-            return fallbackStore.listDocuments();
+            throw new IllegalStateException("Knowledge database is unavailable", ex);
         }
     }
 
@@ -65,8 +90,7 @@ public class PersistentKnowledgeBaseStore implements KnowledgeBaseStore {
                     .map(KnowledgeChunkEntity::toRecord)
                     .toList();
         } catch (Exception ex) {
-            log.warn("Failed to query knowledge chunks from database, using in-memory fallback", ex);
-            return fallbackStore.listChunks();
+            throw new IllegalStateException("Knowledge database is unavailable", ex);
         }
     }
 }

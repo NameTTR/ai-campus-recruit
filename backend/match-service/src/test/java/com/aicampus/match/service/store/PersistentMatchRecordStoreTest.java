@@ -1,6 +1,7 @@
 package com.aicampus.match.service.store;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -95,7 +96,7 @@ class PersistentMatchRecordStoreTest {
     }
 
     @Test
-    void databaseWriteAndReadFailuresFallBackToMemory() {
+    void databaseWriteAndReadFailuresArePropagatedInsteadOfFallingBackToMemory() {
         MatchRecordMapper mapper = mock(MatchRecordMapper.class);
         when(mapper.updateById(any(MatchRecordEntity.class)))
                 .thenThrow(new RuntimeException("database write unavailable"));
@@ -108,11 +109,14 @@ class PersistentMatchRecordStoreTest {
                 new ObjectMapper().findAndRegisterModules(),
                 properties());
 
-        store.save(match);
-
-        assertThat(store.listAll()).containsExactly(match);
-        assertThat(store.listByStudent("S-FALLBACK-001")).containsExactly(match);
-        assertThat(store.listByJob("J-FALLBACK-001")).containsExactly(match);
+        assertThatThrownBy(() -> store.save(match))
+                .hasMessageContaining("database write unavailable");
+        assertThatThrownBy(store::listAll)
+                .hasMessageContaining("database read unavailable");
+        assertThatThrownBy(() -> store.listByStudent("S-FALLBACK-001"))
+                .hasMessageContaining("database read unavailable");
+        assertThatThrownBy(() -> store.listByJob("J-FALLBACK-001"))
+                .hasMessageContaining("database read unavailable");
     }
 
     private static MatchProperties properties() {

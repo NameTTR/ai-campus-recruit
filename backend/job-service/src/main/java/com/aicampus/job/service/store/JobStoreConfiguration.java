@@ -1,9 +1,10 @@
 package com.aicampus.job.service.store;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import javax.sql.DataSource;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -18,8 +19,6 @@ import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 @Configuration
 @EnableConfigurationProperties(JobProperties.class)
 public class JobStoreConfiguration {
-    private static final Logger log = LoggerFactory.getLogger(JobStoreConfiguration.class);
-
     @Bean
     public JobRecordStore jobRecordStore(
             JobProperties properties,
@@ -34,8 +33,7 @@ public class JobStoreConfiguration {
         DataSource dataSource = dataSourceProvider.getIfAvailable();
         JobRecordMapper mapper = mapperProvider.getIfAvailable();
         if (dataSource == null || mapper == null) {
-            log.warn("Job persistence is enabled but no datasource is available, falling back to in-memory store");
-            return new InMemoryJobRecordStore();
+            throw new IllegalStateException("Job persistence is enabled but no datasource is available");
         }
 
         return new PersistentJobRecordStore(
@@ -51,16 +49,38 @@ public class JobStoreConfiguration {
         return args -> {
             DataSource dataSource = dataSourceProvider.getIfAvailable();
             if (dataSource == null) {
-                log.warn("Job persistence is enabled but schema initialization was skipped because no datasource is available");
-                return;
+                throw new IllegalStateException("Job persistence is enabled but no datasource is available");
             }
 
             ResourceDatabasePopulator populator = new ResourceDatabasePopulator(new ClassPathResource("schema.sql"));
             try {
                 DatabasePopulatorUtils.execute(populator, dataSource);
+                addColumnIfMissing(dataSource, "job_record", "status",
+                        "status VARCHAR(32) NOT NULL DEFAULT 'OPEN'");
             } catch (RuntimeException ex) {
-                log.warn("Job schema initialization failed; runtime store will fall back when needed", ex);
+                throw new IllegalStateException("Job schema initialization failed", ex);
             }
         };
+    }
+
+    private static void addColumnIfMissing(DataSource dataSource, String table, String column, String definition) {
+        try (Connection connection = dataSource.getConnection()) {
+            boolean exists = false;
+            try (ResultSet columns = connection.getMetaData().getColumns(connection.getCatalog(), null, table, null)) {
+                while (columns.next()) {
+                    if (column.equalsIgnoreCase(columns.getString("COLUMN_NAME"))) {
+                        exists = true;
+                        break;
+                    }
+                }
+            }
+            if (!exists) {
+                try (Statement statement = connection.createStatement()) {
+                    statement.execute("ALTER TABLE " + table + " ADD COLUMN " + definition);
+                }
+            }
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to migrate " + table + "." + column, ex);
+        }
     }
 }

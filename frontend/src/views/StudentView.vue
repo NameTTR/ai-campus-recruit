@@ -1,2349 +1,1022 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { Bell, Brain, BriefcaseBusiness, CalendarDays, ClipboardList, Clock3, FileUp, Library, RefreshCw, Route, Search, Send, Sparkles } from 'lucide-vue-next'
+import MarkdownIt from 'markdown-it'
+import {
+  Bot,
+  BrainCircuit,
+  BriefcaseBusiness,
+  CheckCircle2,
+  FileText,
+  Library,
+  RefreshCw,
+  Route,
+  Search,
+  Sparkles,
+  Upload
+} from 'lucide-vue-next'
 import {
   analyzeResume,
   answerKnowledgeBase,
-  createDelivery,
-  currentStudentId,
-  generateCoachAdvice,
-  generateCareerPlan,
-  generateInterviewQuestions,
-  getAiStatus,
+  createInterviewSession,
+  createLearningPlan,
+  deleteResume,
+  finishInterviewSession,
   getProfile,
-  getResume,
-  listAiPlanningHistory,
-  listDeliveries,
-  listInterviewRecords,
+  getInterviewSession,
+  listInterviewSessions,
   listJobs,
-  listMyCandidateScreenRecords,
-  listMyInterviewSchedules,
-  listMyNotifications,
-  markNotificationRead,
+  listLearningPlans,
+  listLearningPlanVersions,
+  listMyMatches,
+  listResumeDiagnoses,
+  listResumes,
   matchResumeJob,
+  replanLearningPlan,
   rewriteResume,
+  saveInterviewSessionAnswer,
   searchKnowledgeBase,
-  submitInterviewFeedback,
+  updateLearningTask,
+  updateResumeProfile,
   uploadResume,
-  updateInterviewScheduleStatus,
-  type AiModuleStatus,
-  type AiCoachAdviceResponse,
-  type AiPlanningRecord,
-  type AiSearchResponse,
-  type CandidateScreenRecord,
-  type CareerPlanResponse,
-  type DeliveryRecord,
-  type DeliveryStatus,
-  type InterviewFeedback,
-  type InterviewQuestion,
-  type InterviewSchedule,
-  type InterviewRecord,
+  type InterviewSession,
+  type InterviewSessionReport,
   type JobSummary,
   type KnowledgeAnswerResponse,
-  type NotificationMessage,
+  type LearningPlan,
   type MatchResult,
-  type ResumeRewriteResponse,
+  type ResumeDiagnosis,
   type ResumeSummary,
+  type ResumeRewriteResponse,
   type UserProfile
 } from '../api/client'
 
 const route = useRoute()
-const profile = ref<UserProfile>()
-const resume = ref<ResumeSummary>()
-const jobs = ref<JobSummary[]>([])
-const match = ref<MatchResult>()
-const deliveries = ref<DeliveryRecord[]>([])
-const selectedFile = ref<File>()
-const interviewQuestions = ref<InterviewQuestion[]>([])
-const selectedQuestionId = ref('')
-const interviewAnswer = ref('')
-const interviewFeedback = ref<InterviewFeedback>()
-const interviewQuestionsLoading = ref(false)
-const interviewFeedbackLoading = ref(false)
-const aiStatus = ref<AiModuleStatus>()
-const aiStatusLoading = ref(false)
-const interviewRecords = ref<InterviewRecord[]>([])
-const interviewRecordsLoading = ref(false)
-const candidateScreenRecords = ref<CandidateScreenRecord[]>([])
-const lifecycleLoading = ref(false)
-const resumeRewrite = ref<ResumeRewriteResponse>()
-const careerPlan = ref<CareerPlanResponse>()
-const coachAdvice = ref<AiCoachAdviceResponse>()
-const planningHistory = ref<AiPlanningRecord[]>([])
-const resumeRewriteLoading = ref(false)
-const careerPlanLoading = ref(false)
-const coachAdviceLoading = ref(false)
-const planningHistoryLoading = ref(false)
-const notifications = ref<NotificationMessage[]>([])
-const notificationsLoading = ref(false)
-const schedules = ref<InterviewSchedule[]>([])
-const schedulesLoading = ref(false)
-const scheduleActionLoading = ref<Record<string, boolean>>({})
-const knowledgeQuery = ref('Java Redis 面试')
-const knowledgeLoading = ref(false)
-const knowledgeResponse = ref<AiSearchResponse>()
-const knowledgeAnswer = ref<KnowledgeAnswerResponse>()
-const knowledgeAnswerLoading = ref(false)
-
-const capabilityLabels: Record<string, string> = {
-  'resume-analysis': '简历诊断',
-  'resume-rewrite': '简历改写',
-  'career-planning': '求职规划',
-  'planning-history': '规划历史',
-  'job-analysis': '岗位分析',
-  'match-analysis': '人岗匹配',
-  'candidate-screening': '候选人初筛',
-  'interview-question-generation': '面试出题',
-  'interview-feedback': '回答反馈',
-  observability: '调用观测',
-  'intelligent-search': '智能搜索'
+const router = useRouter()
+const markdown = new MarkdownIt({ breaks: true, linkify: true })
+const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'resume')
+const moduleTitle: Record<string, string> = {
+  resume: '简历管理',
+  jobs: '岗位匹配',
+  plan: '学习路径',
+  interview: '模拟面试',
+  knowledge: '知识库问答'
 }
 
-const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'resume')
-const activeStudentId = computed(() => currentStudentId(profile.value?.userId || 'S001'))
-const hasInterviewContext = computed(() => Boolean(match.value || deliveries.value.length))
-const interviewJobId = computed(() => match.value?.jobId || deliveries.value[0]?.jobId || jobs.value[0]?.jobId || 'J001')
-const interviewJob = computed(() => jobs.value.find((job) => job.jobId === interviewJobId.value))
-const interviewRole = computed(() => interviewJob.value?.title || profile.value?.targetPosition || 'Java 后端实习生')
-const selectedQuestion = computed(() => interviewQuestions.value.find((question) => question.questionId === selectedQuestionId.value))
-const aiStatusTagType = computed<'success' | 'warning'>(() => (aiStatus.value?.configured ? 'success' : 'warning'))
-const aiStatusText = computed(() => (aiStatus.value?.configured ? '真实 AI' : '离线演示'))
-const planTargetRole = computed(() => profile.value?.targetPosition || 'Java 后端实习生')
-const planSkills = computed(() => {
-  const skills = resume.value?.skills?.length ? resume.value.skills : profile.value?.skills
-  return skills?.length ? skills : ['Java', 'Spring Boot', 'MySQL']
+const profile = ref<UserProfile>()
+const targetRole = ref('')
+const resumes = ref<ResumeSummary[]>([])
+const selectedResumeId = ref('')
+const diagnoses = ref<ResumeDiagnosis[]>([])
+const resumeRewrite = ref<ResumeRewriteResponse>()
+const resumeLoading = ref(false)
+const resumeActionLoading = ref(false)
+const resumeForm = reactive({
+  education: '',
+  skills: '',
+  projects: '',
+  targetJob: ''
 })
-const planProjects = computed(() => resume.value?.projects?.length ? resume.value.projects : ['校园招聘平台'])
-const planSummary = computed(() => resume.value?.diagnosis || `${profile.value?.major || '软件工程'}学生，目标岗位为${planTargetRole.value}`)
-const readinessType = computed<'success' | 'warning' | 'exception'>(() => {
-  const score = careerPlan.value?.readinessScore || 0
-  if (score >= 85) {
-    return 'success'
+
+const jobs = ref<JobSummary[]>([])
+const matches = ref<MatchResult[]>([])
+const selectedJobId = ref('')
+const currentMatch = ref<MatchResult>()
+const jobsLoading = ref(false)
+const matchLoading = ref(false)
+
+const plans = ref<LearningPlan[]>([])
+const selectedPlanId = ref('')
+const planVersions = ref<LearningPlan[]>([])
+const planLoading = ref(false)
+const planActionLoading = ref(false)
+const planForm = reactive({
+  targetRole: '',
+  weeklyHours: 6,
+  durationWeeks: 8,
+  replanReason: ''
+})
+const taskFeedback = ref<Record<string, string>>({})
+
+const interviewSessions = ref<InterviewSession[]>([])
+const selectedSessionId = ref('')
+const selectedCompletedSessionId = ref('')
+const sessionReport = ref<InterviewSessionReport>()
+const interviewLoading = ref(false)
+const interviewActionLoading = ref(false)
+const activeQuestionIndex = ref(0)
+const answerDrafts = ref<Record<string, string>>({})
+const interviewQuestionCount = ref(5)
+
+const knowledgeQuery = ref('Java Redis 面试')
+const knowledgeAnswer = ref<KnowledgeAnswerResponse>()
+const knowledgeLoading = ref(false)
+
+const selectedResume = computed(() => resumes.value.find((resume) => resume.resumeId === selectedResumeId.value))
+const selectedJob = computed(() => jobs.value.find((job) => job.jobId === selectedJobId.value))
+const selectedPlan = computed(() => plans.value.find((plan) => plan.planId === selectedPlanId.value))
+const selectedPlanIsActive = computed(() => selectedPlan.value?.status === 'ACTIVE')
+const selectedSession = computed(() => interviewSessions.value.find((session) => session.sessionId === selectedSessionId.value))
+const activeQuestion = computed(() => selectedSession.value?.questions[activeQuestionIndex.value])
+const interviewHistoryOpen = computed(() => route.query.tab === 'history')
+const compatibleCompletedSessions = computed(() => {
+  const plan = selectedPlan.value
+  return plan
+    ? interviewSessions.value.filter((session) => session.status === 'COMPLETED' && session.targetRole === plan.targetRole)
+    : []
+})
+const compatibleInterviewSessionId = computed(() => {
+  return compatibleCompletedSessions.value.some((session) => session.sessionId === selectedCompletedSessionId.value)
+    ? selectedCompletedSessionId.value
+    : undefined
+})
+const currentAnswer = computed({
+  get: () => activeQuestion.value ? answerDrafts.value[activeQuestion.value.questionId] || '' : '',
+  set: (value: string) => {
+    if (activeQuestion.value) {
+      answerDrafts.value = { ...answerDrafts.value, [activeQuestion.value.questionId]: value }
+    }
   }
-  if (score >= 65) {
+})
+
+function splitLines(value: string) {
+  return value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean)
+}
+
+function renderMarkdown(value: string) {
+  return markdown.render(value || '')
+}
+
+function sourceTagLabel(source?: string, mocked?: boolean) {
+  if (mocked) {
+    return '演示数据'
+  }
+  const normalized = source?.trim().toUpperCase()
+  if (!normalized) {
+    return 'AI生成'
+  }
+  if (normalized === 'AI_TEXT_RULE_SCORE') {
+    return 'AI 诊断 · 规则证据分'
+  }
+  if (normalized.includes('DEMO') || normalized.includes('MOCK')) {
+    return `演示：${source}`
+  }
+  if (normalized.includes('RULE')) {
+    return `规则：${source}`
+  }
+  if (normalized.includes('AI')) {
+    return `AI：${source}`
+  }
+  return `来源：${source}`
+}
+
+function learningStageLabel(stage?: string) {
+  const labels: Record<string, string> = {
+    FOUNDATION: '基础夯实',
+    PRACTICE: '专项练习',
+    APPLICATION: '应用产出'
+  }
+  return labels[stage?.trim().toUpperCase() || ''] || stage || '未分阶段'
+}
+
+function sourceTagType(source?: string, mocked?: boolean) {
+  if (mocked || source?.toUpperCase().includes('DEMO') || source?.toUpperCase().includes('MOCK')) {
     return 'warning'
   }
-  return 'exception'
-})
-const aiProviderText = computed(() => {
-  if (!aiStatus.value) {
-    return '状态检测中'
+  if (source?.toUpperCase().includes('RULE')) {
+    return 'info'
   }
-  return `${aiStatus.value.provider} · ${aiStatus.value.model}`
-})
-const lifecycleSteps = computed(() => {
-  const resumeMeta = resume.value
-  const deliveryCount = deliveries.value.length
-  const latestDelivery = deliveries.value[0]
-  const latestScreening = candidateScreenRecords.value[0]
-  return [
-    {
-      key: 'upload',
-      title: '简历文件',
-      time: resumeMeta?.fileName || '未上传',
-      type: resumeMeta ? 'success' : 'info',
-      lines: resumeMeta
-        ? [
-            `${resumeMeta.sourceFormat || 'UNKNOWN'} / ${parseStatusText(resumeMeta.parseStatus || 'UNKNOWN')}`,
-            `${resumeMeta.storageProvider || 'storage'} / ${resumeMeta.storageStatus || 'UNKNOWN'}`
-          ]
-        : ['等待上传 PDF/DOC/DOCX']
-    },
-    {
-      key: 'diagnosis',
-      title: 'AI 诊断',
-      time: resumeMeta ? `${resumeMeta.score} 分` : '未生成',
-      type: resumeMeta?.diagnosis ? 'primary' : 'info',
-      lines: resumeMeta?.diagnosis ? [resumeMeta.diagnosis] : ['上传简历后可生成诊断']
-    },
-    {
-      key: 'deliveries',
-      title: '投递快照',
-      time: deliveryCount ? `${deliveryCount} 条投递` : '暂无投递',
-      type: deliveryCount ? 'warning' : 'info',
-      lines: latestDelivery
-        ? [
-            `${latestDelivery.deliveryId} / ${latestDelivery.jobId} / ${statusText(latestDelivery.status)}`,
-            `${latestDelivery.resumeSourceFormat || latestDelivery.sourceFormat || 'UNKNOWN'} / ${parseStatusText(latestDelivery.resumeParseStatus || latestDelivery.parseStatus || 'UNKNOWN')}`
-          ]
-        : ['投递后会保留简历解析快照']
-    },
-    {
-      key: 'screening',
-      title: 'AI 初筛反馈',
-      time: latestScreening ? `${latestScreening.score} 分` : '暂无反馈',
-      type: latestScreening ? 'success' : 'info',
-      lines: latestScreening
-        ? [
-            `${latestScreening.recommendation} / ${latestScreening.mocked ? '演示' : '真实'}`,
-            `来自 ${latestScreening.companyId} / ${formatTime(latestScreening.createdAt)}`
-          ]
-        : ['企业完成 AI 初筛后在这里展示']
-    }
-  ] as const
-})
-
-onMounted(async () => {
-  profile.value = await getProfile()
-  resume.value = await getResume()
-  jobs.value = await listJobs()
-  deliveries.value = await listDeliveries()
-  await Promise.all([
-    refreshAiStatus(),
-    refreshInterviewRecords(),
-    refreshCandidateScreenRecords(),
-    refreshPlanningHistory(),
-    refreshNotifications(),
-    refreshSchedules(),
-    runKnowledgeSearch(false, false)
-  ])
-})
-
-function onFileChange(event: Event) {
-  const input = event.target as HTMLInputElement
-  selectedFile.value = input.files?.[0]
+  return 'success'
 }
 
-async function submitResume() {
-  if (!selectedFile.value) {
-    ElMessage.warning('请选择简历文件')
+function validatePlanSchedule() {
+  if (!Number.isInteger(planForm.weeklyHours) || planForm.weeklyHours < 2 || planForm.weeklyHours > 40) {
+    ElMessage.warning('每周投入时间需在 2 到 40 小时之间')
+    return false
+  }
+  if (!Number.isInteger(planForm.durationWeeks) || planForm.durationWeeks < 1 || planForm.durationWeeks > 24) {
+    ElMessage.warning('计划周期需在 1 到 24 周之间')
+    return false
+  }
+  return true
+}
+
+function validateInterviewQuestionCount() {
+  if (!Number.isInteger(interviewQuestionCount.value)
+    || interviewQuestionCount.value < 1
+    || interviewQuestionCount.value > 8) {
+    ElMessage.warning('面试题数需在 1 到 8 题之间')
+    return false
+  }
+  return true
+}
+
+function hydrateResumeForm(resume?: ResumeSummary) {
+  resumeForm.education = resume?.education || ''
+  resumeForm.skills = resume?.skills.join(', ') || profile.value?.skills.join(', ') || ''
+  resumeForm.projects = resume?.projects.join('\n') || ''
+  resumeForm.targetJob = targetRole.value
+}
+
+function syncTargetRole() {
+  const userId = profile.value?.userId
+  if (!userId) {
     return
   }
-  resume.value = await uploadResume(selectedFile.value)
-  ElMessage.success('简历已上传')
+  const saved = localStorage.getItem(`aicampus.target-role.${userId}`)?.trim()
+  targetRole.value = saved || profile.value?.targetPosition || ''
+  planForm.targetRole = planForm.targetRole || targetRole.value
 }
 
-async function runAnalyze() {
-  resume.value = await analyzeResume(resume.value?.resumeId || 'R001')
-  ElMessage.success('诊断已生成')
+function selectionStorageKey() {
+  return profile.value?.userId ? `aicampus.selection.${profile.value.userId}` : ''
+}
+
+function storedSelection() {
+  const key = selectionStorageKey()
+  if (!key) {
+    return {}
+  }
+  try {
+    return JSON.parse(localStorage.getItem(key) || '{}') as { resumeId?: string, jobId?: string }
+  } catch {
+    return {}
+  }
+}
+
+function persistSelection() {
+  const key = selectionStorageKey()
+  if (key) {
+    const saved = storedSelection()
+    localStorage.setItem(key, JSON.stringify({
+      resumeId: resumes.value.length ? selectedResumeId.value : saved.resumeId,
+      jobId: jobs.value.length ? selectedJobId.value : saved.jobId
+    }))
+  }
+}
+
+function syncSelectedResume() {
+  const saved = storedSelection()
+  if (!selectedResumeId.value || !resumes.value.some((resume) => resume.resumeId === selectedResumeId.value)) {
+    selectedResumeId.value = resumes.value.find((resume) => resume.resumeId === saved.resumeId)?.resumeId || resumes.value[0]?.resumeId || ''
+  }
+  hydrateResumeForm(selectedResume.value)
+}
+
+async function loadResumeData() {
+  resumeLoading.value = true
+  try {
+    const [profileData, resumeList] = await Promise.all([getProfile(), listResumes()])
+    profile.value = profileData
+    syncTargetRole()
+    resumes.value = resumeList
+    syncSelectedResume()
+    await loadDiagnoses()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '简历数据加载失败')
+  } finally {
+    resumeLoading.value = false
+  }
+}
+
+async function loadDiagnoses() {
+  if (!selectedResumeId.value) {
+    diagnoses.value = []
+    return
+  }
+  try {
+    diagnoses.value = await listResumeDiagnoses(selectedResumeId.value)
+  } catch (error) {
+    diagnoses.value = []
+    ElMessage.error(error instanceof Error ? error.message : '诊断记录加载失败')
+  }
+}
+
+async function selectResume() {
+  hydrateResumeForm(selectedResume.value)
+  await loadDiagnoses()
+}
+
+async function handleResumeUpload(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) {
+    return
+  }
+  resumeActionLoading.value = true
+  try {
+    const uploaded = await uploadResume(file)
+    resumes.value = [uploaded, ...resumes.value.filter((resume) => resume.resumeId !== uploaded.resumeId)]
+    selectedResumeId.value = uploaded.resumeId
+    await selectResume()
+    ElMessage.success('简历已上传')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '简历上传失败')
+  } finally {
+    resumeActionLoading.value = false
+    ;(event.target as HTMLInputElement).value = ''
+  }
+}
+
+async function saveResumeProfile() {
+  if (!selectedResume.value) {
+    ElMessage.warning('请先上传或选择简历')
+    return
+  }
+  resumeActionLoading.value = true
+  try {
+    const updated = await updateResumeProfile(selectedResume.value.resumeId, {
+      education: resumeForm.education.trim(),
+      skills: splitLines(resumeForm.skills),
+      projects: splitLines(resumeForm.projects)
+    })
+    resumes.value = resumes.value.map((resume) => resume.resumeId === updated.resumeId ? updated : resume)
+    hydrateResumeForm(updated)
+    currentMatch.value = undefined
+    ElMessage.success('简历资料已保存')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '简历资料保存失败')
+  } finally {
+    resumeActionLoading.value = false
+  }
+}
+
+async function runResumeAnalysis() {
+  if (!selectedResume.value) {
+    ElMessage.warning('请先上传或选择简历')
+    return
+  }
+  resumeActionLoading.value = true
+  try {
+    const analyzed = await analyzeResume(selectedResume.value.resumeId, { targetJob: targetRole.value.trim() })
+    resumes.value = resumes.value.map((resume) => resume.resumeId === analyzed.resumeId ? analyzed : resume)
+    currentMatch.value = undefined
+    await selectResume()
+    ElMessage.success('简历诊断已完成')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '简历诊断失败')
+  } finally {
+    resumeActionLoading.value = false
+  }
 }
 
 async function runResumeRewrite() {
-  resumeRewriteLoading.value = true
+  const resume = selectedResume.value
+  if (!resume) {
+    ElMessage.warning('请先上传或选择简历')
+    return
+  }
+  resumeActionLoading.value = true
   try {
     resumeRewrite.value = await rewriteResume({
-      studentId: activeStudentId.value,
-      resumeId: resume.value?.resumeId || 'R001',
-      targetRole: planTargetRole.value,
-      resumeSummary: planSummary.value,
-      skills: planSkills.value,
-      projects: planProjects.value
+      studentId: profile.value?.userId || '',
+      resumeId: resume.resumeId,
+      targetRole: targetRole.value.trim() || profile.value?.targetPosition || '目标岗位',
+      resumeSummary: resume.diagnosis,
+      skills: splitLines(resumeForm.skills),
+      projects: splitLines(resumeForm.projects)
     })
-    prependPlanningRecord(recordFromResumeRewrite(resumeRewrite.value))
-    await refreshPlanningHistory(false)
     ElMessage.success('简历改写建议已生成')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '简历改写失败')
   } finally {
-    resumeRewriteLoading.value = false
+    resumeActionLoading.value = false
   }
 }
 
-async function runCareerPlan() {
-  careerPlanLoading.value = true
-  try {
-    careerPlan.value = await generateCareerPlan({
-      studentId: activeStudentId.value,
-      targetRole: planTargetRole.value,
-      skills: planSkills.value,
-      interests: [profile.value?.major, planTargetRole.value, '后端开发'].filter(Boolean) as string[],
-      resumeSummary: planSummary.value,
-      timeframeWeeks: 8
-    })
-    prependPlanningRecord(recordFromCareerPlan(careerPlan.value))
-    await refreshPlanningHistory(false)
-    ElMessage.success('求职规划已生成')
-  } finally {
-    careerPlanLoading.value = false
-  }
-}
-
-async function runCoachAdvice() {
-  coachAdviceLoading.value = true
-  try {
-    coachAdvice.value = await generateCoachAdvice({
-      studentId: activeStudentId.value,
-      targetRole: planTargetRole.value,
-      skills: planSkills.value,
-      recentDeliveries: deliveries.value.slice(0, 5).map((delivery) => `${delivery.jobId} ${delivery.status}`),
-      interviewWeaknesses: interviewRecords.value.slice(0, 3).flatMap((record) => record.suggestions || []),
-      careerGoal: `获得${planTargetRole.value}相关实习 offer`,
-      weeks: 6
-    })
-    ElMessage.success('AI 求职顾问建议已生成')
-  } finally {
-    coachAdviceLoading.value = false
-  }
-}
-
-async function runMatch(jobId: string) {
-  match.value = await matchResumeJob(resume.value?.resumeId || 'R001', jobId)
-  resetInterview()
-  ElMessage.success('匹配结果已生成')
-}
-
-async function deliver(jobId: string) {
-  const record = await createDelivery(resume.value || 'R001', jobId)
-  deliveries.value = [record, ...deliveries.value]
-  await refreshCandidateScreenRecords()
-  resetInterview()
-  ElMessage.success('投递成功')
-}
-
-function resetInterview() {
-  interviewQuestions.value = []
-  selectedQuestionId.value = ''
-  interviewAnswer.value = ''
-  interviewFeedback.value = undefined
-}
-
-function selectInterviewQuestion() {
-  interviewAnswer.value = ''
-  interviewFeedback.value = undefined
-}
-
-async function runInterviewQuestions() {
-  if (!hasInterviewContext.value) {
-    ElMessage.warning('请先完成岗位匹配或投递')
+async function removeResume() {
+  const resume = selectedResume.value
+  if (!resume) {
     return
   }
-  interviewQuestionsLoading.value = true
-  interviewFeedback.value = undefined
-  interviewAnswer.value = ''
+  resumeActionLoading.value = true
   try {
-    interviewQuestions.value = await generateInterviewQuestions({
-      studentId: activeStudentId.value,
-      resumeId: resume.value?.resumeId || 'R001',
-      jobId: interviewJobId.value,
-      targetRole: interviewRole.value,
-      skills: resume.value?.skills || profile.value?.skills || []
-    })
-    selectedQuestionId.value = interviewQuestions.value[0]?.questionId || ''
-    ElMessage.success('模拟面试题已生成')
+    await deleteResume(resume.resumeId)
+    resumes.value = resumes.value.filter((item) => item.resumeId !== resume.resumeId)
+    selectedResumeId.value = resumes.value[0]?.resumeId || ''
+    await selectResume()
+    ElMessage.success('简历已删除')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '简历删除失败')
   } finally {
-    interviewQuestionsLoading.value = false
+    resumeActionLoading.value = false
   }
 }
 
-async function submitInterviewAnswer() {
-  if (!selectedQuestion.value) {
-    ElMessage.warning('请选择面试题')
-    return
-  }
-  if (!interviewAnswer.value.trim()) {
-    ElMessage.warning('请输入回答内容')
-    return
-  }
-  interviewFeedbackLoading.value = true
+async function loadJobsData() {
+  jobsLoading.value = true
   try {
-    interviewFeedback.value = await submitInterviewFeedback({
-      studentId: activeStudentId.value,
-      questionId: selectedQuestion.value.questionId,
-      question: selectedQuestion.value.question,
-      answer: interviewAnswer.value.trim(),
-      targetRole: interviewRole.value
-    })
-    await refreshInterviewRecords()
-    ElMessage.success('回答反馈已生成')
-  } finally {
-    interviewFeedbackLoading.value = false
-  }
-}
-
-async function refreshAiStatus() {
-  aiStatusLoading.value = true
-  try {
-    aiStatus.value = await getAiStatus()
-  } finally {
-    aiStatusLoading.value = false
-  }
-}
-
-async function refreshInterviewRecords() {
-  interviewRecordsLoading.value = true
-  try {
-    interviewRecords.value = await listInterviewRecords(activeStudentId.value)
-  } finally {
-    interviewRecordsLoading.value = false
-  }
-}
-
-async function refreshCandidateScreenRecords() {
-  lifecycleLoading.value = true
-  try {
-    candidateScreenRecords.value = await listMyCandidateScreenRecords(activeStudentId.value)
-  } finally {
-    lifecycleLoading.value = false
-  }
-}
-
-async function refreshNotifications(showMessage = false) {
-  notificationsLoading.value = true
-  try {
-    notifications.value = await listMyNotifications(activeStudentId.value)
-    if (showMessage) {
-      ElMessage.success('通知已刷新')
+    const [jobList, matchList] = await Promise.all([listJobs(), listMyMatches()])
+    jobs.value = jobList
+    matches.value = matchList
+    if (!selectedJobId.value || !jobs.value.some((job) => job.jobId === selectedJobId.value)) {
+      const saved = storedSelection()
+      selectedJobId.value = jobs.value.find((job) => job.jobId === saved.jobId)?.jobId || jobs.value[0]?.jobId || ''
     }
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '岗位数据加载失败')
   } finally {
-    notificationsLoading.value = false
+    jobsLoading.value = false
   }
 }
 
-async function readNotification(notification: NotificationMessage) {
-  const updated = await markNotificationRead(notification)
-  notifications.value = notifications.value.map((item) =>
-    item.notificationId === updated.notificationId ? updated : item)
+async function runMatch() {
+  const resume = selectedResume.value
+  const job = selectedJob.value
+  if (!resume || !job) {
+    ElMessage.warning('请先选择简历和岗位')
+    return
+  }
+  matchLoading.value = true
+  try {
+    currentMatch.value = await matchResumeJob(resume.resumeId, job.jobId)
+    matches.value = [currentMatch.value, ...matches.value.filter((match) => match.matchId !== currentMatch.value?.matchId)]
+    ElMessage.success('岗位匹配已完成')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '岗位匹配失败')
+  } finally {
+    matchLoading.value = false
+  }
 }
 
-async function refreshSchedules(showMessage = false) {
-  schedulesLoading.value = true
+async function loadPlans() {
+  planLoading.value = true
   try {
-    schedules.value = await listMyInterviewSchedules(activeStudentId.value)
-    if (showMessage) {
-      ElMessage.success('面试日程已刷新')
+    plans.value = await listLearningPlans()
+    if (!selectedPlanId.value || !plans.value.some((plan) => plan.planId === selectedPlanId.value)) {
+      const preferredPlan = [...plans.value]
+        .filter((plan) => plan.status === 'ACTIVE')
+        .sort((left, right) => right.version - left.version)[0]
+        || [...plans.value].sort((left, right) => right.version - left.version)[0]
+      selectedPlanId.value = preferredPlan?.planId || ''
     }
+    await loadPlanVersions()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '学习计划加载失败')
   } finally {
-    schedulesLoading.value = false
+    planLoading.value = false
   }
 }
 
-async function changeScheduleStatus(schedule: InterviewSchedule, status: 'CONFIRMED' | 'DECLINED') {
-  scheduleActionLoading.value = { ...scheduleActionLoading.value, [schedule.scheduleId]: true }
+async function loadPlanVersions() {
+  const plan = selectedPlan.value
+  if (plan) {
+    planForm.weeklyHours = plan.weeklyHours
+    planForm.durationWeeks = plan.durationWeeks
+  }
+  syncTaskFeedback(plan)
+  if (!selectedPlanId.value) {
+    planVersions.value = []
+    return
+  }
   try {
-    const updated = await updateInterviewScheduleStatus(schedule, status)
-    schedules.value = schedules.value.map((item) => item.scheduleId === updated.scheduleId ? updated : item)
-    await refreshNotifications()
-    ElMessage.success(status === 'CONFIRMED' ? '已确认面试' : '已拒绝面试')
-  } finally {
-    scheduleActionLoading.value = { ...scheduleActionLoading.value, [schedule.scheduleId]: false }
+    planVersions.value = await listLearningPlanVersions(selectedPlanId.value)
+  } catch (error) {
+    planVersions.value = []
+    ElMessage.error(error instanceof Error ? error.message : '计划版本加载失败')
   }
 }
 
-async function runKnowledgeSearch(showMessage = true, useAi = true) {
-  const query = knowledgeQuery.value.trim()
-  if (!query) {
-    knowledgeResponse.value = undefined
-    knowledgeAnswer.value = undefined
+function syncTaskFeedback(plan?: LearningPlan) {
+  taskFeedback.value = Object.fromEntries((plan?.tasks || []).map((task) => [task.taskId, task.feedback || '']))
+}
+
+async function createPlan() {
+  if (!validatePlanSchedule()) {
+    return
+  }
+  planActionLoading.value = true
+  try {
+    const plan = await createLearningPlan({
+      studentId: profile.value?.userId,
+      resumeId: selectedResume.value?.resumeId,
+      jobId: selectedJob.value?.jobId,
+      matchId: currentMatch.value?.matchId,
+      targetRole: planForm.targetRole.trim() || selectedJob.value?.title || profile.value?.targetPosition,
+      weeklyHours: planForm.weeklyHours,
+      durationWeeks: planForm.durationWeeks
+    })
+    plans.value = [plan, ...plans.value.filter((item) => item.planId !== plan.planId)]
+    selectedPlanId.value = plan.planId
+    await loadPlanVersions()
+    ElMessage.success('学习计划已生成')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '学习计划生成失败')
+  } finally {
+    planActionLoading.value = false
+  }
+}
+
+async function saveTask(taskId: string, status: string) {
+  const plan = selectedPlan.value
+  if (!plan) {
+    return
+  }
+  if (plan.status !== 'ACTIVE') {
+    ElMessage.warning('历史版本为只读，不能更新任务')
+    return
+  }
+  planActionLoading.value = true
+  try {
+    const currentTask = plan.tasks.find((task) => task.taskId === taskId)
+    const updated = await updateLearningTask(plan.planId, taskId, {
+      status,
+      feedback: taskFeedback.value[taskId] ?? currentTask?.feedback
+    })
+    taskFeedback.value = { ...taskFeedback.value, [taskId]: updated.feedback || '' }
+    plans.value = plans.value.map((item) => {
+      if (item.planId !== plan.planId) {
+        return item
+      }
+      const tasks = item.tasks.map((task) => task.taskId === taskId ? updated : task)
+      return {
+        ...item,
+        tasks,
+        status: tasks.every((task) => task.status === 'COMPLETED') ? 'COMPLETED' : 'ACTIVE',
+        updatedAt: updated.updatedAt
+      }
+    })
+    ElMessage.success('任务进度已保存')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '任务进度保存失败')
+  } finally {
+    planActionLoading.value = false
+  }
+}
+
+async function replan() {
+  const plan = selectedPlan.value
+  if (!plan || !planForm.replanReason.trim()) {
+    ElMessage.warning('请填写重规划原因')
+    return
+  }
+  if (plan.status !== 'ACTIVE') {
+    ElMessage.warning('历史版本为只读，不能重新规划')
+    return
+  }
+  if (!validatePlanSchedule()) {
+    return
+  }
+  planActionLoading.value = true
+  try {
+    const revised = await replanLearningPlan(plan.planId, {
+      reason: planForm.replanReason.trim(),
+      weeklyHours: planForm.weeklyHours,
+      durationWeeks: planForm.durationWeeks,
+      interviewSessionId: compatibleInterviewSessionId.value
+    })
+    plans.value = [
+      revised,
+      ...plans.value
+        .filter((item) => item.planId !== revised.planId)
+        .map((item) => item.planId === plan.planId
+          ? { ...item, status: 'SUPERSEDED', updatedAt: revised.createdAt }
+          : item)
+    ]
+    selectedPlanId.value = revised.planId
+    planForm.replanReason = ''
+    await loadPlanVersions()
+    ElMessage.success(`已生成 V${revised.version} 学习计划`)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '学习计划重规划失败')
+  } finally {
+    planActionLoading.value = false
+  }
+}
+
+function syncSessionDrafts(session?: InterviewSession) {
+  answerDrafts.value = Object.fromEntries((session?.answers || []).map((answer) => [answer.questionId, answer.answer]))
+  sessionReport.value = session?.report
+  const answeredQuestionIds = new Set((session?.answers || [])
+    .filter((answer) => answer.answer.trim())
+    .map((answer) => answer.questionId))
+  const firstUnansweredIndex = session?.questions.findIndex((question) => !answeredQuestionIds.has(question.questionId)) ?? -1
+  activeQuestionIndex.value = firstUnansweredIndex >= 0
+    ? firstUnansweredIndex
+    : Math.max(0, (session?.questions.length || 1) - 1)
+}
+
+async function loadInterviewSessions() {
+  interviewLoading.value = true
+  try {
+    interviewSessions.value = await listInterviewSessions()
+    if (!selectedSessionId.value || !interviewSessions.value.some((session) => session.sessionId === selectedSessionId.value)) {
+      selectedSessionId.value = interviewSessions.value[0]?.sessionId || ''
+    }
+    syncSessionDrafts(selectedSession.value)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '模拟面试会话加载失败')
+  } finally {
+    interviewLoading.value = false
+  }
+}
+
+async function selectSession() {
+  if (!selectedSessionId.value) {
+    return
+  }
+  interviewLoading.value = true
+  try {
+    const session = await getInterviewSession(selectedSessionId.value)
+    interviewSessions.value = interviewSessions.value.map((item) => item.sessionId === session.sessionId ? session : item)
+    syncSessionDrafts(session)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '模拟面试会话读取失败')
+  } finally {
+    interviewLoading.value = false
+  }
+}
+
+async function startInterview() {
+  if (!validateInterviewQuestionCount()) {
+    return
+  }
+  interviewActionLoading.value = true
+  try {
+    const session = await createInterviewSession({
+      studentId: profile.value?.userId,
+      resumeId: selectedResume.value?.resumeId,
+      jobId: selectedJob.value?.jobId,
+      matchId: currentMatch.value?.matchId,
+      targetRole: selectedJob.value?.title || profile.value?.targetPosition,
+      questionCount: interviewQuestionCount.value
+    })
+    interviewSessions.value = [session, ...interviewSessions.value]
+    selectedSessionId.value = session.sessionId
+    sessionReport.value = undefined
+    syncSessionDrafts(session)
+    await router.replace({ path: '/student/interview' })
+    ElMessage.success('模拟面试已开始')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '模拟面试创建失败')
+  } finally {
+    interviewActionLoading.value = false
+  }
+}
+
+async function saveCurrentAnswer() {
+  const session = selectedSession.value
+  const question = activeQuestion.value
+  if (!session || !question || !currentAnswer.value.trim()) {
+    ElMessage.warning('请输入本题回答')
+    return
+  }
+  interviewActionLoading.value = true
+  try {
+    const updated = await saveInterviewSessionAnswer(session.sessionId, question.questionId, currentAnswer.value)
+    interviewSessions.value = interviewSessions.value.map((item) => item.sessionId === updated.sessionId ? updated : item)
+    syncSessionDrafts(updated)
+    ElMessage.success('回答已保存')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '回答保存失败')
+  } finally {
+    interviewActionLoading.value = false
+  }
+}
+
+async function finishInterview() {
+  const session = selectedSession.value
+  if (!session) {
+    return
+  }
+  interviewActionLoading.value = true
+  try {
+    sessionReport.value = await finishInterviewSession(session.sessionId)
+    await selectSession()
+    ElMessage.success('模拟面试报告已生成')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '模拟面试完成失败')
+  } finally {
+    interviewActionLoading.value = false
+  }
+}
+
+async function runKnowledgeSearch() {
+  if (!knowledgeQuery.value.trim()) {
+    ElMessage.warning('请输入检索关键词')
     return
   }
   knowledgeLoading.value = true
-  knowledgeAnswerLoading.value = true
   try {
     const [retrieval, answer] = await Promise.all([
-      searchKnowledgeBase({
-        query,
-        role: 'STUDENT',
-        limit: 6
-      }),
-      answerKnowledgeBase({
-        query,
-        role: 'STUDENT',
-        limit: 4,
-        useAi
-      })
+      searchKnowledgeBase({ query: knowledgeQuery.value.trim(), role: 'STUDENT', limit: 6 }),
+      answerKnowledgeBase({ query: knowledgeQuery.value.trim(), role: 'STUDENT', limit: 8, useAi: true })
     ])
-    knowledgeResponse.value = retrieval
     knowledgeAnswer.value = answer
-    if (showMessage) {
-      ElMessage.success('知识库检索完成')
+    if (!answer.citations.length && !retrieval.results.length) {
+      ElMessage.warning('没有找到相关知识资料')
     }
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '知识库检索失败')
   } finally {
     knowledgeLoading.value = false
-    knowledgeAnswerLoading.value = false
   }
 }
 
-async function refreshPlanningHistory(showLoading = true) {
-  if (showLoading) {
-    planningHistoryLoading.value = true
-  }
-  try {
-    const records = await listAiPlanningHistory(activeStudentId.value, 20)
-    planningHistory.value = mergePlanningRecords(records, planningHistory.value)
-  } finally {
-    planningHistoryLoading.value = false
-  }
-}
-
-function prependPlanningRecord(record: AiPlanningRecord) {
-  planningHistory.value = mergePlanningRecords([record], planningHistory.value)
-}
-
-function mergePlanningRecords(primary: AiPlanningRecord[], secondary: AiPlanningRecord[]) {
-  const records = new Map<string, AiPlanningRecord>()
-  for (const record of [...primary, ...secondary]) {
-    records.set(record.recordId, record)
-  }
-  return Array.from(records.values())
-    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
-    .slice(0, 20)
-}
-
-function recordFromResumeRewrite(response: ResumeRewriteResponse): AiPlanningRecord {
-  return {
-    recordId: `AIP-LOCAL-${Date.now()}`,
-    studentId: response.studentId,
-    operation: 'resume-rewrite',
-    resumeId: response.resumeId,
-    targetRole: response.targetRole,
-    resumeRewrite: response,
-    careerPlan: null,
-    mocked: response.mocked,
-    createdAt: new Date().toISOString()
+async function loadModule(module: string) {
+  if (module === 'resume') {
+    await loadResumeData()
+  } else if (module === 'jobs') {
+    await Promise.all([loadResumeData(), loadJobsData()])
+  } else if (module === 'plan') {
+    await Promise.all([loadResumeData(), loadJobsData(), loadPlans(), loadInterviewSessions()])
+  } else if (module === 'interview') {
+    await Promise.all([loadResumeData(), loadJobsData(), loadInterviewSessions()])
   }
 }
 
-function recordFromCareerPlan(response: CareerPlanResponse): AiPlanningRecord {
-  return {
-    recordId: `AIP-LOCAL-${Date.now()}`,
-    studentId: response.studentId,
-    operation: 'career-plan',
-    resumeId: null,
-    targetRole: response.targetRole,
-    resumeRewrite: null,
-    careerPlan: response,
-    mocked: response.mocked,
-    createdAt: new Date().toISOString()
+onMounted(() => { void loadModule(activeModule.value) })
+watch(activeModule, (module) => { void loadModule(module) })
+watch([selectedResumeId, selectedJobId], () => {
+  if (currentMatch.value && (currentMatch.value.resumeId !== selectedResumeId.value || currentMatch.value.jobId !== selectedJobId.value)) {
+    currentMatch.value = undefined
   }
-}
-
-function planningRecordTitle(record: AiPlanningRecord) {
-  return record.operation === 'resume-rewrite' ? '简历改写' : '职业规划'
-}
-
-function planningRecordSummary(record: AiPlanningRecord) {
-  return record.resumeRewrite?.improvedSummary || record.careerPlan?.summary || record.targetRole
-}
-
-function statusText(status: DeliveryStatus) {
-  const labels: Record<DeliveryStatus, string> = {
-    SUBMITTED: '已投递',
-    VIEWED: '已查看',
-    INTERVIEW: '面试中',
-    OFFER: '已录用',
-    REJECTED: '未通过'
+  persistSelection()
+})
+watch([selectedPlanId, interviewSessions], () => {
+  if (!compatibleCompletedSessions.value.some((session) => session.sessionId === selectedCompletedSessionId.value)) {
+    selectedCompletedSessionId.value = ''
   }
-  return labels[status]
-}
-
-function statusTagType(status: DeliveryStatus) {
-  const types: Record<DeliveryStatus, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
-    SUBMITTED: 'info',
-    VIEWED: 'primary',
-    INTERVIEW: 'warning',
-    OFFER: 'success',
-    REJECTED: 'danger'
+})
+watch(targetRole, (value) => {
+  resumeForm.targetJob = value
+  if (profile.value?.userId) {
+    localStorage.setItem(`aicampus.target-role.${profile.value.userId}`, value.trim())
   }
-  return types[status]
-}
-
-function scheduleStatusText(status: InterviewSchedule['status']) {
-  const labels: Record<InterviewSchedule['status'], string> = {
-    PROPOSED: '待确认',
-    CONFIRMED: '已确认',
-    DECLINED: '已拒绝',
-    COMPLETED: '已完成',
-    CANCELLED: '已取消'
-  }
-  return labels[status]
-}
-
-function scheduleStatusTagType(status: InterviewSchedule['status']) {
-  const types: Record<InterviewSchedule['status'], 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
-    PROPOSED: 'warning',
-    CONFIRMED: 'success',
-    DECLINED: 'danger',
-    COMPLETED: 'primary',
-    CANCELLED: 'info'
-  }
-  return types[status]
-}
-
-function parseStatusText(status: string) {
-  const labels: Record<string, string> = {
-    TEXT_EXTRACTED: '已读正文',
-    UNPARSED: '未读正文',
-    SEEDED: '演示数据'
-  }
-  return labels[status] || status
-}
-
-function capabilityText(capability: string) {
-  return capabilityLabels[capability] || capability
-}
-
-function formatTime(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date)
-}
+})
 </script>
 
 <template>
   <section class="page">
     <header class="page-header">
       <div>
-        <h1 class="page-title">学生求职台</h1>
-        <p class="page-subtitle">{{ profile?.school }} · {{ profile?.major }} · {{ profile?.targetPosition }}</p>
+        <h1 class="page-title">{{ moduleTitle[activeModule] || '学生工作台' }}</h1>
+        <p class="page-subtitle">围绕简历、岗位、学习和面试完成求职准备</p>
       </div>
-      <div class="tag-row">
-        <span v-for="skill in profile?.skills" :key="skill" class="tag-pill primary">{{ skill }}</span>
+      <div class="target-role-control">
+        <span>目标岗位</span>
+        <el-input v-model="targetRole" placeholder="例如 Java 后端实习生" />
       </div>
     </header>
 
-    <section v-if="activeModule === 'resume'" class="panel module-panel">
-      <h2 class="panel-title">
-        简历诊断
-        <Brain :size="19" />
-      </h2>
-      <div class="actions">
-        <label class="file-picker">
-          <input type="file" accept=".pdf,.doc,.docx" @change="onFileChange" />
-          <span>选择文件</span>
-        </label>
-        <span class="selected-file-name">{{ selectedFile?.name || '未选择文件' }}</span>
-        <el-button type="primary" @click="submitResume">
-          <FileUp :size="17" />
-          上传
-        </el-button>
-        <el-button @click="runAnalyze">
-          <Brain :size="17" />
-          诊断
-        </el-button>
-      </div>
-      <div v-if="resume" class="item-card" style="margin-top: 14px">
-        <div class="resume-card-header">
-          <strong>{{ resume.fileName }}</strong>
-          <div class="resume-card-meta">
-            <el-tag size="small" type="success">{{ resume.sourceFormat }} · {{ parseStatusText(resume.parseStatus) }}</el-tag>
-            <el-tag v-if="resume.parsedTextLength > 0" size="small" type="info">{{ resume.parsedTextLength }} 字</el-tag>
-            <el-tag size="small" type="info">{{ resume.storageProvider }} · {{ resume.storageStatus }}</el-tag>
-          </div>
+    <template v-if="activeModule === 'resume'">
+      <section class="panel module-panel" v-loading="resumeLoading">
+        <h2 class="panel-title"><span>我的简历</span><FileText :size="19" /></h2>
+        <div class="resume-toolbar">
+          <el-select v-model="selectedResumeId" placeholder="选择简历" @change="selectResume">
+            <el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" />
+          </el-select>
+          <label class="upload-control">
+            <Upload :size="16" />
+            <span>上传简历</span>
+            <input type="file" accept=".pdf,.doc,.docx" :disabled="resumeActionLoading" @change="handleResumeUpload" />
+          </label>
+          <el-button :loading="resumeActionLoading" @click="removeResume">删除</el-button>
         </div>
-        <span>{{ resume.education }}</span>
-        <div class="tag-row">
-          <el-tag v-for="skill in resume.skills" :key="skill" type="success">{{ skill }}</el-tag>
-        </div>
-        <p>{{ resume.diagnosis }}</p>
-      </div>
-    </section>
-
-    <section v-if="activeModule === 'plan'" class="panel module-panel plan-panel">
-      <div class="panel-title plan-title">
-        <span>
-          AI 求职规划
-          <Route :size="19" />
-        </span>
-        <div class="plan-title-meta">
-          <el-tag :type="aiStatusTagType">{{ aiStatusText }}</el-tag>
-          <el-button size="small" :loading="aiStatusLoading" @click="refreshAiStatus">
-            <RefreshCw :size="15" />
-            刷新状态
-          </el-button>
-        </div>
-      </div>
-
-      <div class="plan-summary-strip">
-        <div>
-          <span>目标岗位</span>
-          <strong>{{ planTargetRole }}</strong>
-        </div>
-        <div>
-          <span>简历</span>
-          <strong>{{ resume?.fileName || '演示简历' }}</strong>
-        </div>
-        <div>
-          <span>技能标签</span>
-          <div class="tag-row">
-            <el-tag v-for="skill in planSkills" :key="skill" size="small">{{ skill }}</el-tag>
-          </div>
-        </div>
-      </div>
-
-      <div class="coach-advice-panel">
-        <div class="plan-block-head">
-          <div>
-            <h3>AI 求职顾问</h3>
-            <span>结合投递、面试和技能证据生成下一步行动</span>
-          </div>
-          <el-button type="primary" :loading="coachAdviceLoading" @click="runCoachAdvice">
-            <Sparkles :size="17" />
-            生成顾问建议
-          </el-button>
-        </div>
-
-        <el-skeleton v-if="coachAdviceLoading && !coachAdvice" :rows="4" animated />
-        <el-empty v-else-if="!coachAdvice" class="compact-empty" description="暂无顾问建议" />
-        <div v-else class="coach-advice-result">
-          <div class="readiness-row">
-            <div class="readiness-score">{{ coachAdvice.readinessScore }}</div>
+        <div v-if="selectedResume" class="grid two resume-summary-grid">
+          <div class="item-card">
+            <div class="score">{{ selectedResume.score }}</div>
             <div>
-              <strong>{{ coachAdvice.mocked ? '演示顾问' : '真实 AI 顾问' }}</strong>
-              <p>{{ coachAdvice.headline }}</p>
+              <strong>{{ selectedResume.fileName }}</strong>
+              <div v-html="renderMarkdown(selectedResume.diagnosis)" />
             </div>
           </div>
-          <div class="plan-two-columns">
-            <div>
-              <strong class="subheading">优先行动</strong>
-              <ul class="plain-list dense">
-                <li v-for="action in coachAdvice.priorityActions" :key="action">{{ action }}</li>
-              </ul>
-            </div>
-            <div>
-              <strong class="subheading">风险提醒</strong>
-              <ul class="plain-list dense">
-                <li v-for="risk in coachAdvice.riskWarnings" :key="risk">{{ risk }}</li>
-              </ul>
-            </div>
-          </div>
-          <div class="plan-two-columns">
-            <div>
-              <strong class="subheading">学习路径</strong>
-              <ul class="plain-list dense">
-                <li v-for="step in coachAdvice.learningPath" :key="step">{{ step }}</li>
-              </ul>
-            </div>
-            <div>
-              <strong class="subheading">面试训练</strong>
-              <ul class="plain-list dense">
-                <li v-for="drill in coachAdvice.interviewDrills" :key="drill">{{ drill }}</li>
-              </ul>
-            </div>
-          </div>
-          <div class="tag-row">
-            <el-tag v-for="keyword in coachAdvice.searchKeywords" :key="keyword" type="success">{{ keyword }}</el-tag>
-          </div>
-        </div>
-      </div>
-
-      <div class="plan-grid">
-        <div class="plan-block">
-          <div class="plan-block-head">
-            <div>
-              <h3>简历改写建议</h3>
-              <span>面向目标岗位重写摘要、项目和关键词</span>
-            </div>
-            <el-button type="primary" :loading="resumeRewriteLoading" @click="runResumeRewrite">
-              <Sparkles :size="17" />
-              生成改写
-            </el-button>
-          </div>
-
-          <el-skeleton v-if="resumeRewriteLoading && !resumeRewrite" :rows="5" animated />
-          <el-empty v-else-if="!resumeRewrite" class="compact-empty" description="暂无改写建议" />
-          <div v-else class="rewrite-result">
-            <div class="plan-note">
-              <strong>优化摘要</strong>
-              <p>{{ resumeRewrite.improvedSummary }}</p>
-            </div>
-            <div>
-              <strong class="subheading">项目改写</strong>
-              <ul class="plain-list dense">
-                <li v-for="project in resumeRewrite.rewrittenProjects" :key="project">{{ project }}</li>
-              </ul>
-            </div>
-            <div>
-              <strong class="subheading">关键词建议</strong>
-              <div class="tag-row">
-                <el-tag v-for="keyword in resumeRewrite.keywordSuggestions" :key="keyword" type="success">{{ keyword }}</el-tag>
-              </div>
-            </div>
-            <div class="plan-two-columns">
-              <div>
-                <strong class="subheading">缺失证据</strong>
-                <ul class="plain-list dense">
-                  <li v-for="item in resumeRewrite.missingEvidence" :key="item">{{ item }}</li>
-                </ul>
-              </div>
-              <div>
-                <strong class="subheading">行动清单</strong>
-                <ul class="plain-list dense">
-                  <li v-for="item in resumeRewrite.actionChecklist" :key="item">{{ item }}</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="plan-block">
-          <div class="plan-block-head">
-            <div>
-              <h3>8 周职业规划</h3>
-              <span>按准备度、里程碑和每周动作拆解</span>
-            </div>
-            <el-button type="primary" :loading="careerPlanLoading" @click="runCareerPlan">
-              <Route :size="17" />
-              生成规划
-            </el-button>
-          </div>
-
-          <el-skeleton v-if="careerPlanLoading && !careerPlan" :rows="5" animated />
-          <el-empty v-else-if="!careerPlan" class="compact-empty" description="暂无求职规划" />
-          <div v-else class="career-result">
-            <div class="readiness-row">
-              <div class="readiness-score">{{ careerPlan.readinessScore }}</div>
-              <div>
-                <strong>准备度</strong>
-                <el-progress :percentage="careerPlan.readinessScore" :status="readinessType" :stroke-width="10" />
-              </div>
-            </div>
-            <p class="career-summary">{{ careerPlan.summary }}</p>
-
-            <el-timeline class="plan-timeline">
-              <el-timeline-item
-                v-for="milestone in careerPlan.milestones"
-                :key="milestone.title"
-                :timestamp="milestone.timeframe"
-                placement="top"
-              >
-                <div class="milestone-body">
-                  <strong>{{ milestone.title }}</strong>
-                  <ul class="plain-list dense">
-                    <li v-for="goal in milestone.goals" :key="goal">{{ goal }}</li>
-                  </ul>
-                </div>
-              </el-timeline-item>
-            </el-timeline>
-
-            <div class="plan-two-columns">
-              <div>
-                <strong class="subheading">技能短板</strong>
-                <div class="tag-row">
-                  <el-tag v-for="gap in careerPlan.skillGaps" :key="gap" type="warning">{{ gap }}</el-tag>
-                </div>
-              </div>
-              <div>
-                <strong class="subheading">面试重点</strong>
-                <ul class="plain-list dense">
-                  <li v-for="focus in careerPlan.interviewFocus" :key="focus">{{ focus }}</li>
-                </ul>
-              </div>
-            </div>
-            <div class="plan-two-columns">
-              <div>
-                <strong class="subheading">每周动作</strong>
-                <ul class="plain-list dense">
-                  <li v-for="action in careerPlan.weeklyActions" :key="action">{{ action }}</li>
-                </ul>
-              </div>
-              <div>
-                <strong class="subheading">作品集任务</strong>
-                <ul class="plain-list dense">
-                  <li v-for="task in careerPlan.portfolioTasks" :key="task">{{ task }}</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="planning-history-section">
-        <div class="planning-history-head">
-          <div>
-            <h3>生成历史</h3>
-            <span>后端开启持久化后刷新页面仍会保留</span>
-          </div>
-          <el-button size="small" :loading="planningHistoryLoading" @click="refreshPlanningHistory()">
-            <RefreshCw :size="15" />
-            刷新历史
-          </el-button>
-        </div>
-        <el-empty v-if="planningHistory.length === 0 && !planningHistoryLoading" class="compact-empty" description="暂无生成历史" />
-        <div v-else v-loading="planningHistoryLoading" class="planning-history-list">
-          <article v-for="record in planningHistory" :key="record.recordId" class="planning-history-card">
-            <header>
-              <div>
-                <strong>{{ planningRecordTitle(record) }}</strong>
-                <span>{{ record.targetRole }} · {{ formatTime(record.createdAt) }}</span>
-              </div>
-              <el-tag :type="record.mocked ? 'warning' : 'success'">{{ record.mocked ? '演示' : '真实' }}</el-tag>
-            </header>
-            <p>{{ planningRecordSummary(record) }}</p>
-            <div v-if="record.resumeRewrite?.keywordSuggestions?.length" class="tag-row">
-              <el-tag v-for="keyword in record.resumeRewrite.keywordSuggestions.slice(0, 5)" :key="`${record.recordId}-${keyword}`" type="success">
-                {{ keyword }}
-              </el-tag>
-            </div>
-            <div v-if="record.careerPlan?.skillGaps?.length" class="tag-row">
-              <el-tag v-for="gap in record.careerPlan.skillGaps.slice(0, 5)" :key="`${record.recordId}-${gap}`" type="warning">
-                {{ gap }}
-              </el-tag>
-            </div>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <div v-if="activeModule === 'jobs'" class="module-stack">
-      <section class="panel">
-        <h2 class="panel-title">
-          匹配结果
-          <BriefcaseBusiness :size="19" />
-        </h2>
-        <div v-if="match" class="grid two" style="align-items: center">
-          <div class="score">{{ match.score }}</div>
-          <div>
-            <strong>建议</strong>
-            <ul class="plain-list">
-              <li v-for="item in match.suggestions" :key="item">{{ item }}</li>
-            </ul>
-          </div>
-        </div>
-        <el-empty v-else description="暂无匹配结果" />
-      </section>
-
-      <section class="panel">
-        <h2 class="panel-title">推荐岗位</h2>
-        <div class="grid two">
-          <article v-for="job in jobs" :key="job.jobId" class="item-card">
-            <strong>{{ job.title }}</strong>
-            <span>{{ job.companyName }} · {{ job.city }} · {{ job.salaryRange }}</span>
+          <div class="item-card">
+            <strong>解析状态</strong>
             <div class="tag-row">
-              <el-tag v-for="skill in job.requiredSkills" :key="skill">{{ skill }}</el-tag>
+              <el-tag type="info">{{ selectedResume.sourceFormat || '未知格式' }}</el-tag>
+              <el-tag type="success">{{ selectedResume.parseStatus || '待解析' }}</el-tag>
+              <el-tag>{{ selectedResume.parsedTextLength || 0 }} 字符</el-tag>
             </div>
-            <p>{{ job.aiSummary }}</p>
-            <div class="actions">
-              <el-button @click="runMatch(job.jobId)">匹配</el-button>
-              <el-button type="primary" @click="deliver(job.jobId)">
-                <Send :size="17" />
-                投递
-              </el-button>
-            </div>
+          </div>
+        </div>
+        <el-empty v-else description="暂无简历，请先上传" />
+      </section>
+
+      <section class="panel module-panel">
+        <h2 class="panel-title"><span>简历资料与诊断</span><RefreshCw :size="19" /></h2>
+        <div class="form-grid">
+          <el-input v-model="resumeForm.education" placeholder="学历与专业" />
+          <el-input v-model="targetRole" placeholder="目标岗位" />
+          <el-input v-model="resumeForm.skills" type="textarea" :rows="3" placeholder="技能，使用逗号或换行分隔" />
+          <el-input v-model="resumeForm.projects" type="textarea" :rows="3" placeholder="项目，使用逗号或换行分隔" />
+        </div>
+        <div class="actions">
+          <el-button type="primary" :loading="resumeActionLoading" @click="saveResumeProfile">保存资料</el-button>
+          <el-button :loading="resumeActionLoading" @click="runResumeAnalysis">重新诊断</el-button>
+          <el-button :loading="resumeActionLoading" @click="runResumeRewrite">生成改写</el-button>
+        </div>
+        <div v-if="diagnoses.length" class="history-list">
+          <article v-for="diagnosis in diagnoses" :key="diagnosis.diagnosisId" class="history-row">
+            <strong>{{ diagnosis.targetJob || '通用诊断' }}</strong>
+            <span>{{ diagnosis.score }} 分 · {{ diagnosis.createdAt }}</span>
+            <div class="tag-row"><el-tag :type="sourceTagType(diagnosis.source)">{{ sourceTagLabel(diagnosis.source) }}</el-tag></div>
+            <div v-html="renderMarkdown(diagnosis.diagnosis)" />
           </article>
         </div>
+        <div v-if="resumeRewrite" class="rewrite-result">
+          <div class="result-header"><strong>改写摘要</strong><el-tag :type="sourceTagType(undefined, resumeRewrite.mocked)">{{ sourceTagLabel(undefined, resumeRewrite.mocked) }}</el-tag></div>
+          <div v-html="renderMarkdown(resumeRewrite.improvedSummary)" />
+          <div class="tag-row"><el-tag v-for="keyword in resumeRewrite.keywordSuggestions" :key="keyword">{{ keyword }}</el-tag></div>
+        </div>
       </section>
-    </div>
+    </template>
 
-    <section v-if="activeModule === 'interview'" class="panel interview-panel module-panel">
-      <h2 class="panel-title">
-        AI 模拟面试
-        <Brain :size="19" />
-      </h2>
-      <div class="ai-status-strip">
-        <div class="ai-status-main">
-          <span class="status-dot" :class="{ active: aiStatus?.configured }" />
+    <template v-else-if="activeModule === 'jobs'">
+      <section class="panel module-panel" v-loading="jobsLoading">
+        <h2 class="panel-title"><span>岗位与匹配</span><BriefcaseBusiness :size="19" /></h2>
+        <div class="match-toolbar">
+          <el-select v-model="selectedResumeId" placeholder="选择简历" @change="selectResume">
+            <el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" />
+          </el-select>
+          <el-select v-model="selectedJobId" placeholder="选择岗位">
+            <el-option v-for="job in jobs" :key="job.jobId" :label="`${job.title} · ${job.companyName}`" :value="job.jobId" />
+          </el-select>
+          <el-button type="primary" :loading="matchLoading" @click="runMatch">匹配</el-button>
+        </div>
+        <article v-if="selectedJob" class="item-card selected-job-card">
           <div>
-            <strong>{{ aiStatusText }}</strong>
-            <span>{{ aiProviderText }}</span>
+            <strong>{{ selectedJob.title }}</strong>
+            <span>{{ selectedJob.companyName }} · {{ selectedJob.city }} · {{ selectedJob.salaryRange }}</span>
           </div>
-        </div>
-        <div class="ai-status-meta">
-          <el-tag :type="aiStatusTagType">{{ aiStatus?.configured ? '模型在线' : '降级可用' }}</el-tag>
-          <el-button size="small" :loading="aiStatusLoading" @click="refreshAiStatus">
-            <RefreshCw :size="15" />
-            刷新
-          </el-button>
-        </div>
-        <div class="capability-row">
-          <el-tag
-            v-for="capability in aiStatus?.capabilities || []"
-            :key="capability"
-            size="small"
-            effect="plain"
-          >
-            {{ capabilityText(capability) }}
-          </el-tag>
-        </div>
-        <p v-if="aiStatus?.fallbackReason" class="fallback-reason">{{ aiStatus.fallbackReason }}</p>
-      </div>
-
-      <div class="interview-toolbar">
-        <span class="interview-target">目标岗位：{{ interviewRole }}</span>
-        <el-button
-          type="primary"
-          :disabled="!hasInterviewContext"
-          :loading="interviewQuestionsLoading"
-          @click="runInterviewQuestions"
-        >
-          <Brain :size="17" />
-          生成面试题
-        </el-button>
-      </div>
-
-      <el-empty v-if="!hasInterviewContext" description="完成岗位匹配或投递后可开始模拟面试" />
-      <el-empty v-else-if="interviewQuestions.length === 0" class="compact-empty" description="暂无模拟面试题" />
-      <div v-else class="interview-grid">
-        <el-radio-group v-model="selectedQuestionId" class="question-options" @change="selectInterviewQuestion">
-          <el-radio
-            v-for="question in interviewQuestions"
-            :key="question.questionId"
-            :value="question.questionId"
-            class="question-option"
-          >
-            <span class="question-copy">
-              <span class="question-labels">
-                <el-tag size="small">{{ question.category }}</el-tag>
-                <el-tag size="small" type="info">{{ question.difficulty }}</el-tag>
-              </span>
-              <strong>{{ question.question }}</strong>
-            </span>
-          </el-radio>
-        </el-radio-group>
-
-        <div v-if="selectedQuestion" class="answer-column">
-          <div class="reference-points">
-            <strong>答题要点</strong>
-            <ul class="plain-list">
-              <li v-for="item in selectedQuestion.referencePoints" :key="item">{{ item }}</li>
-            </ul>
-          </div>
-          <el-input
-            v-model="interviewAnswer"
-            type="textarea"
-            :rows="5"
-            maxlength="1000"
-            show-word-limit
-            placeholder="输入你的回答"
-          />
-          <div class="actions">
-            <el-button
-              type="primary"
-              :disabled="!interviewAnswer.trim()"
-              :loading="interviewFeedbackLoading"
-              @click="submitInterviewAnswer"
-            >
-              <Send :size="17" />
-              提交回答
-            </el-button>
-          </div>
-
-          <div v-if="interviewFeedback" class="feedback">
-            <div class="feedback-head">
-              <div class="feedback-score">{{ interviewFeedback.score }}</div>
-              <p>{{ interviewFeedback.summary }}</p>
+          <p>{{ selectedJob.description }}</p>
+          <div class="tag-row"><el-tag v-for="skill in selectedJob.requiredSkills" :key="skill">{{ skill }}</el-tag></div>
+        </article>
+      </section>
+      <section class="grid two">
+        <article v-if="currentMatch" class="panel module-panel match-result">
+          <h2 class="panel-title"><span>本次匹配结果</span><CheckCircle2 :size="19" /></h2>
+          <strong class="match-score">技能覆盖率 {{ currentMatch.score }}%</strong>
+          <div class="tag-row"><el-tag :type="sourceTagType(currentMatch.analysisSource)">{{ sourceTagLabel(currentMatch.analysisSource) }}</el-tag></div>
+          <p>优势：{{ currentMatch.strengths.join('；') }}</p>
+          <p>待补齐：{{ currentMatch.gaps.join('；') }}</p>
+        </article>
+        <article class="panel module-panel">
+          <h2 class="panel-title"><span>匹配覆盖</span><Sparkles :size="19" /></h2>
+          <el-empty v-if="!matches.length" description="尚无匹配记录" />
+          <div v-else class="history-list compact">
+            <div v-for="match in matches" :key="match.matchId" class="history-row">
+              <strong>{{ jobs.find((job) => job.jobId === match.jobId)?.title || match.jobId }}</strong>
+              <span>技能覆盖率 {{ match.score }}%</span>
+              <div class="tag-row"><el-tag :type="sourceTagType(match.analysisSource)">{{ sourceTagLabel(match.analysisSource) }}</el-tag></div>
             </div>
-            <div class="feedback-lists">
-              <div>
-                <strong>优势</strong>
-                <ul class="plain-list">
-                  <li v-for="item in interviewFeedback.strengths" :key="item">{{ item }}</li>
-                </ul>
-              </div>
-              <div>
-                <strong>不足</strong>
-                <ul class="plain-list">
-                  <li v-for="item in interviewFeedback.gaps" :key="item">{{ item }}</li>
-                </ul>
-              </div>
-              <div>
-                <strong>建议</strong>
-                <ul class="plain-list">
-                  <li v-for="item in interviewFeedback.suggestions" :key="item">{{ item }}</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section v-if="activeModule === 'schedule'" class="panel module-panel">
-      <div class="panel-title history-title">
-        <span>
-          面试日程
-          <CalendarDays :size="19" />
-        </span>
-        <el-button size="small" :loading="schedulesLoading" @click="refreshSchedules(true)">
-          <RefreshCw :size="15" />
-          刷新
-        </el-button>
-      </div>
-      <el-table
-        v-loading="schedulesLoading"
-        class="delivery-table"
-        :data="schedules"
-        style="width: 100%"
-        empty-text="暂无面试日程"
-      >
-        <el-table-column prop="title" label="主题" min-width="180" />
-        <el-table-column prop="companyId" label="企业" width="110" />
-        <el-table-column prop="jobId" label="岗位" width="110" />
-        <el-table-column label="时间" width="150">
-          <template #default="{ row }">{{ formatTime(row.startTime) }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="110">
-          <template #default="{ row }">
-            <el-tag :type="scheduleStatusTagType(row.status)">{{ scheduleStatusText(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="location" label="地点" min-width="140" />
-        <el-table-column label="操作" width="190">
-          <template #default="{ row }">
-            <el-button
-              size="small"
-              type="success"
-              :disabled="row.status !== 'PROPOSED'"
-              :loading="scheduleActionLoading[row.scheduleId]"
-              @click="changeScheduleStatus(row, 'CONFIRMED')"
-            >
-              确认
-            </el-button>
-            <el-button
-              size="small"
-              type="danger"
-              plain
-              :disabled="row.status !== 'PROPOSED'"
-              :loading="scheduleActionLoading[row.scheduleId]"
-              @click="changeScheduleStatus(row, 'DECLINED')"
-            >
-              拒绝
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </section>
-
-    <section v-if="activeModule === 'notifications'" class="panel module-panel">
-      <div class="panel-title history-title">
-        <span>
-          通知中心
-          <Bell :size="19" />
-        </span>
-        <el-button size="small" :loading="notificationsLoading" @click="refreshNotifications(true)">
-          <RefreshCw :size="15" />
-          刷新
-        </el-button>
-      </div>
-      <el-empty v-if="notifications.length === 0 && !notificationsLoading" class="compact-empty" description="暂无通知" />
-      <div v-else v-loading="notificationsLoading" class="notification-list">
-        <article v-for="notification in notifications" :key="notification.notificationId" class="item-card notification-card">
-          <header>
-            <div>
-              <strong>{{ notification.title }}</strong>
-              <span>{{ notification.sourceType }} / {{ notification.sourceId }} / {{ formatTime(notification.createdAt) }}</span>
-            </div>
-            <el-tag :type="notification.read ? 'info' : 'warning'">{{ notification.read ? '已读' : '未读' }}</el-tag>
-          </header>
-          <p>{{ notification.content }}</p>
-          <div class="actions">
-            <el-button size="small" :disabled="notification.read" @click="readNotification(notification)">标记已读</el-button>
           </div>
         </article>
-      </div>
-    </section>
+      </section>
+    </template>
 
-    <section v-if="activeModule === 'knowledge'" class="panel module-panel">
-      <h2 class="panel-title">
-        RAG 知识库问答
-        <Library :size="19" />
-      </h2>
-      <div class="knowledge-search">
-        <el-input
-          v-model="knowledgeQuery"
-          clearable
-          placeholder="搜索 Java、Redis、面试、简历证据、三虚拟机部署"
-          @keyup.enter="runKnowledgeSearch(true)"
-        />
-        <el-button type="primary" :loading="knowledgeLoading" @click="runKnowledgeSearch(true)">
-          <Search :size="17" />
-          检索
-        </el-button>
-      </div>
-      <div v-if="knowledgeAnswer || knowledgeAnswerLoading" v-loading="knowledgeAnswerLoading" class="rag-answer">
-        <header>
-          <strong>AI 引用回答</strong>
-          <el-tag :type="knowledgeAnswer?.mocked ? 'warning' : 'success'" size="small">
-            {{ knowledgeAnswer?.provider || 'generating' }}
-          </el-tag>
-        </header>
-        <p>{{ knowledgeAnswer?.answer || '正在生成基于知识库证据的回答...' }}</p>
-        <div v-if="knowledgeAnswer?.citations.length" class="citation-list">
-          <div v-for="(citation, index) in knowledgeAnswer.citations" :key="citation.chunkId" class="citation-row">
-            <span>[{{ index + 1 }}]</span>
-            <div>
-              <strong>{{ citation.title }}</strong>
-              <small>{{ citation.source }} / {{ citation.score }} 分 / {{ citation.chunkId }}</small>
-              <p>{{ citation.snippet }}</p>
+    <template v-else-if="activeModule === 'plan'">
+      <section class="panel module-panel" v-loading="planLoading">
+        <h2 class="panel-title"><span>学习计划</span><Route :size="19" /></h2>
+        <div class="form-grid three-fields">
+          <el-input v-model="planForm.targetRole" placeholder="目标岗位" />
+          <label class="number-field">
+            <span>每周投入（小时）</span>
+            <el-input-number v-model="planForm.weeklyHours" :min="2" :max="40" controls-position="right" />
+          </label>
+          <label class="number-field">
+            <span>计划周期（周）</span>
+            <el-input-number v-model="planForm.durationWeeks" :min="1" :max="24" controls-position="right" />
+          </label>
+        </div>
+        <div class="actions"><el-button type="primary" :loading="planActionLoading" @click="createPlan">生成学习计划</el-button></div>
+      </section>
+      <section v-if="plans.length" class="grid two">
+        <article class="panel module-panel">
+          <h2 class="panel-title"><span>计划版本</span><RefreshCw :size="19" /></h2>
+          <el-select v-model="selectedPlanId" placeholder="选择学习计划" @change="loadPlanVersions">
+            <el-option v-for="plan in plans" :key="plan.planId" :label="`${plan.targetRole} · V${plan.version} · ${plan.status === 'ACTIVE' ? '当前' : '只读'}`" :value="plan.planId" />
+          </el-select>
+          <div v-if="selectedPlan" class="plan-meta">
+            <strong>{{ selectedPlan.targetRole }}</strong>
+            <span>V{{ selectedPlan.version }} · {{ selectedPlan.weeklyHours }} 小时/周 · {{ selectedPlan.durationWeeks }} 周</span>
+            <div class="tag-row">
+              <el-tag :type="selectedPlanIsActive ? 'success' : 'info'">{{ selectedPlanIsActive ? '当前可编辑版本' : '历史版本（只读）' }}</el-tag>
+              <el-tag :type="sourceTagType(undefined, selectedPlan.mocked)">{{ sourceTagLabel(undefined, selectedPlan.mocked) }}</el-tag>
+              <el-tag v-for="version in planVersions" :key="version.planId" type="info">V{{ version.version }}</el-tag>
             </div>
           </div>
-        </div>
-      </div>
-      <el-empty
-        v-if="!knowledgeResponse?.results.length && !knowledgeLoading"
-        class="compact-empty"
-        description="输入关键词后检索知识库"
-      />
-      <div v-else v-loading="knowledgeLoading" class="knowledge-results">
-        <article v-for="result in knowledgeResponse?.results || []" :key="result.id" class="item-card knowledge-card">
-          <header>
-            <div>
-              <strong>{{ result.title }}</strong>
-              <span>{{ result.type }} / {{ result.owner }} / {{ result.score }} 分</span>
+          <el-alert v-if="selectedPlan && !selectedPlanIsActive" title="当前选择的是历史版本，任务和重新规划均为只读。" type="info" :closable="false" show-icon />
+          <el-input v-model="planForm.replanReason" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="计划变化或复盘原因" />
+          <el-select v-model="selectedCompletedSessionId" :disabled="!selectedPlanIsActive" clearable placeholder="选择同目标的已完成面试会话（可选）">
+            <el-option
+              v-for="session in compatibleCompletedSessions"
+              :key="session.sessionId"
+              :label="`${session.targetRole} · ${session.completedAt || session.updatedAt}`"
+              :value="session.sessionId"
+            />
+          </el-select>
+          <div class="actions"><el-button :disabled="!selectedPlanIsActive" :loading="planActionLoading" @click="replan">重新规划</el-button></div>
+        </article>
+        <article class="panel module-panel">
+          <h2 class="panel-title"><span>任务进度</span><CheckCircle2 :size="19" /></h2>
+          <el-empty v-if="!selectedPlan" description="请选择学习计划" />
+          <div v-else class="task-list">
+            <div v-for="task in selectedPlan.tasks" :key="task.taskId" class="task-row">
+              <div>
+                <strong>第 {{ task.week }} 周 · {{ task.title }}</strong>
+                <p>{{ task.description }}</p>
+                <small v-if="task.stage">阶段：{{ learningStageLabel(task.stage) }}</small>
+                <small v-if="task.skillGap">技能缺口：{{ task.skillGap }}</small>
+                <small v-if="task.acceptanceCriteria">验收：{{ task.acceptanceCriteria }}</small>
+                <small v-if="task.practiceDeliverable">练习交付物：{{ task.practiceDeliverable }}</small>
+              </div>
+              <span>{{ task.estimatedHours }} 小时</span>
+              <el-select :disabled="!selectedPlanIsActive" :model-value="task.status" @update:model-value="saveTask(task.taskId, String($event))">
+                <el-option label="待开始" value="PENDING" />
+                <el-option label="进行中" value="IN_PROGRESS" />
+                <el-option label="已完成" value="COMPLETED" />
+                <el-option label="已跳过" value="SKIPPED" />
+              </el-select>
+              <el-input v-model="taskFeedback[task.taskId]" :disabled="!selectedPlanIsActive" placeholder="复盘备注" @change="saveTask(task.taskId, task.status)" />
             </div>
-            <el-tag type="success">RAG</el-tag>
-          </header>
-          <p>{{ result.summary }}</p>
+          </div>
+        </article>
+      </section>
+      <el-empty v-else description="尚未生成学习计划" />
+    </template>
+
+    <template v-else-if="activeModule === 'interview'">
+      <section class="panel module-panel" v-loading="interviewLoading">
+        <h2 class="panel-title"><span>模拟面试会话</span><Bot :size="19" /></h2>
+        <div class="actions">
+          <el-input-number v-model="interviewQuestionCount" :min="1" :max="8" controls-position="right" aria-label="面试题数" />
+          <el-button type="primary" :loading="interviewActionLoading" @click="startInterview">开始模拟面试</el-button>
+          <el-button @click="router.push({ path: '/student/interview', query: { tab: 'history' } })">会话历史</el-button>
+          <el-button @click="router.push('/student/interview')">当前会话</el-button>
+        </div>
+      </section>
+      <section v-if="interviewHistoryOpen" class="panel module-panel">
+        <h2 class="panel-title"><span>面试记录</span><RefreshCw :size="19" /></h2>
+        <el-empty v-if="!interviewSessions.length" description="暂无模拟面试记录" />
+        <div v-else class="history-list">
+          <button v-for="session in interviewSessions" :key="session.sessionId" class="history-row selectable" @click="selectedSessionId = session.sessionId; selectSession()">
+            <strong>{{ session.targetRole }}</strong><span>{{ session.status }} · {{ session.answers.length }}/{{ session.questions.length }} 题</span>
+            <div class="tag-row"><el-tag :type="sourceTagType(undefined, session.mocked)">{{ sourceTagLabel(undefined, session.mocked) }}</el-tag></div>
+          </button>
+        </div>
+      </section>
+      <section v-else-if="selectedSession && activeQuestion" class="grid two">
+        <article class="panel module-panel">
+          <h2 class="panel-title"><span>第 {{ activeQuestionIndex + 1 }} 题 / {{ selectedSession.questions.length }}</span><BrainCircuit :size="19" /></h2>
           <div class="tag-row">
-            <el-tag v-for="highlight in result.highlights" :key="`${result.id}-${highlight}`" size="small" effect="plain">
-              {{ highlight }}
-            </el-tag>
+            <el-tag type="info">{{ activeQuestion.category || '综合' }}</el-tag>
+            <el-tag>{{ activeQuestion.difficulty || '普通' }}</el-tag>
+            <el-tag :type="sourceTagType(activeQuestion.source || activeQuestion.generationSource, selectedSession.mocked)">{{ sourceTagLabel(activeQuestion.source || activeQuestion.generationSource, selectedSession.mocked) }}</el-tag>
+          </div>
+          <p class="question-text">{{ activeQuestion.question }}</p>
+          <ul v-if="activeQuestion.referencePoints?.length" class="plain-list"><li v-for="point in activeQuestion.referencePoints" :key="point">{{ point }}</li></ul>
+          <div class="actions question-nav">
+            <el-button :disabled="activeQuestionIndex === 0" @click="activeQuestionIndex -= 1">上一题</el-button>
+            <el-button :disabled="activeQuestionIndex >= selectedSession.questions.length - 1" @click="activeQuestionIndex += 1">下一题</el-button>
           </div>
         </article>
-      </div>
-    </section>
-
-    <section v-if="activeModule === 'history'" class="panel interview-history-panel module-panel">
-      <div class="panel-title history-title">
-        <span>
-          面试记录
-          <Clock3 :size="19" />
-        </span>
-        <el-button size="small" :loading="interviewRecordsLoading" @click="refreshInterviewRecords">
-          <RefreshCw :size="15" />
-          刷新
-        </el-button>
-      </div>
-      <el-table
-        v-loading="interviewRecordsLoading"
-        class="history-table"
-        :data="interviewRecords"
-        style="width: 100%"
-        empty-text="暂无面试记录"
-      >
-        <el-table-column type="expand">
-          <template #default="{ row }">
-            <div class="record-detail">
-              <div>
-                <strong>题目</strong>
-                <p>{{ row.question }}</p>
-              </div>
-              <div>
-                <strong>回答</strong>
-                <p>{{ row.answer }}</p>
-              </div>
-              <div>
-                <strong>建议</strong>
-                <ul class="plain-list">
-                  <li v-for="item in row.suggestions" :key="item">{{ item }}</li>
-                </ul>
-              </div>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="时间" width="108">
-          <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
-        </el-table-column>
-        <el-table-column prop="targetRole" label="岗位" min-width="120" />
-        <el-table-column label="评分" width="72">
-          <template #default="{ row }">
-            <span class="history-score">{{ row.score }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="模式" width="84">
-          <template #default="{ row }">
-            <el-tag :type="row.mocked ? 'warning' : 'success'">{{ row.mocked ? '演示' : '真实' }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="summary" label="总结" min-width="180" />
-      </el-table>
-      <div v-loading="interviewRecordsLoading" class="history-cards">
-        <el-empty v-if="interviewRecords.length === 0" class="compact-empty" description="暂无面试记录" />
-        <article v-for="record in interviewRecords" v-else :key="record.recordId" class="history-card">
-          <div class="history-card-head">
-            <span class="history-score">{{ record.score }}</span>
-            <div>
-              <strong>{{ record.targetRole }}</strong>
-              <span>{{ formatTime(record.createdAt) }}</span>
-            </div>
-            <el-tag :type="record.mocked ? 'warning' : 'success'">{{ record.mocked ? '演示' : '真实' }}</el-tag>
-          </div>
-          <p>{{ record.summary }}</p>
-          <details>
-            <summary>查看题目与建议</summary>
-            <div class="record-detail compact">
-              <div>
-                <strong>题目</strong>
-                <p>{{ record.question }}</p>
-              </div>
-              <div>
-                <strong>回答</strong>
-                <p>{{ record.answer }}</p>
-              </div>
-              <div>
-                <strong>建议</strong>
-                <ul class="plain-list">
-                  <li v-for="item in record.suggestions" :key="item">{{ item }}</li>
-                </ul>
-              </div>
-            </div>
-          </details>
-        </article>
-      </div>
-    </section>
-
-    <section v-if="activeModule === 'deliveries'" class="panel module-panel">
-      <h2 class="panel-title">投递记录</h2>
-      <el-table class="delivery-table" :data="deliveries" style="width: 100%">
-        <el-table-column prop="deliveryId" label="编号" width="96" />
-        <el-table-column prop="jobId" label="岗位" min-width="90" />
-        <el-table-column label="状态" width="104">
-          <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="createdAt" label="时间" min-width="150" />
-      </el-table>
-    </section>
-
-    <section v-if="activeModule === 'lifecycle'" v-loading="lifecycleLoading" class="panel module-panel lifecycle-panel">
-      <div class="panel-title history-title">
-        <span>
-          简历闭环
-          <ClipboardList :size="19" />
-        </span>
-        <el-button size="small" :loading="lifecycleLoading" @click="refreshCandidateScreenRecords">
-          <RefreshCw :size="15" />
-          刷新
-        </el-button>
-      </div>
-
-      <el-timeline class="lifecycle-timeline">
-        <el-timeline-item
-          v-for="step in lifecycleSteps"
-          :key="step.key"
-          :type="step.type"
-          :timestamp="step.time"
-          placement="top"
-        >
-          <div class="lifecycle-step">
-            <strong>{{ step.title }}</strong>
-            <span v-for="line in step.lines" :key="line">{{ line }}</span>
-          </div>
-        </el-timeline-item>
-      </el-timeline>
-
-      <div class="lifecycle-grid">
-        <article v-if="resume" class="item-card lifecycle-card">
-          <div class="resume-card-header">
-            <strong>{{ resume.fileName }}</strong>
-            <span class="status-pill success">{{ resume.score }} 分</span>
-          </div>
-          <span>{{ resume.sourceFormat }} / {{ parseStatusText(resume.parseStatus) }} / {{ resume.parsedTextLength }} 字</span>
-          <p>{{ resume.diagnosis }}</p>
-        </article>
-
-        <article v-for="delivery in deliveries.slice(0, 3)" :key="delivery.deliveryId" class="item-card lifecycle-card">
-          <div class="resume-card-header">
-            <strong>{{ delivery.deliveryId }} / {{ delivery.jobId }}</strong>
-            <span class="status-pill" :class="statusTagType(delivery.status)">{{ statusText(delivery.status) }}</span>
-          </div>
-          <span>{{ delivery.resumeSourceFormat || delivery.sourceFormat || 'UNKNOWN' }} / {{ parseStatusText(delivery.resumeParseStatus || delivery.parseStatus || 'UNKNOWN') }}</span>
-          <span>{{ formatTime(delivery.createdAt) }}</span>
-        </article>
-      </div>
-
-      <div class="screening-section">
-        <h3>初筛反馈</h3>
-        <el-empty v-if="candidateScreenRecords.length === 0" class="compact-empty" description="暂无初筛反馈" />
-        <article v-for="record in candidateScreenRecords" v-else :key="record.screeningId" class="screening-card">
-          <div class="screening-head">
-            <span class="history-score">{{ record.score }}</span>
-            <div>
-              <strong>{{ record.recommendation }}</strong>
-              <span>{{ record.companyId }} / {{ record.jobId }} / {{ formatTime(record.createdAt) }}</span>
-            </div>
-            <span class="status-pill" :class="record.mocked ? 'warning' : 'success'">{{ record.mocked ? '演示' : '真实' }}</span>
-          </div>
-          <div class="screening-lists">
-            <div>
-              <strong>优势</strong>
-              <ul class="plain-list">
-                <li v-for="item in record.strengths" :key="item">{{ item }}</li>
-              </ul>
-            </div>
-            <div>
-              <strong>风险</strong>
-              <ul class="plain-list">
-                <li v-for="item in record.risks" :key="item">{{ item }}</li>
-              </ul>
-            </div>
-            <div>
-              <strong>下一步</strong>
-              <ul class="plain-list">
-                <li v-for="item in record.nextActions" :key="item">{{ item }}</li>
-              </ul>
-            </div>
+        <article class="panel module-panel">
+          <h2 class="panel-title"><span>我的回答</span><FileText :size="19" /></h2>
+          <el-input v-model="currentAnswer" type="textarea" :rows="10" placeholder="输入回答，保存后可在会话中恢复" />
+          <div class="actions">
+            <el-button type="primary" :loading="interviewActionLoading" @click="saveCurrentAnswer">保存回答</el-button>
+            <el-button :loading="interviewActionLoading" @click="finishInterview">完成并生成报告</el-button>
           </div>
         </article>
-      </div>
-    </section>
+      </section>
+      <el-empty v-else-if="!interviewHistoryOpen" description="开始一次模拟面试后可在此继续作答" />
+      <section v-if="sessionReport" class="panel module-panel interview-report">
+        <h2 class="panel-title"><span>面试报告</span><CheckCircle2 :size="19" /></h2>
+        <strong class="match-score">{{ sessionReport.overallScore }} 分</strong>
+        <div class="tag-row"><el-tag :type="sourceTagType(undefined, sessionReport.mocked)">{{ sourceTagLabel(undefined, sessionReport.mocked) }}</el-tag></div>
+        <div class="grid three report-columns">
+          <div><strong>优势</strong><ul class="plain-list"><li v-for="item in sessionReport.strengths" :key="item">{{ item }}</li></ul></div>
+          <div><strong>待改进</strong><ul class="plain-list"><li v-for="item in sessionReport.gaps" :key="item">{{ item }}</li></ul></div>
+          <div><strong>建议</strong><ul class="plain-list"><li v-for="item in sessionReport.recommendations" :key="item">{{ item }}</li></ul></div>
+        </div>
+      </section>
+    </template>
+
+    <template v-else-if="activeModule === 'knowledge'">
+      <section class="panel module-panel">
+        <h2 class="panel-title"><span>RAG 知识库问答</span><Library :size="19" /></h2>
+        <div class="knowledge-search">
+          <el-input v-model="knowledgeQuery" placeholder="搜索 Java、Redis、面试或简历证据" @keyup.enter="runKnowledgeSearch" />
+          <el-button type="primary" :loading="knowledgeLoading" @click="runKnowledgeSearch"><Search :size="17" />检索</el-button>
+        </div>
+        <div v-if="knowledgeAnswer" class="rag-answer">
+          <header><strong>AI 引用回答</strong><el-tag :type="knowledgeAnswer.mocked ? 'warning' : 'success'">{{ knowledgeAnswer.provider }}</el-tag></header>
+          <div class="knowledge-answer" v-html="renderMarkdown(knowledgeAnswer.answer)" />
+          <div v-if="knowledgeAnswer.citations.length" class="citation-list">
+            <details v-for="(citation, index) in knowledgeAnswer.citations" :key="citation.chunkId" class="citation-row">
+              <summary>[{{ index + 1 }}] {{ citation.title }}</summary>
+              <p>{{ citation.source }} · {{ citation.score }} 分</p>
+              <div v-html="renderMarkdown(citation.snippet)" />
+            </details>
+          </div>
+        </div>
+        <el-empty v-else description="输入关键词后检索知识库" />
+      </section>
+    </template>
   </section>
 </template>
 
 <style scoped>
-.file-picker {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 32px;
-  min-width: 92px;
-  padding: 0 14px;
-  border: 1px solid #cfd8e3;
-  border-radius: 6px;
-  color: #344054;
-  background: #ffffff;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.file-picker:hover {
-  border-color: #409eff;
-  color: #409eff;
-}
-
-.file-picker input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.selected-file-name {
-  align-self: center;
-  min-width: 0;
-  max-width: 280px;
-  color: #475467;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ai-status-strip {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  gap: 12px 16px;
-  align-items: center;
-  min-width: 0;
-  margin-bottom: 16px;
-  padding: 12px;
-  border: 1px solid #dde5ed;
-  border-radius: 8px;
-  background: #f8fafb;
-}
-
-.ai-status-main {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.ai-status-main strong,
-.ai-status-main span {
-  display: block;
-}
-
-.ai-status-main span {
-  margin-top: 2px;
-  color: #667085;
-  font-size: 13px;
-  word-break: break-word;
-}
-
-.status-dot {
-  flex: 0 0 10px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #d97706;
-}
-
-.status-dot.active {
-  background: #0f766e;
-}
-
-.ai-status-meta {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  min-width: 0;
-}
-
-.capability-row {
-  display: flex;
-  grid-column: 1 / -1;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.fallback-reason {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: #b45309;
-  font-size: 13px;
-}
-
-.notification-list,
-.knowledge-results {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-}
-
-.notification-card,
-.knowledge-card {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-
-.notification-card header,
-.knowledge-card header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-}
-
-.notification-card header div,
-.knowledge-card header div {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.notification-card strong,
-.knowledge-card strong {
-  word-break: break-word;
-}
-
-.notification-card span,
-.knowledge-card span {
-  color: #667085;
-  font-size: 13px;
-  word-break: break-word;
-}
-
-.notification-card p,
-.knowledge-card p {
-  margin: 0;
-  color: #475467;
-  line-height: 1.65;
-  overflow-wrap: anywhere;
-}
-
-.knowledge-search {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  gap: 10px;
-  margin-bottom: 16px;
-  min-width: 0;
-}
-
-.rag-answer {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 14px;
-  border: 1px solid #c7ded8;
-  border-radius: 8px;
-  background: #f6fbf9;
-  min-width: 0;
-}
-
-.rag-answer header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-}
-
-.rag-answer strong {
-  overflow-wrap: anywhere;
-}
-
-.rag-answer p {
-  margin: 0;
-  color: #344054;
-  line-height: 1.65;
-  overflow-wrap: anywhere;
-}
-
-.citation-list {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-
-.citation-row {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 10px;
-  padding-top: 10px;
-  border-top: 1px solid #dce9e5;
-  min-width: 0;
-}
-
-.citation-row > span {
-  color: #0f766e;
-  font-weight: 700;
-}
-
-.citation-row div {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.citation-row small {
-  color: #667085;
-  overflow-wrap: anywhere;
-}
-
-.interview-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  min-width: 0;
-  margin-bottom: 16px;
-}
-
-.interview-target {
-  color: #475467;
-  font-weight: 600;
-  word-break: break-word;
-}
-
-.interview-grid {
-  display: grid;
-  grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.1fr);
-  gap: 18px;
-  min-width: 0;
-}
-
-.question-options {
-  display: grid;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-  align-content: start;
-}
-
-.question-option {
-  width: 100%;
-  height: auto;
-  min-height: 84px;
-  min-width: 0;
-  margin: 0;
-  padding: 12px;
-  border: 1px solid #dde5ed;
-  border-radius: 8px;
-  background: #ffffff;
-  align-items: flex-start;
-}
-
-.question-option.is-checked {
-  border-color: #0f766e;
-  background: #f1f8f6;
-}
-
-:deep(.question-option .el-radio__input) {
-  margin-top: 3px;
-}
-
-:deep(.question-option .el-radio__label) {
-  display: block;
-  width: calc(100% - 24px);
-  min-width: 0;
-  padding-left: 10px;
-  color: #18212f;
-  white-space: normal;
-}
-
-.question-copy {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-}
-
-.question-labels {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.answer-column {
-  display: grid;
-  gap: 14px;
-  min-width: 0;
-  align-content: start;
-}
-
-.reference-points {
-  display: grid;
-  gap: 8px;
-}
-
-.feedback {
-  display: grid;
-  gap: 16px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  padding-top: 16px;
-  border-top: 1px solid #dde5ed;
-}
-
-.feedback-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-}
-
-.feedback-head p {
-  min-width: 0;
-  margin: 0;
-  color: #475467;
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-
-.feedback-score {
-  display: grid;
-  flex: 0 0 56px;
-  width: 56px;
-  height: 56px;
-  place-items: center;
-  border-radius: 8px;
-  background: #e6f2ef;
-  color: #0f766e;
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.feedback-lists {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  min-width: 0;
-}
-
-.feedback-lists > div {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.feedback-lists strong {
-  display: block;
-  margin-bottom: 8px;
-}
-
-.feedback-lists .plain-list {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.compact-empty {
-  --el-empty-padding: 18px 0 22px;
-}
-
-.compact-empty :deep(.el-empty__image) {
-  width: 112px;
-}
-
-.plan-panel {
-  min-width: 0;
-}
-
-.plan-title {
-  align-items: center;
-  display: flex;
-  gap: 14px;
-  justify-content: space-between;
-}
-
-.plan-title > span,
-.plan-title-meta {
-  align-items: center;
-  display: inline-flex;
-  gap: 8px;
-  min-width: 0;
-}
-
-.plan-summary-strip {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(160px, 0.8fr) minmax(160px, 0.9fr) minmax(0, 1.4fr);
-  margin-bottom: 16px;
-  padding: 12px;
-  border: 1px solid #dde5ed;
-  border-radius: 8px;
-  background: #f8fafb;
-}
-
-.plan-summary-strip > div {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-
-.plan-summary-strip span {
-  color: #667085;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.plan-summary-strip strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.coach-advice-panel {
-  display: grid;
-  gap: 16px;
-  margin-bottom: 18px;
-  min-width: 0;
-  padding: 14px;
-  border: 1px solid #d8e7e3;
-  border-radius: 8px;
-  background: #f7fbfa;
-}
-
-.plan-grid {
-  display: grid;
-  gap: 18px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  min-width: 0;
-}
-
-.plan-block {
-  display: grid;
-  align-content: start;
-  gap: 16px;
-  min-width: 0;
-  padding-top: 4px;
-}
-
-.plan-block + .plan-block {
-  border-left: 1px solid #e4e7ec;
-  padding-left: 18px;
-}
-
-.plan-block-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-}
-
-.plan-block-head > div {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.plan-block-head h3 {
-  margin: 0;
-  color: #18212f;
-  font-size: 16px;
-}
-
-.plan-block-head span {
-  color: #667085;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.rewrite-result,
-.coach-advice-result,
-.career-result {
-  display: grid;
-  gap: 16px;
-  min-width: 0;
-}
-
-.plan-note {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid #cfe1dc;
-  border-radius: 8px;
-  background: #f1f8f6;
-}
-
-.plan-note p,
-.career-summary {
-  margin: 0;
-  color: #475467;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.subheading {
-  display: block;
-  margin-bottom: 8px;
-  color: #344054;
-}
-
-.plain-list.dense {
-  display: grid;
-  gap: 7px;
-}
-
-.plain-list.dense li {
-  overflow-wrap: anywhere;
-}
-
-.plan-two-columns {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  min-width: 0;
-}
-
-.plan-two-columns > div {
-  min-width: 0;
-}
-
-.readiness-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  min-width: 0;
-}
-
-.readiness-score {
-  display: grid;
-  width: 58px;
-  height: 58px;
-  place-items: center;
-  border-radius: 8px;
-  background: #e6f2ef;
-  color: #0f766e;
-  font-size: 24px;
-  font-weight: 800;
-}
-
-.plan-timeline {
-  margin: 4px 0 0;
-  padding-left: 4px;
-}
-
-.milestone-body {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.milestone-body strong {
-  overflow-wrap: anywhere;
-}
-
-.planning-history-section {
-  display: grid;
-  gap: 14px;
-  min-width: 0;
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid #e4e7ec;
-}
-
-.planning-history-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-}
-
-.planning-history-head > div {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.planning-history-head h3 {
-  margin: 0;
-  color: #18212f;
-  font-size: 16px;
-}
-
-.planning-history-head span {
-  color: #667085;
-  font-size: 13px;
-}
-
-.planning-history-list {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-
-.planning-history-card {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid #dde5ed;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.planning-history-card header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: start;
-  min-width: 0;
-}
-
-.planning-history-card header > div {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.planning-history-card strong,
-.planning-history-card span,
-.planning-history-card p {
-  overflow-wrap: anywhere;
-}
-
-.planning-history-card span {
-  color: #667085;
-  font-size: 13px;
-}
-
-.planning-history-card p {
-  margin: 0;
-  color: #475467;
-  line-height: 1.55;
-}
-
-.history-title span {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.history-score {
-  display: inline-grid;
-  width: 38px;
-  height: 30px;
-  place-items: center;
-  border-radius: 8px;
-  background: #e6f2ef;
-  color: #0f766e;
-  font-weight: 700;
-}
-
-.record-detail {
-  display: grid;
-  gap: 12px;
-  padding: 8px 18px 12px 48px;
-}
-
-.record-detail strong {
-  display: block;
-  margin-bottom: 6px;
-}
-
-.record-detail p {
-  margin: 0;
-  color: #475467;
-  line-height: 1.6;
-  word-break: break-word;
-}
-
-.history-cards {
-  display: none;
-}
-
-.tag-pill,
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 26px;
-  padding: 0 10px;
-  border: 1px solid #93c5fd;
-  border-radius: 6px;
-  color: #075985;
-  background: #dbeafe;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.status-pill {
-  min-height: 24px;
-  padding: 0 9px;
-  font-size: 12px;
-}
-
-.tag-pill.success,
-.status-pill.success {
-  color: #0f766e;
-  border-color: #5eead4;
-  background: #ccfbf1;
-}
-
-.tag-pill.info,
-.status-pill.info {
-  color: #334155;
-  border-color: #cbd5e1;
-  background: #e2e8f0;
-}
-
-.tag-pill.warning,
-.status-pill.warning {
-  color: #78350f;
-  border-color: #f59e0b;
-  background: #fde68a;
-}
-
-.tag-pill.danger,
-.status-pill.danger {
-  color: #b42318;
-  border-color: #fecdca;
-  background: #fee4e2;
-}
-
-.history-table,
-.delivery-table {
-  min-width: 0;
-}
-
-:deep(.history-table .cell),
-:deep(.delivery-table .cell) {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.history-card {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid #dde5ed;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.history-card + .history-card {
-  margin-top: 10px;
-}
-
-.history-card-head {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  min-width: 0;
-}
-
-.history-card-head strong,
-.history-card-head span {
-  display: block;
-}
-
-.history-card-head span {
-  margin-top: 2px;
-  color: #667085;
-  font-size: 13px;
-}
-
-.history-card p {
-  margin: 0;
-  color: #475467;
-  line-height: 1.55;
-}
-
-.history-card summary {
-  color: #0f766e;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.record-detail.compact {
-  padding: 10px 0 0;
-}
-
-.lifecycle-panel {
-  min-width: 0;
-}
-
-.lifecycle-timeline {
-  max-width: 980px;
-  margin: 4px 0 18px;
-  padding-left: 4px;
-}
-
-.lifecycle-step {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-
-.lifecycle-step strong {
-  color: #18212f;
-}
-
-.lifecycle-step span {
-  color: #475467;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
-.lifecycle-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-.lifecycle-card {
-  min-width: 0;
-}
-
-.screening-section {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-  padding-top: 16px;
-  border-top: 1px solid #dde5ed;
-}
-
-.screening-section h3 {
-  margin: 0;
-  color: #18212f;
-  font-size: 16px;
-}
-
-.screening-card {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid #dde5ed;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.screening-head {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  min-width: 0;
-}
-
-.screening-head strong,
-.screening-head div > span {
-  display: block;
-  overflow-wrap: anywhere;
-}
-
-.screening-head div > span {
-  margin-top: 2px;
-  color: #667085;
-  font-size: 13px;
-}
-
-.screening-lists {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  min-width: 0;
-}
-
-.screening-lists > div {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.screening-lists strong {
-  display: block;
-  margin-bottom: 6px;
-}
-
-@media (max-width: 920px) {
-  .ai-status-strip {
-    grid-template-columns: 1fr;
-  }
-
-  .ai-status-meta {
-    justify-content: flex-start;
-  }
-
-  .interview-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .interview-grid,
-  .feedback-lists,
-  .knowledge-search,
-  .plan-grid,
-  .plan-summary-strip,
-  .plan-two-columns,
-  .lifecycle-grid,
-  .screening-lists {
-    grid-template-columns: 1fr;
-  }
-
-  .plan-block + .plan-block {
-    border-left: 0;
-    border-top: 1px solid #e4e7ec;
-    padding-left: 0;
-    padding-top: 18px;
-  }
-
-  .history-table {
-    display: none;
-  }
-
-  .history-cards {
-    display: grid;
-    gap: 10px;
-  }
-
-  .record-detail {
-    padding-left: 12px;
-  }
-}
-
-@media (max-width: 640px) {
-  .file-picker,
-  .selected-file-name {
-    width: 100%;
-  }
-
-  .ai-status-meta,
-  .feedback-head,
-  .plan-block-head,
-  .plan-title,
-  .plan-title-meta,
-  .planning-history-head,
-  .readiness-row,
-  .screening-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .plan-block-head .el-button,
-  .planning-history-head .el-button,
-  .plan-title-meta .el-button {
-    width: 100%;
-  }
-}
+.target-role-control{display:grid;gap:4px;width:min(320px,100%)}.target-role-control span,.number-field span{color:#667085;font-size:13px}.resume-toolbar,.match-toolbar,.knowledge-search,.actions,.result-header{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.resume-toolbar :deep(.el-select),.match-toolbar :deep(.el-select){min-width:220px;flex:1}.upload-control{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px;border:1px solid #d0d5dd;border-radius:6px;color:#344054;cursor:pointer}.upload-control input{display:none}.resume-summary-grid{margin-top:16px}.item-card p,.history-row p,.selected-job-card p,.plan-meta p{margin:6px 0 0;color:#475467}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.three-fields{grid-template-columns:minmax(0,1fr) 148px 148px}.number-field{display:grid;gap:4px;min-width:0}.number-field :deep(.el-input-number){width:100%}.actions{margin-top:14px}.history-list,.task-list{display:grid;gap:10px;margin-top:14px}.history-row{display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #eaecf0;color:#344054;background:transparent;text-align:left}.history-row span{color:#667085;font-size:13px}.history-row.selectable{width:100%;border:0;border-bottom:1px solid #eaecf0;cursor:pointer}.history-list.compact{margin-top:0}.rewrite-result,.plan-meta,.rag-answer{display:grid;gap:10px;margin-top:16px;padding:14px;border:1px solid #dbe5ef;border-radius:6px;background:#f8fafc}.match-score{font-size:30px;color:#0f766e}.task-row{display:grid;grid-template-columns:minmax(0,1fr) 70px minmax(120px,150px);gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #eaecf0;min-width:0}.task-row p{margin:4px 0 0;color:#667085;font-size:13px}.task-row small{display:block;margin-top:3px;overflow-wrap:anywhere}.task-row>:last-child{grid-column:1/-1;min-width:0}.task-row :deep(.el-select),.task-row :deep(.el-input){min-width:0;width:100%}.question-text{font-size:16px;line-height:1.7}.question-nav{justify-content:space-between}.report-columns{margin-top:16px}.citation-list{display:grid;gap:10px}.citation-row{display:flex;gap:10px;padding-top:10px;border-top:1px solid #dbe5ef}.citation-row p{margin:4px 0 0;color:#475467}@media (max-width:760px){.form-grid,.three-fields,.task-row{grid-template-columns:1fr}.task-row>:last-child{grid-column:auto}.resume-toolbar :deep(.el-select),.match-toolbar :deep(.el-select){width:100%;min-width:0}}
 </style>

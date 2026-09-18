@@ -3,9 +3,12 @@ package com.aicampus.ai.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -26,7 +29,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest(classes = AiServiceApplication.class, properties = {
         "spring.cloud.nacos.discovery.enabled=false",
-        "dashscope.api-key="
+        "dashscope.api-key=",
+        "demo.seed.enabled=true"
 })
 @AutoConfigureMockMvc
 class AiControllerTest {
@@ -49,10 +53,11 @@ class AiControllerTest {
     void analyzeUsesMockWhenDashScopeKeyIsMissing() throws Exception {
         mockMvc.perform(post("/api/ai/analyze")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"taskType\":\"resume\",\"content\":\"Java Spring Boot\",\"context\":\"Java 后端\"}"))
+                        .content("{\"taskType\":\"resume\",\"content\":\"Java Spring Boot\",\"context\":\"目标岗位：小学语文教师\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.mocked").value(true))
-                .andExpect(jsonPath("$.data.provider").value("mock-dashscope"));
+                .andExpect(jsonPath("$.data.provider").value("mock-dashscope"))
+                .andExpect(jsonPath("$.data.content", org.hamcrest.Matchers.containsString("小学语文教师")));
     }
 
     @Test
@@ -136,6 +141,33 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.length()").value(greaterThanOrEqualTo(100)))
                 .andExpect(jsonPath("$.data[0].documentId").isNotEmpty());
+    }
+
+    @Test
+    void interviewQuestionsCanUseRagAndCustomQuestionCount() throws Exception {
+        mockMvc.perform(post("/api/ai/interview/questions")
+                        .header("X-User-Id", "S001")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "studentId": "SHOULD_BE_OVERRIDDEN",
+                                  "resumeId": "R001",
+                                  "jobId": "J001",
+                                  "targetRole": "Java 后端实习生",
+                                  "skills": ["Java", "Redis", "MySQL"],
+                                  "questionCount": 5,
+                                  "useRag": true,
+                                  "knowledgeLimit": 4
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(5))
+                .andExpect(jsonPath("$.data[0].questionId").value("IQ-RAG-001"))
+                .andExpect(jsonPath("$.data[0].question").isNotEmpty())
+                .andExpect(jsonPath("$.data[0].referencePoints.length()").value(greaterThanOrEqualTo(2)))
+                .andExpect(jsonPath("$.data[0].knowledgeReferences.length()").value(greaterThanOrEqualTo(1)));
     }
 
     @Test
@@ -236,6 +268,229 @@ class AiControllerTest {
     }
 
     @Test
+    void knowledgeDocumentRolesCanBeUpdatedAndAffectSearchVisibility() throws Exception {
+        String response = mockMvc.perform(post("/api/ai/knowledge/documents")
+                        .header("X-User-Id", "A-KB-ROLES")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "RAG role update document",
+                                  "content": "role-update-unique-keyword should move between student and company readable scopes.",
+                                  "category": "security",
+                                  "source": "admin-note",
+                                  "tags": ["role-update"],
+                                  "roles": ["ADMIN"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String documentId = JsonPath.read(response, "$.data.documentId");
+
+        mockMvc.perform(patch("/api/ai/knowledge/documents/{documentId}/roles", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roles": ["STUDENT", "ADMIN"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.roles[0]").value("STUDENT"))
+                .andExpect(jsonPath("$.data.roles[1]").value("ADMIN"));
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "role-update-unique-keyword",
+                                  "role": "ADMIN",
+                                  "limit": 3
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.results.length()").value(greaterThanOrEqualTo(1)));
+
+        mockMvc.perform(patch("/api/ai/knowledge/documents/{documentId}/roles", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roles": ["COMPANY"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.roles[0]").value("COMPANY"));
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "role-update-unique-keyword",
+                                  "role": "STUDENT",
+                                  "limit": 3
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.results.length()").value(0));
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "COMPANY")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "role-update-unique-keyword",
+                                  "role": "COMPANY",
+                                  "limit": 3
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.results.length()").value(greaterThanOrEqualTo(1)));
+    }
+
+    @Test
+    void knowledgeDocumentsCanBeDeletedAndRemovedFromSearch() throws Exception {
+        String response = mockMvc.perform(post("/api/ai/knowledge/documents")
+                        .header("X-User-Id", "A-KB-DELETE")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Temporary RAG delete verification",
+                                  "content": "delete-rag-unique-keyword should disappear after the document is deleted.",
+                                  "category": "test",
+                                  "source": "admin-delete-test",
+                                  "tags": ["delete"],
+                                  "roles": ["ADMIN"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String documentId = JsonPath.read(response, "$.data.documentId");
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "ADMIN")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "delete-rag-unique-keyword",
+                                  "role": "ADMIN",
+                                  "limit": 3
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.results.length()").value(greaterThanOrEqualTo(1)));
+
+        mockMvc.perform(delete("/api/ai/knowledge/documents/{documentId}", documentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").value(true));
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "ADMIN")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "delete-rag-unique-keyword",
+                                  "role": "ADMIN",
+                                  "limit": 3
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.results.length()").value(0));
+
+        mockMvc.perform(delete("/api/ai/knowledge/documents/{documentId}", documentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.message").value("Knowledge document not found"));
+    }
+
+    @Test
+    void knowledgeDocumentsCanBeBatchDeletedAndRemovedFromSearch() throws Exception {
+        String firstResponse = mockMvc.perform(post("/api/ai/knowledge/documents")
+                        .header("X-User-Id", "A-KB-BATCH-DELETE")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Temporary RAG batch delete verification A",
+                                  "content": "batch-delete-rag-keyword-a should disappear after batch deletion.",
+                                  "category": "test",
+                                  "source": "admin-batch-delete-test",
+                                  "tags": ["batch-delete"],
+                                  "roles": ["ADMIN"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String firstDocumentId = JsonPath.read(firstResponse, "$.data.documentId");
+        String secondResponse = mockMvc.perform(post("/api/ai/knowledge/documents")
+                        .header("X-User-Id", "A-KB-BATCH-DELETE")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Temporary RAG batch delete verification B",
+                                  "content": "batch-delete-rag-keyword-b should disappear after batch deletion.",
+                                  "category": "test",
+                                  "source": "admin-batch-delete-test",
+                                  "tags": ["batch-delete"],
+                                  "roles": ["ADMIN"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String secondDocumentId = JsonPath.read(secondResponse, "$.data.documentId");
+
+        mockMvc.perform(post("/api/ai/knowledge/documents/batch-delete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "documentIds": ["%s", "%s", "%s", "KB-NOT-FOUND-FOR-BATCH"]
+                                }
+                                """.formatted(firstDocumentId, secondDocumentId, firstDocumentId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.requestedCount").value(3))
+                .andExpect(jsonPath("$.data.deletedCount").value(2))
+                .andExpect(jsonPath("$.data.deletedDocumentIds[0]").value(firstDocumentId))
+                .andExpect(jsonPath("$.data.deletedDocumentIds[1]").value(secondDocumentId))
+                .andExpect(jsonPath("$.data.missingDocumentIds[0]").value("KB-NOT-FOUND-FOR-BATCH"));
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "ADMIN")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "batch-delete-rag-keyword",
+                                  "role": "ADMIN",
+                                  "limit": 5
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.results.length()").value(0));
+
+        mockMvc.perform(post("/api/ai/knowledge/documents/batch-delete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "documentIds": []
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1))
+                .andExpect(jsonPath("$.message").value("documentIds is required"));
+    }
+
+    @Test
     void knowledgeAnswerFallsBackWithCitationsWhenDashScopeKeyIsMissing() throws Exception {
         mockMvc.perform(post("/api/ai/knowledge/answer")
                         .header("X-User-Role", "STUDENT")
@@ -276,6 +531,44 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data.mocked").value(true))
                 .andExpect(jsonPath("$.data.citations.length()").value(greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.data.citations[0].title").value("Company candidate screening playbook"));
+    }
+
+    @Test
+    void knowledgeAnswerUsesMarkdownForLongChineseInterviewQuestion() throws Exception {
+        mockMvc.perform(post("/api/ai/knowledge/documents")
+                        .header("X-User-Id", "A-KB-JAVA")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Java 自动装箱与 IntegerCache 面试指南",
+                                  "content": "Java 有八种基本数据类型：byte、short、int、long、float、double、char、boolean。自动装箱是编译器把基本类型转换成包装类型，例如 int 转 Integer 时通常调用 Integer.valueOf；自动拆箱是包装类型转基本类型。IntegerCache 默认缓存 -128 到 127 范围内的 Integer 对象，所以 Integer a = 127; Integer b = 127; a == b 可能为 true，而 128 超出默认缓存范围通常为 false。面试回答要强调 == 比较对象引用，equals 比较数值，包装类型可能为 null，自动拆箱会触发 NullPointerException。示例代码：\\n\\n```java\\nInteger a = 127;\\nInteger b = 127;\\nInteger c = 128;\\nInteger d = 128;\\nSystem.out.println(a == b); // true，命中 IntegerCache\\nSystem.out.println(c == d); // false，通常不在默认缓存范围\\nSystem.out.println(c.equals(d)); // true，比较数值\\nInteger n = null;\\n// int x = n; // 自动拆箱会抛出 NullPointerException\\n```\\n\\n回答模板：先列出八种基本数据类型，再解释自动装箱/拆箱是语法糖，接着讲 IntegerCache 的缓存范围和 ==/equals 差异，最后补充空指针和性能注意事项。",
+                                  "category": "interview",
+                                  "source": "test-fixture",
+                                  "tags": ["Java", "面试", "自动装箱", "IntegerCache"],
+                                  "roles": ["STUDENT", "ADMIN"]
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/ai/knowledge/answer")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "Java 后端面试中，八种基本数据类型、自动装箱、IntegerCache 应该怎么回答？请给出示例代码。",
+                                  "role": "STUDENT",
+                                  "limit": 10,
+                                  "useAi": false
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.mocked").value(true))
+                .andExpect(jsonPath("$.data.answer").value(org.hamcrest.Matchers.containsString("## 结论")))
+                .andExpect(jsonPath("$.data.answer").value(org.hamcrest.Matchers.containsString("## 关键知识点")))
+                .andExpect(jsonPath("$.data.answer").value(org.hamcrest.Matchers.containsString("```java")))
+                .andExpect(jsonPath("$.data.answer").value(org.hamcrest.Matchers.containsString("[1]")))
+                .andExpect(jsonPath("$.data.citations.length()").value(greaterThanOrEqualTo(1)));
     }
 
     @Test
@@ -382,6 +675,61 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data.status").value("DUPLICATE"))
                 .andExpect(jsonPath("$.data.message").value(org.hamcrest.Matchers.containsString(firstJobId)))
                 .andExpect(jsonPath("$.data.chunkCount").value(greaterThanOrEqualTo(1)));
+    }
+
+    @Test
+    void deletedKnowledgeFileUploadCanBeReuploadedWithSameContent() throws Exception {
+        byte[] content = "reupload-after-delete-rag-keyword validates stale sha256 history is ignored."
+                .getBytes(StandardCharsets.UTF_8);
+        MockMultipartFile firstFile = new MockMultipartFile("file", "reupload-after-delete-a.txt", "text/plain", content);
+        String firstResponse = mockMvc.perform(multipart("/api/ai/knowledge/files")
+                        .file(firstFile)
+                        .param("title", "Reupload after delete RAG")
+                        .param("roles", "ADMIN,STUDENT")
+                        .header("X-User-Id", "A-RAG-REUPLOAD"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.status").value("UPLOADED"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String firstJobId = JsonPath.read(firstResponse, "$.data.jobId");
+        waitUntilKnowledgeJobStatus(firstJobId, "READY");
+        String documentId = knowledgeJobDocumentId(firstJobId);
+
+        mockMvc.perform(delete("/api/ai/knowledge/documents/{documentId}", documentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").value(true));
+
+        MockMultipartFile secondFile = new MockMultipartFile("file", "reupload-after-delete-b.txt", "text/plain", content);
+        String secondResponse = mockMvc.perform(multipart("/api/ai/knowledge/files")
+                        .file(secondFile)
+                        .param("title", "Reupload after delete RAG")
+                        .param("roles", "ADMIN,STUDENT")
+                        .header("X-User-Id", "A-RAG-REUPLOAD"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.status").value("UPLOADED"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String secondJobId = JsonPath.read(secondResponse, "$.data.jobId");
+        waitUntilKnowledgeJobStatus(secondJobId, "READY");
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "reupload-after-delete-rag-keyword",
+                                  "role": "STUDENT",
+                                  "limit": 3
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.results.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.results[0].title").value("Reupload after delete RAG"));
     }
 
     @Test
@@ -1060,6 +1408,56 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data.jobId").value(jobId));
     }
 
+    @Test
+    void coreInterviewSessionUsesGatewayStudentAndHidesUnansweredReferencePoints() throws Exception {
+        String response = mockMvc.perform(post("/api/ai/interview/sessions")
+                        .header("X-User-Id", "S-CORE-CONTROLLER-001")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "studentId": "SHOULD_BE_OVERRIDDEN",
+                                  "targetRole": "Java Backend Intern"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.studentId").value("S-CORE-CONTROLLER-001"))
+                .andExpect(jsonPath("$.data.questions.length()").value(5))
+                .andExpect(jsonPath("$.data.questions[0].referencePoints.length()").value(0))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String sessionId = JsonPath.read(response, "$.data.sessionId");
+        String questionId = JsonPath.read(response, "$.data.questions[0].questionId");
+
+        mockMvc.perform(put("/api/ai/interview/sessions/{sessionId}/questions/{questionId}/answer", sessionId, questionId)
+                        .header("X-User-Id", "S-CORE-CONTROLLER-001")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "questionId": "%s",
+                                  "answer": "I designed the feature, wrote repeatable tests, compared alternatives, and used the resulting metrics to verify the implementation with my team."
+                                }
+                                """.formatted(questionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.questions[0].referencePoints.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.questions[1].referencePoints.length()").value(0));
+
+        mockMvc.perform(get("/api/ai/interview/sessions/{sessionId}", sessionId)
+                        .header("X-User-Id", "S-CORE-CONTROLLER-002")
+                        .header("X-User-Role", "STUDENT"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(org.hamcrest.Matchers.not(0)));
+
+        mockMvc.perform(get("/api/ai/interview/sessions/{sessionId}", sessionId)
+                        .header("X-User-Id", "C-CORE-CONTROLLER-001")
+                        .header("X-User-Role", "COMPANY"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(org.hamcrest.Matchers.not(0)));
+    }
+
     private String submitAsyncTask(String companyId, String deliveryId) throws Exception {
         String response = mockMvc.perform(post("/api/ai/candidates/screen/tasks")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -1122,6 +1520,20 @@ class AiControllerTest {
             Thread.sleep(50);
         }
         throw new AssertionError("Knowledge ingestion job " + jobId + " did not reach " + status);
+    }
+
+    private String knowledgeJobDocumentId(String jobId) throws Exception {
+        String content = mockMvc.perform(get("/api/ai/knowledge/ingestions")
+                        .param("limit", "50"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        java.util.List<String> documentIds = JsonPath.read(content, "$.data[?(@.jobId == '" + jobId + "')].documentId");
+        if (documentIds.isEmpty() || documentIds.get(0) == null || documentIds.get(0).isBlank()) {
+            throw new AssertionError("Knowledge ingestion job " + jobId + " has no indexed documentId");
+        }
+        return documentIds.get(0);
     }
 
     private static final class StubDashScopeClient extends DashScopeClient {

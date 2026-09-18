@@ -9,9 +9,19 @@ spring:
       discovery:
         enabled: ${NACOS_ENABLED:false}
         server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
+    openfeign:
+      client:
+        config:
+          default:
+            connect-timeout: ${FEIGN_CONNECT_TIMEOUT_MS:3000}
+            read-timeout: ${FEIGN_READ_TIMEOUT_MS:30000}
 
 services:
   ai: ${AI_SERVICE_URI:http://localhost:8106}
+
+demo:
+  seed:
+    enabled: ${DEMO_SEED_ENABLED:false}
 
 job:
   persistence:
@@ -34,3 +44,8 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+knife4j:
+  enable: ${KNIFE4J_ENABLED:true}
+  setting:
+    language: zh_cn

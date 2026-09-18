@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest(classes = AuthServiceApplication.class, properties = {
+        "demo.seed.enabled=true",
         "spring.cloud.nacos.discovery.enabled=false",
         "JWT_SECRET=auth-test-secret-that-is-long-enough",
         "JWT_ISSUER=ai-campus-test"

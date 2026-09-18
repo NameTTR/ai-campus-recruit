@@ -10,6 +10,67 @@
 }
 ```
 
+## API 文档入口
+
+### 毕设五大核心模块补充
+
+前端仅展示简历诊断、岗位匹配、学习路径、模拟面试和知识问答；岗位维护、账号与知识库管理作为配套。下文其他辅助接口保留兼容，并不表示前端仍提供入口。
+
+所有个人记录以网关验证后注入的 `X-User-Id` 为归属依据，客户端传入的 `studentId` 不得覆盖登录身份。核心持久化写入失败返回失败响应，不能将内存副本作为保存成功。账号及学生资料分别通过 `AUTH_PERSISTENCE_ENABLED`、`USER_PERSISTENCE_ENABLED` 保存，学习路径与面试会话通过 `AI_CORE_PERSISTENCE_ENABLED` 保存。
+
+简历与岗位：
+
+- `PATCH` 或 `PUT /api/resumes/{id}/profile`：本人修正 `education`、`skills`、`projects`，返回更新后的 `ResumeSummary`。
+- `GET /api/resumes/{id}/diagnoses`：本人诊断历史；每条记录包含诊断编号、目标岗位、报告、评分、来源和生成时间，后续诊断不覆盖旧记录。
+- `POST /api/resumes/{id}/analyze`：保留原接口，按真实正文及目标岗位分析，取消固定高分。无法抽取的扫描文档应先转为文本型 PDF/DOCX。
+  - 诊断历史 `source=AI_STRUCTURED` 表示 AI 报告与可识别评分；`AI_TEXT_RULE_SCORE` 保留真实 AI 报告，分数使用规则证据分；`RULE_FALLBACK` 表示模型不可用时的规则建议。报告不会因为缺少数值评分而被丢弃。
+- `PUT /api/jobs/{id}`：企业修改本人岗位，使用岗位创建字段；学生不可写入。
+- `POST /api/jobs/{id}/status`：请求 `{ "status": "OPEN" }` 或 `{ "status": "CLOSED" }`。关闭岗位不对学生列出或参与新匹配，企业本人仍可管理。
+- `POST /api/matches/resume-job`：必须引用存在且有权限的简历和岗位；`score` 为技能覆盖率，不是录用概率。新增 `matchedSkills`、`missingSkills`、`analysisSource`、`resumeSkillsSnapshot`、`requiredSkillsSnapshot`，取消固定 88 分。
+
+学习路径：
+
+- `POST /api/ai/learning/plans`：请求 `resumeId`、`jobId`、可选 `matchId`、`targetRole`、`weeklyHours`、`durationWeeks`。每周 2–40 小时、周期 1–24 周；默认每周 6 小时、8 周，返回 `LearningPlan`。
+- `GET /api/ai/learning/plans`、`GET /api/ai/learning/plans/{planId}`：列出本人计划或读取详情。
+- `PUT /api/ai/learning/plans/{planId}/tasks/{taskId}`：更新任务 `status` 和 `feedback`，返回 `LearningTask`。支持 `PENDING`、`IN_PROGRESS`、`COMPLETED`、`SKIPPED`；仅 `ACTIVE` 计划可修改。
+- `POST /api/ai/learning/plans/{planId}/replan`：请求调整 `reason`、可选 `weeklyHours`、`durationWeeks`、`interviewSessionId`。引用面试报告时，报告必须属于本人、已完成且目标岗位一致。缩短周期或预算不能排除已完成任务；模型生成或保存失败时保留原计划，成功时在同一事务中新增版本并将旧版标记为 `SUPERSEDED`。
+- `GET /api/ai/learning/plans/{planId}/versions`：读取同一学习路径的历史版本。
+- `LearningPlan` 包含编号、根计划编号、版本、上一版本、目标岗位、输入快照、周期、状态、任务及 `mocked`。任务包括周次、技能差距、阶段、具体行动、预计用时、验收标准、实践成果及进度反馈。调整只替换未完成部分，保留已完成任务身份和记录。
+
+模拟面试：
+
+- `POST /api/ai/interview/sessions`：请求 `resumeId`、`jobId`、可选 `matchId`、`targetRole`、`questionCount`；允许 1–8 道主问题，默认 5 道。
+- `GET /api/ai/interview/sessions`、`GET /api/ai/interview/sessions/{sessionId}`：读取本人会话列表和详情，可在刷新后继续。
+- `PUT /api/ai/interview/sessions/{sessionId}/questions/{questionId}/answer`：请求 `{ "questionId": "...", "answer": "..." }`，按当前题顺序提交；重复请求不可把同一回答当作下一题答案。
+- `POST /api/ai/interview/sessions/{sessionId}/finish`：完成面试并返回整场报告，包含总体评分、优势、薄弱项、改进建议及逐题反馈。
+- 会话保存目标与简历快照、题目、回答、进度及报告。未作答题目不暴露参考要点；每道主问题最多追加一次追问。旧单题接口保留兼容。
+
+RAG 沿用 `/api/ai/knowledge/*` 接口。检索和回答使用认证角色，正文引用对应真实知识块；文档删除或角色修改后必须同步影响检索结果。
+
+各 MVC 业务服务已集成 Knife4j，网关提供聚合文档页 `/doc.html`，可在一个页面切换查看认证、用户、简历、岗位、匹配、AI/RAG、投递通知等全部微服务接口。单个业务服务也保留 `/doc.html` 调试入口，同时保留 OpenAPI JSON `/v3/api-docs` 和原 Swagger UI `/swagger-ui.html` 兼容入口。
+
+本地常用入口：
+
+- 网关聚合文档：`http://localhost:18080/doc.html` 或 `http://localhost:8080/doc.html`
+- `auth-service`: `http://localhost:8101/doc.html`
+- `user-service`: `http://localhost:8102/doc.html`
+- `resume-service`: `http://localhost:8103/doc.html`
+- `job-service`: `http://localhost:8104/doc.html`
+- `match-service`: `http://localhost:8105/doc.html`
+- `ai-service`: `http://localhost:8106/doc.html`
+- `delivery-service`: `http://localhost:8107/doc.html`
+
+网关聚合 OpenAPI JSON：
+
+- `GET /v3/api-docs/swagger-config`：Knife4j 聚合配置。
+- `GET /v3/api-docs/auth-service`：认证服务接口。
+- `GET /v3/api-docs/user-service`：用户与管理服务接口。
+- `GET /v3/api-docs/resume-service`：简历服务接口。
+- `GET /v3/api-docs/job-service`：岗位服务接口。
+- `GET /v3/api-docs/match-service`：匹配服务接口。
+- `GET /v3/api-docs/ai-service`：AI 与 RAG 服务接口。
+- `GET /v3/api-docs/delivery-service`：投递、通知与面试日程服务接口。
+
 ## Auth
 
 - `POST /api/auth/login`：登录。
@@ -22,21 +83,31 @@
   - 返回：`ResumeSummary`，包含 `resumeId`、`studentId`、`fileName`、`education`、`skills`、`projects`、`diagnosis`、`score`、`objectKey`、`storageProvider`、`storageStatus`、`sourceFormat`、`parseStatus`、`parsedTextLength`。
   - `storageProvider=local-demo` 且 `storageStatus=SKIPPED` 表示对象存储未开启；`storageProvider=minio` 且 `storageStatus=STORED` 表示文件已写入 MinIO；`FAILED` 表示写入 MinIO 失败但上传主流程已降级继续。
   - 默认使用内存仓储；设置 `RESUME_PERSISTENCE_ENABLED=true` 且提供 `SPRING_DATASOURCE_URL` 后写入 MySQL 表 `resume_summary_record`，并保存抽取正文供后续 AI 诊断使用。
+- `GET /api/resumes`：查看简历列表。
+  - 返回：`ResumeSummary[]`，按登录身份返回可见简历摘要；启用持久化时从 MySQL 读取，数据库不可用时返回失败，不降级成内存保存。
 - `GET /api/resumes/{id}`：查看简历摘要。
   - 简历详情使用 Redis cache-aside 缓存，key 格式：`resume:summaries:detail:{resumeId}`。
   - `RESUME_DB_HEALTH_ENABLED` 与 `RESUME_REDIS_HEALTH_ENABLED` 默认关闭，避免本地未启动 MySQL/Redis 时影响演示健康状态。
+- `DELETE /api/resumes/{id}`：删除简历。
+  - 返回：`ApiResponse<Boolean>`；删除成功时 `data=true`，未知 ID 返回 `ApiResponse.fail("Resume not found")`。
+  - 启用持久化时会删除 MySQL 行并清理 Redis 详情缓存 `resume:summaries:detail:{resumeId}`。
 - `POST /api/resumes/{id}/analyze`：触发 AI 简历诊断。
+  - 请求体：`{"targetJob":"小学语文教师"}`；`targetJob` 必填，学生端传当前选择的诊断职业，不预设专业。
   - 服务重启后，若启用持久化，诊断仍会优先使用表内保存的 `parsed_text`。
+  - 诊断结果要求为中文 Markdown，建议结构包括 `## 结论`、`## 优势`、`## 短板`、`## 修改建议`、`## 示例改写`，且不包裹 ```markdown 代码块。
+  - `resume-service` 通过 OpenFeign 调用 `ai-service` 的 `POST /api/ai/analyze`，地址由 `AI_SERVICE_URI` / `services.ai` 配置；AI 服务不可用时返回本地降级诊断文案。
 
 ## Job
 
 - `POST /api/jobs`：发布岗位。
 - `GET /api/jobs`：岗位列表。
+  - 设置 `DEMO_SEED_ENABLED=true` 时初始化跨行业样例岗位，已有岗位不会被覆盖；普通启动不自动添加演示岗位。
   - 默认使用内存仓储；设置 `JOB_PERSISTENCE_ENABLED=true` 且提供 `SPRING_DATASOURCE_URL` 后写入 MySQL 表 `job_record`。
   - 岗位列表使用 Redis cache-aside 缓存，key 格式：`job:records:list:ALL`。
   - `JOB_DB_HEALTH_ENABLED` 与 `JOB_REDIS_HEALTH_ENABLED` 默认关闭，避免本地未启动 MySQL/Redis 时影响演示健康状态。
 - `GET /api/jobs/{id}`：岗位详情。
 - `POST /api/jobs/{id}/analyze`：触发 AI 岗位分析。
+  - `job-service` 通过 OpenFeign 调用 `ai-service` 的 `POST /api/ai/analyze`，地址由 `AI_SERVICE_URI` / `services.ai` 配置；AI 服务不可用时返回本地降级岗位分析文案。
 
 ## Match
 
@@ -125,8 +196,11 @@
   - `ADMIN` 可通过 `studentId` 参数查询指定学生记录；`COMPANY` 仍应使用 `/api/ai/candidates/screenings`，前端学生闭环页面不向企业角色展示该入口。
   - 前端开发模式未配置 gateway 或 AI proxy 时返回确定性的演示数据，且不调用 `fetch`。
 - `POST /api/ai/interview/questions`：基于学生、简历和目标岗位生成模拟面试题。
-  - 请求体：`studentId`、`resumeId`、`jobId`、`targetRole`、`skills`。
-  - 返回：`InterviewQuestion[]`，每项包含 `questionId`、`category`、`difficulty`、`question`、`referencePoints`。
+  - 请求体：`studentId`、`resumeId`、`jobId`、`targetRole`、`skills`，可选 `questionCount`、`useRag`、`knowledgeLimit`。
+  - `questionCount` 默认 3，允许 1 到 20；`useRag` 默认 `true`；`knowledgeLimit` 默认 6，允许 1 到 12。
+  - 当 `useRag=true` 时，AI 服务会先用目标岗位、技能和“面试/题目/答题要点”等关键词检索 RAG 知识库，再把检索证据注入题目生成提示词。
+  - 未配置 `DASHSCOPE_API_KEY` 或模型调用失败时，仍会基于同一批 RAG 检索证据生成确定性的降级面试题。
+  - 返回：`InterviewQuestion[]`，每项包含 `questionId`、`category`、`difficulty`、`question`、`referencePoints`、`knowledgeReferences`。
 - `POST /api/ai/interview/feedback`：提交模拟面试回答并生成结构化反馈。
   - 请求体：`studentId`、`questionId`、`question`、`answer`、`targetRole`。
   - 返回：`InterviewFeedback`，包含 `score`、`strengths`、`gaps`、`suggestions`、`summary`、`mocked`。
@@ -293,6 +367,11 @@
   - The export must apply the same redaction rules as the overview endpoint.
   - Expected permission: `admin:audit:export`.
 
+- `GET /api/admin/audit/export/{exportId}`: download a prepared admin audit CSV export.
+  - Returns a UTF-8 `text/csv` attachment containing only the existing redacted audit fields; it excludes API keys, tokens, raw AI prompts, full resume text, and password hashes.
+  - Export identifiers are created by `POST /api/admin/audit/export`. In the MVP they are retained in user-service memory for two hours, so an expired, unknown, or post-restart identifier returns HTTP 404 with `ApiResponse.fail("Audit export not found")`.
+  - Expected permission: `admin:audit:read`.
+
 - Frontend fallback:
   - Without `VITE_API_BASE_URL` or `VITE_API_PROXY_TARGET` in development, audit client functions return deterministic demo data and do not call `fetch`.
   - `/admin/audit` uses the same Vue route family as other admin modules and is backed by `GET /api/admin/audit/overview` and `POST /api/admin/audit/export` once the backend is available.
@@ -382,6 +461,20 @@
 - `GET /api/ai/knowledge/documents?keyword=Redis&role=STUDENT&limit=20`
   - Lists readable knowledge documents with optional keyword and role filtering.
   - Returns: `ApiResponse<List<KnowledgeDocument>>`.
+- `PATCH /api/ai/knowledge/documents/{documentId}/roles`
+  - Admin updates readable roles for an existing RAG document.
+  - Request fields: `roles`, for example `["ADMIN","STUDENT"]` or `["ALL"]`.
+  - The service updates both document metadata and its chunks so role-aware retrieval changes immediately.
+  - Returns: `ApiResponse<KnowledgeDocument>`.
+- `DELETE /api/ai/knowledge/documents/{documentId}`
+  - Admin deletes an existing RAG document and all of its chunks.
+  - Deleted uploaded/manual documents stop participating in RAG search and answer retrieval immediately; if the deleted ID belongs to a built-in seed corpus document, it may be recreated on the next `ai-service` restart while seeding is enabled.
+  - Returns: `ApiResponse<Boolean>` with `data=true`; missing documents return `ApiResponse.fail("Knowledge document not found")`.
+- `POST /api/ai/knowledge/documents/batch-delete`
+  - Admin deletes multiple RAG documents in one request.
+  - Request fields: `documentIds`, for example `["KB-001","KB-002"]`; duplicate and blank IDs are ignored.
+  - Returns: `ApiResponse<KnowledgeDocumentBatchDeleteResult>` with `requestedCount`, `deletedCount`, `deletedDocumentIds`, and `missingDocumentIds`.
+  - An empty request returns `ApiResponse.fail("documentIds is required")`.
 - `GET /api/ai/knowledge/stats`
   - Gateway permission: admin AI observability/read capability, effectively admin only.
   - Returns the current RAG corpus document count, chunk count, top categories, readable role counts, source counts, tag counts, corpus version, seed status, and whether the active store is persistent.
@@ -397,6 +490,7 @@
   - Request fields: `query`, `role`, `limit`, optional `useAi`.
   - Gateway-injected `STUDENT` or `COMPANY` role overrides the request body role.
   - Retrieves top chunks, returns citations, and calls DashScope only when `useAi` is not `false` and `DASHSCOPE_API_KEY` is configured. Missing key, model failure, no evidence, or `useAi=false` returns a deterministic `mocked=true` local answer with citations.
+  - Answers are Markdown-oriented and use longer retrieved context per chunk. `DASHSCOPE_MAX_TOKENS` controls the DashScope output token budget; the service no longer truncates generated answers in this endpoint.
   - Returns: `ApiResponse<KnowledgeAnswerResponse>`.
 - `KnowledgeDocument` fields: `documentId`, `title`, `content`, `category`, `source`, `tags`, `roles`, `createdBy`, `createdAt`.
 - `KnowledgeBaseStats` fields: `documentCount`, `chunkCount`, `categoryCounts`, `roleCounts`, `sourceCounts`, `tagCounts`, `corpusVersion`, `seedEnabled`, `persistentStore`, `generatedAt`.
@@ -419,7 +513,7 @@
   - `tags` and `roles` are comma-separated strings.
   - Returns: `ApiResponse<KnowledgeFileIngestionJob>`.
   - Job status values: `UPLOADED`, `PARSING`, `INDEXING`, `READY`, `FAILED`, `DUPLICATE`.
-  - Duplicate files are detected by SHA-256. A repeated upload returns a new job with `status=DUPLICATE` and references the existing document/chunk counts.
+  - Duplicate files are detected by SHA-256 only when the referenced knowledge document still exists or an upload is still being processed. A repeated upload returns a new job with `status=DUPLICATE` and references the existing document/chunk counts; after the document is deleted, uploading the same file starts a fresh ingestion job.
   - Original files are written to MinIO when `AI_KNOWLEDGE_OBJECT_STORAGE_ENABLED=true`; otherwise `storageProvider=local-demo` and `storageStatus=SKIPPED`.
   - Invalid format, empty file, or oversized upload returns an `ApiResponse` error body and HTTP 400.
 

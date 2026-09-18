@@ -109,3 +109,28 @@ CREATE TABLE IF NOT EXISTS ai_knowledge_ingestion_job (
     KEY idx_ai_knowledge_ingestion_status_created (status, created_at),
     KEY idx_ai_knowledge_ingestion_document (document_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_learning_plan (
+    plan_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    root_plan_id VARCHAR(64) NOT NULL,
+    student_id VARCHAR(64) NOT NULL,
+    revision_of_plan_id VARCHAR(64) NULL,
+    version INT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    plan_snapshot MEDIUMTEXT NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    KEY idx_ai_learning_plan_student_updated (student_id, updated_at),
+    KEY idx_ai_learning_plan_root_version (root_plan_id, version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_interview_session (
+    session_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    student_id VARCHAR(64) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    session_snapshot MEDIUMTEXT NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    KEY idx_ai_interview_session_student_updated (student_id, updated_at),
+    KEY idx_ai_interview_session_student_status (student_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

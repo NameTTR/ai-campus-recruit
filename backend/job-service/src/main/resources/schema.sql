@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS job_record (
     required_skills TEXT NOT NULL,
     description TEXT NOT NULL,
     ai_summary TEXT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'OPEN',
     created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     KEY idx_job_record_company_updated (company_id, updated_at),

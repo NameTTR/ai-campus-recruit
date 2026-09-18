@@ -41,6 +41,27 @@ export interface ResumeSummary {
   parsedTextLength: number
 }
 
+export interface ResumeAnalyzeRequest {
+  targetJob?: string
+}
+
+export interface ResumeProfileUpdateRequest {
+  education?: string
+  skills?: string[]
+  projects?: string[]
+}
+
+export interface ResumeDiagnosis {
+  diagnosisId: string
+  resumeId: string
+  studentId: string
+  targetJob?: string
+  diagnosis: string
+  score: number
+  source?: string
+  createdAt: string
+}
+
 export interface ResumeParseMetadata {
   sourceFormat?: string
   parseStatus?: string
@@ -60,6 +81,7 @@ export interface JobSummary {
   requiredSkills: string[]
   description: string
   aiSummary: string
+  status?: string
 }
 
 export interface MatchResult extends ResumeParseMetadata {
@@ -71,6 +93,11 @@ export interface MatchResult extends ResumeParseMetadata {
   strengths: string[]
   gaps: string[]
   suggestions: string[]
+  matchedSkills?: string[]
+  missingSkills?: string[]
+  analysisSource?: string
+  resumeSkillsSnapshot?: string[]
+  requiredSkillsSnapshot?: string[]
 }
 
 export interface CandidateScreenRequest {
@@ -133,6 +160,9 @@ export interface InterviewQuestionRequest {
   jobId: string
   targetRole: string
   skills: string[]
+  questionCount?: number
+  useRag?: boolean
+  knowledgeLimit?: number
 }
 
 export interface InterviewQuestion {
@@ -141,6 +171,7 @@ export interface InterviewQuestion {
   difficulty: string
   question: string
   referencePoints: string[]
+  knowledgeReferences?: string[]
 }
 
 export interface InterviewFeedbackRequest {
@@ -271,6 +302,126 @@ export interface CareerPlanResponse {
   weeklyActions: string[]
   portfolioTasks: string[]
   interviewFocus: string[]
+  mocked: boolean
+}
+
+export interface LearningPlanRequest {
+  studentId?: string
+  resumeId?: string
+  jobId?: string
+  matchId?: string
+  targetRole?: string
+  weeklyHours?: number
+  durationWeeks?: number
+}
+
+export interface LearningTask {
+  taskId: string
+  week: number
+  title: string
+  description: string
+  estimatedHours: number
+  status: string
+  feedback?: string
+  skillGap?: string
+  stage?: string
+  acceptanceCriteria?: string
+  practiceDeliverable?: string
+  completedAt?: string
+  updatedAt: string
+}
+
+export interface LearningPlan {
+  planId: string
+  studentId: string
+  resumeId?: string
+  jobId?: string
+  matchId?: string
+  targetRole: string
+  weeklyHours: number
+  durationWeeks: number
+  status: string
+  version: number
+  revisionOfPlanId?: string
+  contextSnapshot?: Record<string, unknown>
+  tasks: LearningTask[]
+  mocked?: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LearningTaskUpdateRequest {
+  status: string
+  feedback?: string
+}
+
+export interface LearningPlanReplanRequest {
+  reason: string
+  weeklyHours?: number
+  durationWeeks?: number
+  interviewSessionId?: string
+}
+
+export interface InterviewSessionRequest {
+  studentId?: string
+  resumeId?: string
+  jobId?: string
+  matchId?: string
+  targetRole?: string
+  questionCount?: number
+}
+
+export interface InterviewSessionQuestion {
+  questionId: string
+  question: string
+  category?: string
+  difficulty?: string
+  referencePoints?: string[]
+  source?: string
+  generationSource?: string
+}
+
+export interface InterviewSessionAnswer {
+  questionId: string
+  answer: string
+  updatedAt?: string
+}
+
+export interface InterviewSession {
+  sessionId: string
+  studentId: string
+  resumeId?: string
+  jobId?: string
+  matchId?: string
+  targetRole: string
+  status: string
+  questions: InterviewSessionQuestion[]
+  answers: InterviewSessionAnswer[]
+  report?: InterviewSessionReport
+  createdAt: string
+  updatedAt: string
+  completedAt?: string
+  contextSnapshot?: Record<string, unknown>
+  mocked?: boolean
+}
+
+export interface InterviewQuestionFeedback {
+  questionId: string
+  score?: number
+  strengths?: string[]
+  gaps?: string[]
+  suggestions?: string[]
+  summary?: string
+}
+
+export interface InterviewSessionReport {
+  sessionId: string
+  overallScore: number
+  strengths: string[]
+  gaps: string[]
+  recommendations: string[]
+  questionFeedback: InterviewQuestionFeedback[]
+  generatedAt: string
   mocked: boolean
 }
 
@@ -431,6 +582,17 @@ export interface KnowledgeDocumentRequest {
   source: string
   tags: string[]
   roles: string[]
+}
+
+export interface KnowledgeDocumentRolesRequest {
+  roles: string[]
+}
+
+export interface KnowledgeDocumentBatchDeleteResult {
+  requestedCount: number
+  deletedCount: number
+  deletedDocumentIds: string[]
+  missingDocumentIds: string[]
 }
 
 export interface KnowledgeDocument extends KnowledgeDocumentRequest {
@@ -870,19 +1032,1034 @@ const fallbackResume: ResumeSummary = {
   parsedTextLength: 62
 }
 
-const fallbackJobs: JobSummary[] = [
-  {
-    jobId: 'J001',
-    companyId: 'C001',
-    companyName: '星河科技',
-    title: 'Java 后端实习生',
-    city: '杭州',
-    salaryRange: '180-260/天',
-    requiredSkills: ['Java', 'Spring Boot', 'MySQL', 'Redis'],
-    description: '参与招聘平台、数据看板和中台接口开发。',
-    aiSummary: '适合具备 Java Web 项目经验的应届生。'
-  }
+type FallbackJobSeed = readonly [
+  jobId: string,
+  companyId: string,
+  companyName: string,
+  title: string,
+  city: string,
+  salaryRange: string,
+  requiredSkills: readonly string[],
+  description: string,
+  aiSummary: string
 ]
+
+function createFallbackJob([
+  jobId,
+  companyId,
+  companyName,
+  title,
+  city,
+  salaryRange,
+  requiredSkills,
+  description,
+  aiSummary
+]: FallbackJobSeed): JobSummary {
+  return {
+    jobId,
+    companyId,
+    companyName,
+    title,
+    city,
+    salaryRange,
+    requiredSkills: [...requiredSkills],
+    description,
+    aiSummary
+  }
+}
+
+const fallbackJobs: JobSummary[] = ([
+  [
+    'J001',
+    'C001',
+    '星河科技',
+    'Java 后端实习生',
+    '杭州',
+    '180-260/天',
+    ['Java', 'Spring Boot', 'MySQL', 'Redis'],
+    '参与招聘平台、数据看板和中台接口开发。',
+    '适合具备 Java Web 项目经验的应届生。'
+  ],
+  [
+    'J002',
+    'C001',
+    '星河科技',
+    'Java 微服务开发实习生',
+    '杭州',
+    '200-280/天',
+    ['Java', 'Spring Cloud', 'Nacos', 'RocketMQ'],
+    '参与校园招聘核心交易链路、服务拆分和接口治理。',
+    '适合了解 Spring Cloud、消息队列和服务注册的后端方向学生。'
+  ],
+  [
+    'J003',
+    'C002',
+    '云栖数智',
+    'Spring Boot 后端开发实习生',
+    '南京',
+    '180-260/天',
+    ['Java', 'Spring Boot', 'MyBatis', 'PostgreSQL'],
+    '负责企业管理后台接口、权限模型和报表数据服务开发。',
+    '适合有 Java CRUD、数据库建模和接口联调经验的候选人。'
+  ],
+  [
+    'J004',
+    'C003',
+    '海棠云',
+    'Go 云原生后端实习生',
+    '深圳',
+    '220-320/天',
+    ['Go', 'Gin', 'Kubernetes', 'Docker'],
+    '参与云资源编排、任务调度和容器平台 API 开发。',
+    '适合熟悉 Go 基础、容器化和云原生概念的工程实践型学生。'
+  ],
+  [
+    'J005',
+    'C004',
+    '青鸾智联',
+    'Python 后端开发实习生',
+    '北京',
+    '180-260/天',
+    ['Python', 'FastAPI', 'Celery', 'Redis'],
+    '建设数据采集、异步任务和运营工具后台能力。',
+    '适合熟悉 Python Web 开发、异步任务和接口调试的学生。'
+  ],
+  [
+    'J061',
+    'C041',
+    '启航教育集团',
+    '小学数学教师',
+    '杭州',
+    '160-240/天',
+    ['数学基础', '课程设计', '课堂管理', '家校沟通'],
+    '负责小学数学班课授课、作业批改、家校沟通和阶段测评反馈。',
+    '适合数学基础扎实、有耐心、表达清楚并愿意长期从事教学工作的候选人。'
+  ],
+  [
+    'J062',
+    'C041',
+    '启航教育集团',
+    '初中英语教师',
+    '南京',
+    '170-260/天',
+    ['英语口语', '语法教学', '阅读训练', '课堂互动'],
+    '负责初中英语语法、阅读和听说课程教学，跟进学生学习效果。',
+    '适合英语表达流利，能设计课堂互动和阶段性学习计划的同学。'
+  ],
+  [
+    'J063',
+    'C042',
+    '新芽培训学校',
+    '课程顾问',
+    '上海',
+    '150-230/天',
+    ['客户沟通', '需求挖掘', '课程介绍', '销售转化'],
+    '接待家长咨询，了解学生学习情况，匹配课程方案并跟进报名转化。',
+    '适合表达亲和、抗压能力强，愿意在教育行业做销售咨询的候选人。'
+  ],
+  [
+    'J064',
+    'C043',
+    '远航销售服务',
+    '销售管培生',
+    '深圳',
+    '180-280/天',
+    ['客户开发', '电话沟通', '商务谈判', '销售漏斗'],
+    '参与客户线索收集、电话邀约、方案介绍、合同跟进和销售复盘。',
+    '适合目标感强、表达清晰，能接受结果导向和外部客户沟通的应届生。'
+  ],
+  [
+    'J065',
+    'C043',
+    '远航销售服务',
+    '大客户销售实习生',
+    '北京',
+    '180-260/天',
+    ['行业研究', '客户拜访', '方案讲解', '商机跟进'],
+    '协助销售经理梳理行业客户、准备拜访材料、跟进商机和回款节点。',
+    '适合逻辑清晰、执行力强，愿意学习企业级销售流程的候选人。'
+  ],
+  [
+    'J066',
+    'C044',
+    '嘉禾零售',
+    '电商运营实习生',
+    '广州',
+    '140-220/天',
+    ['商品运营', '平台规则', 'Excel', '活动报名'],
+    '维护商品上下架、活动报名、价格库存和竞品数据，跟进店铺指标。',
+    '适合熟悉电商平台规则，能处理表格数据和活动节奏的同学。'
+  ],
+  [
+    'J067',
+    'C045',
+    '青橙传媒',
+    '新媒体运营实习生',
+    '成都',
+    '140-220/天',
+    ['内容选题', '文案写作', '短视频', '数据复盘'],
+    '负责公众号、短视频和小红书内容选题、发布排期、数据复盘和评论互动。',
+    '适合网感好、文字表达稳定，能根据数据调整内容方向的候选人。'
+  ],
+  [
+    'J068',
+    'C045',
+    '青橙传媒',
+    '市场推广实习生',
+    '武汉',
+    '140-220/天',
+    ['校园推广', '活动执行', '社群拉新', '物料管理'],
+    '执行校园宣讲、社群拉新、物料投放和活动数据统计。',
+    '适合外向主动、组织能力强，能落地执行线下活动的候选人。'
+  ],
+  [
+    'J069',
+    'C046',
+    '锦程人力',
+    'HR 招聘实习生',
+    '杭州',
+    '130-210/天',
+    ['简历筛选', '面试邀约', '招聘系统', '候选人沟通'],
+    '发布职位、筛选简历、邀约面试、维护招聘系统并跟进候选人体验。',
+    '适合沟通稳定、责任心强，对人力资源和招聘流程感兴趣的候选人。'
+  ],
+  [
+    'J070',
+    'C046',
+    '锦程人力',
+    '人力资源助理',
+    '苏州',
+    '130-210/天',
+    ['员工关系', '培训组织', '档案管理', '流程跟进'],
+    '协助入离转调、培训组织、档案维护和员工活动执行。',
+    '适合细心、有服务意识，能处理流程性事务和跨部门协作的同学。'
+  ],
+  [
+    'J071',
+    'C047',
+    '瑞禾会计师事务所',
+    '财务助理',
+    '上海',
+    '140-220/天',
+    ['会计基础', '费用报销', '凭证整理', 'Excel'],
+    '协助审核报销单据、整理凭证、核对往来账和输出月度基础报表。',
+    '适合会计基础扎实、细致严谨，熟悉 Excel 的候选人。'
+  ],
+  [
+    'J072',
+    'C047',
+    '瑞禾会计师事务所',
+    '审计实习生',
+    '北京',
+    '150-230/天',
+    ['审计底稿', '凭证抽查', '内控测试', '访谈记录'],
+    '协助完成凭证抽查、数据核对、访谈记录和审计底稿整理。',
+    '适合财会专业、逻辑严谨，能接受出差和项目节奏的同学。'
+  ],
+  [
+    'J073',
+    'C048',
+    '明德咨询',
+    '行政前台实习生',
+    '广州',
+    '120-190/天',
+    ['访客接待', '会议室管理', '行政流程', '物资管理'],
+    '负责访客接待、会议室管理、办公用品登记和基础行政流程跟进。',
+    '适合形象亲和、服务意识好，做事细致有条理的候选人。'
+  ],
+  [
+    'J074',
+    'C048',
+    '明德咨询',
+    '法务助理',
+    '深圳',
+    '150-230/天',
+    ['合同审查', '法律检索', '合规', '文档归档'],
+    '协助整理合同台账、检索法规案例、审核标准条款和归档法律文件。',
+    '适合法学基础扎实，文字严谨并能处理大量文档的同学。'
+  ],
+  [
+    'J075',
+    'C049',
+    '智服云',
+    '客服专员实习生',
+    '成都',
+    '120-200/天',
+    ['在线客服', '电话沟通', '工单处理', '服务意识'],
+    '通过在线客服和电话处理用户咨询，记录问题分类并推动闭环解决。',
+    '适合情绪稳定、表达清楚，愿意从一线用户问题理解业务的候选人。'
+  ],
+  [
+    'J076',
+    'C049',
+    '智服云',
+    '用户运营实习生',
+    '杭州',
+    '140-220/天',
+    ['用户分层', '社群运营', '触达策略', '留存分析'],
+    '维护用户社群，设计触达话术，跟进活跃、留存和转化指标。',
+    '适合喜欢和用户交流，能用数据复盘运营动作的同学。'
+  ],
+  [
+    'J077',
+    'C050',
+    '星澜设计云',
+    'UI 设计实习生',
+    '上海',
+    '150-240/天',
+    ['Figma', '界面设计', '设计规范', '组件库'],
+    '协助完成移动端和后台页面设计、组件整理、设计走查和素材交付。',
+    '适合审美稳定，熟悉 Figma，能兼顾可用性和视觉一致性的同学。'
+  ],
+  [
+    'J078',
+    'C050',
+    '星澜设计云',
+    '平面设计实习生',
+    '南京',
+    '130-210/天',
+    ['Photoshop', 'Illustrator', '海报设计', '排版'],
+    '设计活动海报、宣传单页、社媒配图和线下物料。',
+    '适合掌握基础设计软件，能根据品牌调性快速产出视觉方案的候选人。'
+  ],
+  [
+    'J079',
+    'C051',
+    '星火直播',
+    '直播运营实习生',
+    '杭州',
+    '150-230/天',
+    ['直播排期', '场控', '脚本准备', '互动运营'],
+    '协助直播排期、讲解脚本、场控互动和数据复盘。',
+    '适合反应快、执行力强，能处理直播现场节奏和转化数据的候选人。'
+  ],
+  [
+    'J080',
+    'C052',
+    '嘉禾零售',
+    '门店储备干部',
+    '杭州',
+    '140-220/天',
+    ['门店运营', '库存管理', '顾客服务', '排班'],
+    '轮岗学习收银、陈列、库存、会员运营和门店人员排班。',
+    '适合愿意从一线业务做起，有服务意识和现场管理潜力的应届生。'
+  ],
+  [
+    'J081',
+    'C053',
+    '蓝海供应链',
+    '供应链计划实习生',
+    '苏州',
+    '150-230/天',
+    ['需求预测', '库存计划', 'Excel', '订单跟进'],
+    '协助整理销量预测、库存水位、补货计划和异常订单跟进。',
+    '适合数据敏感、逻辑严谨，愿意学习供应链计划方法的同学。'
+  ],
+  [
+    'J082',
+    'C053',
+    '蓝海供应链',
+    '物流调度实习生',
+    '武汉',
+    '140-220/天',
+    ['运输调度', '路线跟进', '异常处理', '时效统计'],
+    '协助车辆排班、路线跟进、异常反馈和运输时效统计。',
+    '适合抗压能力强，能在多方沟通中保持信息准确的同学。'
+  ],
+  [
+    'J083',
+    'C054',
+    '云帆外贸',
+    '外贸业务员实习生',
+    '厦门',
+    '150-240/天',
+    ['英语邮件', '客户开发', '报价单', '外贸流程'],
+    '协助开发海外客户，回复询盘，准备报价单和跟进样品寄送。',
+    '适合英语读写良好，愿意学习外贸流程和客户沟通的同学。'
+  ],
+  [
+    'J084',
+    'C055',
+    '华信金融',
+    '银行柜员实习生',
+    '上海',
+    '150-230/天',
+    ['客户服务', '资料审核', '合规意识', '金融基础'],
+    '学习网点基础业务、客户接待、资料审核和合规操作流程。',
+    '适合细心稳重、服务意识强，愿意从金融一线岗位成长的同学。'
+  ],
+  [
+    'J085',
+    'C056',
+    '康悦医疗',
+    '医药代表实习生',
+    '广州',
+    '160-260/天',
+    ['产品知识', '客户拜访', '市场反馈', '合规推广'],
+    '协助拜访终端客户，整理产品资料，跟进会议和市场反馈。',
+    '适合医学、药学或市场方向学生，沟通主动并重视合规要求。'
+  ],
+  [
+    'J086',
+    'C057',
+    '城际文旅',
+    '酒店前厅管培生',
+    '成都',
+    '140-220/天',
+    ['前台接待', '客诉处理', '会员服务', '排班'],
+    '轮岗学习前台接待、客诉处理、客房协同和会员服务。',
+    '适合服务意识好、形象亲和，能适应排班和现场运营的同学。'
+  ],
+  [
+    'J087',
+    'C057',
+    '城际文旅',
+    '旅游产品运营实习生',
+    '西安',
+    '140-220/天',
+    ['线路设计', '供应商沟通', '产品上架', '用户评价'],
+    '协助整理线路资源、供应商报价、产品上架和用户评价分析。',
+    '适合热爱文旅行业，能把资源信息整理成清晰产品卖点的候选人。'
+  ],
+  [
+    'J088',
+    'C058',
+    '安居地产',
+    '房产销售顾问实习生',
+    '深圳',
+    '160-260/天',
+    ['客户接待', '房源介绍', '带看', '销售转化'],
+    '负责客户接待、房源介绍、带看安排和交易流程协助。',
+    '适合目标感强、沟通主动，能接受外勤和客户跟进节奏的同学。'
+  ],
+  [
+    'J089',
+    'C059',
+    '知行公益',
+    '乡村振兴项目专员',
+    '合肥',
+    '130-210/天',
+    ['基层调研', '项目执行', '资料整理', '活动组织'],
+    '参与乡村项目调研、资料整理、活动组织和项目成效记录。',
+    '适合愿意走进基层，具备调研、沟通和文字整理能力的候选人。'
+  ],
+  [
+    'J090',
+    'C060',
+    '博雅学校',
+    '幼儿园教师',
+    '南京',
+    '150-230/天',
+    ['幼儿照护', '游戏活动', '家园沟通', '班级管理'],
+    '负责幼儿日常照护、游戏活动、家园沟通和班级环境创设。',
+    '适合学前教育方向，耐心细致并具备安全责任意识的候选人。'
+  ],
+  [
+    'J006',
+    'C005',
+    '灵犀互动',
+    'Vue 前端开发实习生',
+    '广州',
+    '160-240/天',
+    ['Vue', 'TypeScript', 'Vite', 'Pinia'],
+    '参与招聘门户、学生端投递流程和组件化页面开发。',
+    '适合熟悉 Vue 生态、关注交互细节和工程化规范的前端学生。'
+  ],
+  [
+    'J007',
+    'C005',
+    '灵犀互动',
+    'React 前端开发实习生',
+    '上海',
+    '180-260/天',
+    ['React', 'TypeScript', 'Next.js', 'CSS'],
+    '负责运营中台、数据筛选页和可复用业务组件开发。',
+    '适合具备 React Hooks、状态管理和响应式布局经验的学生。'
+  ],
+  [
+    'J008',
+    'C006',
+    '千帆科技',
+    'Web 可视化开发实习生',
+    '杭州',
+    '200-300/天',
+    ['TypeScript', 'ECharts', 'Canvas', 'D3'],
+    '开发招聘漏斗、人才画像和业务指标可视化看板。',
+    '适合对数据可视化、图表性能和交互体验感兴趣的前端学生。'
+  ],
+  [
+    'J009',
+    'C007',
+    '南山生活',
+    '小程序前端开发实习生',
+    '深圳',
+    '160-230/天',
+    ['微信小程序', 'TypeScript', 'Taro', 'REST API'],
+    '参与校园服务小程序、活动报名和消息通知模块开发。',
+    '适合有小程序或跨端框架项目经验的前端方向学生。'
+  ],
+  [
+    'J010',
+    'C008',
+    '星澜设计云',
+    '低代码平台前端实习生',
+    '成都',
+    '180-260/天',
+    ['Vue', 'Monaco Editor', 'Schema', '拖拽编辑器'],
+    '建设表单设计器、流程配置器和低代码运行时页面。',
+    '适合熟悉组件抽象、Schema 配置和复杂交互的前端学生。'
+  ],
+  [
+    'J011',
+    'C009',
+    '问知智能',
+    'AI 应用开发实习生',
+    '北京',
+    '220-320/天',
+    ['Python', 'LangChain', 'FastAPI', 'LLM'],
+    '落地简历解析、智能问答和候选人推荐等 AI 应用能力。',
+    '适合了解大模型 API、提示词调优和工程集成的学生。'
+  ],
+  [
+    'J012',
+    'C009',
+    '问知智能',
+    'RAG 知识库工程实习生',
+    '北京',
+    '220-320/天',
+    ['RAG', '向量数据库', 'Embedding', 'Python'],
+    '负责知识文档切分、向量检索、召回评估和问答链路优化。',
+    '适合对 RAG、Milvus 或 Elasticsearch 检索增强有实践兴趣的学生。'
+  ],
+  [
+    'J013',
+    'C010',
+    '启明模型工场',
+    '大模型提示词工程实习生',
+    '上海',
+    '180-260/天',
+    ['Prompt Engineering', 'LLM', '评测集', 'A/B Test'],
+    '设计招聘问答、面试题生成和简历润色场景的提示词与评测样例。',
+    '适合表达清晰、能把业务规则转化为模型提示和评价标准的学生。'
+  ],
+  [
+    'J014',
+    'C010',
+    '启明模型工场',
+    '机器学习算法实习生',
+    '上海',
+    '250-380/天',
+    ['Python', 'PyTorch', '特征工程', '模型评估'],
+    '参与候选人匹配、点击率预估和模型离线评估实验。',
+    '适合有机器学习课程项目、PyTorch 训练和指标分析经验的学生。'
+  ],
+  [
+    'J015',
+    'C011',
+    '视界智能',
+    '计算机视觉算法实习生',
+    '杭州',
+    '250-380/天',
+    ['Python', 'OpenCV', 'PyTorch', '目标检测'],
+    '参与证件识别、面试视频质量检测和图像算法实验。',
+    '适合熟悉视觉模型训练、数据标注和误差分析的算法方向学生。'
+  ],
+  [
+    'J016',
+    'C012',
+    '语义引擎',
+    'NLP 算法实习生',
+    '北京',
+    '240-360/天',
+    ['NLP', 'Transformers', '文本分类', '信息抽取'],
+    '优化职位标签抽取、简历实体识别和搜索相关性模型。',
+    '适合有中文 NLP、Transformer 微调和数据清洗经验的学生。'
+  ],
+  [
+    'J017',
+    'C013',
+    '数桥科技',
+    '数据开发实习生',
+    '杭州',
+    '180-260/天',
+    ['SQL', 'Python', 'ETL', 'Airflow'],
+    '建设招聘业务数据同步、指标宽表和定时调度任务。',
+    '适合 SQL 扎实、理解数据分层和任务调度的学生。'
+  ],
+  [
+    'J018',
+    'C013',
+    '数桥科技',
+    '数据仓库实习生',
+    '杭州',
+    '190-280/天',
+    ['Hive', 'Spark SQL', '数据建模', 'DWD'],
+    '参与校园招聘数仓主题域建模、质量校验和指标口径治理。',
+    '适合了解离线数仓分层、维度建模和数据质量规则的学生。'
+  ],
+  [
+    'J019',
+    'C014',
+    '灯塔分析',
+    'BI 数据分析实习生',
+    '上海',
+    '160-240/天',
+    ['SQL', 'Tableau', '指标分析', 'Excel'],
+    '负责招聘转化、渠道效率和企业活跃度分析看板。',
+    '适合能用 SQL 拆解业务问题并输出清晰分析结论的学生。'
+  ],
+  [
+    'J020',
+    'C014',
+    '灯塔分析',
+    '产品数据分析实习生',
+    '上海',
+    '180-260/天',
+    ['SQL', 'Python', '漏斗分析', 'A/B Test'],
+    '分析学生投递、企业筛选和面试预约流程的转化瓶颈。',
+    '适合关注产品体验、具备统计思维和数据表达能力的学生。'
+  ],
+  [
+    'J021',
+    'C015',
+    '稳测软件',
+    '测试开发实习生',
+    '南京',
+    '160-240/天',
+    ['Java', 'JUnit', '接口测试', 'Selenium'],
+    '参与接口自动化、UI 回归和测试平台能力建设。',
+    '适合熟悉测试用例设计、自动化脚本和缺陷定位的学生。'
+  ],
+  [
+    'J022',
+    'C015',
+    '稳测软件',
+    '自动化测试实习生',
+    '苏州',
+    '150-220/天',
+    ['Python', 'Pytest', 'Playwright', 'CI'],
+    '维护 Web 端自动化回归、测试数据构造和流水线执行。',
+    '适合有 Pytest 或 Playwright 实践、能稳定复现问题的学生。'
+  ],
+  [
+    'J023',
+    'C015',
+    '稳测软件',
+    '性能测试实习生',
+    '武汉',
+    '170-250/天',
+    ['JMeter', 'Linux', 'MySQL', '性能分析'],
+    '负责接口压测、容量评估和慢查询初步定位。',
+    '适合了解性能指标、压测脚本和基础系统监控的学生。'
+  ],
+  [
+    'J024',
+    'C016',
+    '北辰云服',
+    'SRE 运维开发实习生',
+    '北京',
+    '200-300/天',
+    ['Linux', 'Prometheus', 'Python', 'Kubernetes'],
+    '参与服务监控、告警规则、故障演练和自动化运维脚本开发。',
+    '适合对稳定性工程、可观测性和自动化排障感兴趣的学生。'
+  ],
+  [
+    'J025',
+    'C016',
+    '北辰云服',
+    '云平台运维实习生',
+    '北京',
+    '180-260/天',
+    ['Linux', 'Docker', 'Nginx', 'Shell'],
+    '维护测试环境、容器部署、域名网关和基础资源巡检。',
+    '适合掌握 Linux 基础命令、网络排障和脚本编写的学生。'
+  ],
+  [
+    'J026',
+    'C017',
+    '流水线科技',
+    'DevOps 平台实习生',
+    '成都',
+    '190-280/天',
+    ['GitLab CI', 'Docker', 'Helm', '脚本开发'],
+    '建设代码扫描、镜像构建、灰度发布和发布审批流水线。',
+    '适合熟悉 CI/CD、容器镜像和工程效率工具的学生。'
+  ],
+  [
+    'J027',
+    'C018',
+    '盾安网络',
+    '信息安全实习生',
+    '杭州',
+    '180-260/天',
+    ['Web 安全', 'OWASP', '日志分析', 'Python'],
+    '参与安全基线检查、漏洞验证、风险台账和安全自动化脚本。',
+    '适合了解常见 Web 漏洞、能规范记录验证过程的安全方向学生。'
+  ],
+  [
+    'J028',
+    'C018',
+    '盾安网络',
+    '安全运营实习生',
+    '深圳',
+    '170-250/天',
+    ['SOC', 'SIEM', '威胁情报', '应急响应'],
+    '监控安全告警、梳理攻击链路并协助完成应急响应复盘。',
+    '适合关注安全运营、日志检索和事件分析的学生。'
+  ],
+  [
+    'J029',
+    'C018',
+    '盾安网络',
+    '渗透测试实习生',
+    '广州',
+    '190-280/天',
+    ['渗透测试', 'Burp Suite', 'Linux', '漏洞验证'],
+    '对 Web 业务、API 和管理后台进行授权渗透测试与修复验证。',
+    '适合掌握漏洞原理、报告撰写和合规测试流程的学生。'
+  ],
+  [
+    'J030',
+    'C019',
+    '掌上校园',
+    'Android 开发实习生',
+    '深圳',
+    '180-260/天',
+    ['Kotlin', 'Android', 'Jetpack', 'REST API'],
+    '参与校园招聘 App 投递、消息、日程和离线缓存模块开发。',
+    '适合熟悉 Kotlin、Jetpack 组件和移动端调试的学生。'
+  ],
+  [
+    'J031',
+    'C019',
+    '掌上校园',
+    'iOS 开发实习生',
+    '深圳',
+    '180-260/天',
+    ['Swift', 'iOS', 'UIKit', 'SwiftUI'],
+    '开发 iOS 端岗位浏览、简历投递和面试日程体验。',
+    '适合有 Swift 项目、移动端网络请求和界面布局经验的学生。'
+  ],
+  [
+    'J032',
+    'C019',
+    '掌上校园',
+    'Flutter 跨端开发实习生',
+    '广州',
+    '180-260/天',
+    ['Flutter', 'Dart', '状态管理', '移动端'],
+    '参与学生端跨端页面、组件沉淀和性能优化。',
+    '适合熟悉 Flutter 布局、路由和移动端基础能力的学生。'
+  ],
+  [
+    'J033',
+    'C020',
+    '星流数据',
+    '大数据开发实习生',
+    '北京',
+    '220-320/天',
+    ['Spark', 'Flink', 'Kafka', 'Hive'],
+    '负责日志采集、离线计算、实时指标和数据链路监控。',
+    '适合了解大数据生态、批流计算和数据稳定性保障的学生。'
+  ],
+  [
+    'J034',
+    'C020',
+    '星流数据',
+    '实时计算开发实习生',
+    '北京',
+    '230-340/天',
+    ['Flink', 'Kafka', 'Java', '实时数仓'],
+    '开发招聘行为实时指标、告警规则和流式数据清洗任务。',
+    '适合熟悉 Flink 窗口、状态管理和 Kafka 消费模型的学生。'
+  ],
+  [
+    'J035',
+    'C021',
+    '灵推荐',
+    '搜索推荐工程实习生',
+    '杭州',
+    '240-360/天',
+    ['Python', '召回排序', 'Elasticsearch', '特征工程'],
+    '优化岗位搜索、候选人推荐和个性化排序策略。',
+    '适合理解搜索召回、排序评估和推荐系统基础的学生。'
+  ],
+  [
+    'J036',
+    'C022',
+    '职路产品实验室',
+    '产品经理实习生',
+    '上海',
+    '150-220/天',
+    ['需求分析', '原型设计', 'Axure', '用户故事'],
+    '负责学生求职流程、企业筛选工具和后台配置需求梳理。',
+    '适合能把用户问题拆成可交付需求、沟通清晰的产品方向学生。'
+  ],
+  [
+    'J037',
+    'C022',
+    '职路产品实验室',
+    '用户研究实习生',
+    '上海',
+    '140-220/天',
+    ['访谈', '问卷', '可用性测试', '用户画像'],
+    '开展学生和企业用户访谈，沉淀招聘平台体验问题与优化建议。',
+    '适合具备调研设计、访谈整理和洞察表达能力的学生。'
+  ],
+  [
+    'J038',
+    'C023',
+    '增长引擎',
+    '运营数据分析实习生',
+    '广州',
+    '150-230/天',
+    ['SQL', '活动分析', '增长指标', 'Excel'],
+    '分析校园活动、内容触达和企业运营策略的效果数据。',
+    '适合关注增长运营、指标拆解和数据复盘的学生。'
+  ],
+  [
+    'J039',
+    'C024',
+    '芯联实验室',
+    '嵌入式软件实习生',
+    '苏州',
+    '190-280/天',
+    ['C', 'C++', 'RTOS', '串口调试'],
+    '参与传感器驱动、设备通信协议和嵌入式测试工具开发。',
+    '适合具备 C/C++ 基础、单片机或 RTOS 项目经验的学生。'
+  ],
+  [
+    'J040',
+    'C024',
+    '芯联实验室',
+    'IoT 平台开发实习生',
+    '苏州',
+    '190-280/天',
+    ['MQTT', 'Java', '物联网平台', '时序数据'],
+    '开发设备接入、消息解析、告警规则和物联网数据看板。',
+    '适合了解 IoT 协议、后端接口和设备数据处理的学生。'
+  ],
+  [
+    'J041',
+    'C025',
+    '行知车联',
+    '车载软件开发实习生',
+    '武汉',
+    '200-300/天',
+    ['C++', 'Linux', 'CAN', '车载以太网'],
+    '参与车端通信、诊断工具和日志采集模块开发测试。',
+    '适合对智能汽车软件、C++ 和嵌入式 Linux 感兴趣的学生。'
+  ],
+  [
+    'J042',
+    'C026',
+    '容器云工场',
+    '云原生平台开发实习生',
+    '杭州',
+    '220-320/天',
+    ['Kubernetes', 'Go', 'Operator', 'Helm'],
+    '开发集群管理、应用发布和资源编排平台功能。',
+    '适合熟悉 Kubernetes 基础对象、Go 开发和云原生生态的学生。'
+  ],
+  [
+    'J043',
+    'C026',
+    '容器云工场',
+    'Kubernetes 运维开发实习生',
+    '杭州',
+    '210-300/天',
+    ['Kubernetes', 'Prometheus', 'Shell', '故障排查'],
+    '负责集群巡检、告警治理、自动扩缩容和故障脚本沉淀。',
+    '适合对集群稳定性、监控告警和自动化运维有兴趣的学生。'
+  ],
+  [
+    'J044',
+    'C027',
+    '星库数据库',
+    '数据库内核测试实习生',
+    '北京',
+    '220-320/天',
+    ['MySQL', 'PostgreSQL', '测试开发', 'SQL'],
+    '设计数据库兼容性、事务、索引和性能场景测试。',
+    '适合数据库基础扎实、愿意深入 SQL 执行和测试工具的学生。'
+  ],
+  [
+    'J045',
+    'C027',
+    '星库数据库',
+    'DBA 数据库运维实习生',
+    '北京',
+    '190-280/天',
+    ['MySQL', 'Redis', '备份恢复', '慢查询'],
+    '协助数据库巡检、备份恢复演练、容量评估和慢 SQL 分析。',
+    '适合熟悉数据库基础运维、索引优化和高可用概念的学生。'
+  ],
+  [
+    'J046',
+    'C028',
+    '企服云',
+    '低代码平台开发实习生',
+    '深圳',
+    '180-260/天',
+    ['Java', 'Vue', '规则引擎', '流程引擎'],
+    '参与审批流、动态表单、权限配置和租户隔离能力开发。',
+    '适合兼具前后端基础、理解配置化平台设计的学生。'
+  ],
+  [
+    'J047',
+    'C028',
+    '企服云',
+    'CRM 后端开发实习生',
+    '深圳',
+    '180-260/天',
+    ['Java', 'Spring Boot', 'MySQL', 'ElasticSearch'],
+    '开发客户线索、销售跟进、权限审计和报表接口。',
+    '适合有企业 SaaS 后端开发、搜索或权限模型实践的学生。'
+  ],
+  [
+    'J048',
+    'C029',
+    '安付科技',
+    '支付风控开发实习生',
+    '上海',
+    '220-320/天',
+    ['Java', '风控规则', 'Redis', 'Kafka'],
+    '参与交易风控规则、风险特征计算和实时拦截链路开发。',
+    '适合了解高并发接口、规则引擎和实时消息处理的后端学生。'
+  ],
+  [
+    'J049',
+    'C029',
+    '安付科技',
+    '金融科技 Java 实习生',
+    '上海',
+    '200-300/天',
+    ['Java', 'Spring Cloud', '分布式事务', 'MySQL'],
+    '参与账户、清结算和对账系统的后端服务开发。',
+    '适合对金融业务一致性、事务和服务治理感兴趣的学生。'
+  ],
+  [
+    'J050',
+    'C030',
+    '医数云',
+    '医疗数据工程实习生',
+    '成都',
+    '190-280/天',
+    ['Python', 'SQL', '数据脱敏', 'ETL'],
+    '处理医疗结构化数据、脱敏规则、质控报表和数据接口。',
+    '适合关注数据合规、ETL 和行业数据治理的学生。'
+  ],
+  [
+    'J051',
+    'C031',
+    '学伴 SaaS',
+    '教育 SaaS 前端实习生',
+    '武汉',
+    '160-240/天',
+    ['Vue', 'TypeScript', '组件库', '移动适配'],
+    '开发课程管理、学习任务和教师工作台前端页面。',
+    '适合关注教育产品体验、组件复用和移动端适配的前端学生。'
+  ],
+  [
+    'J052',
+    'C032',
+    '游境网络',
+    '游戏服务端实习生',
+    '广州',
+    '200-300/天',
+    ['Go', 'TCP', 'Redis', '房间服务'],
+    '参与游戏大厅、匹配队列、房间状态和运营活动服务开发。',
+    '适合有网络编程、并发模型或实时服务兴趣的学生。'
+  ],
+  [
+    'J053',
+    'C033',
+    '声画科技',
+    '音视频开发实习生',
+    '深圳',
+    '220-340/天',
+    ['C++', 'WebRTC', 'FFmpeg', '网络协议'],
+    '参与在线面试音视频链路、录制转码和质量监控能力建设。',
+    '适合了解音视频基础、网络传输和 C++ 开发的学生。'
+  ],
+  [
+    'J054',
+    'C034',
+    '图行天下',
+    '地图 GIS 开发实习生',
+    '南京',
+    '180-260/天',
+    ['GIS', 'PostGIS', 'JavaScript', '空间数据'],
+    '开发校招地图、通勤圈分析和地理围栏相关功能。',
+    '适合熟悉 GIS 基础、空间查询和 Web 地图展示的学生。'
+  ],
+  [
+    'J055',
+    'C035',
+    '隐算科技',
+    '隐私计算工程实习生',
+    '北京',
+    '240-360/天',
+    ['Python', '联邦学习', '安全多方计算', '数据合规'],
+    '参与跨机构数据协作、隐私保护建模和实验评估工具开发。',
+    '适合对隐私计算、机器学习和数据安全合规有兴趣的学生。'
+  ],
+  [
+    'J056',
+    'C036',
+    '链信实验室',
+    '区块链应用开发实习生',
+    '杭州',
+    '200-300/天',
+    ['Solidity', 'Go', '智能合约', 'Web3'],
+    '开发证书存证、合约调用服务和链上数据查询工具。',
+    '适合了解智能合约、区块链基础和后端服务集成的学生。'
+  ],
+  [
+    'J057',
+    'C037',
+    '运筹智能',
+    '供应链算法实习生',
+    '上海',
+    '240-360/天',
+    ['Python', '运筹优化', '启发式算法', '数据建模'],
+    '参与仓配调度、路径规划和库存补货策略的算法实验。',
+    '适合有数学建模、优化算法和 Python 实验经验的学生。'
+  ],
+  [
+    'J058',
+    'C038',
+    '智服云',
+    '客户成功技术顾问实习生',
+    '北京',
+    '150-220/天',
+    ['SQL', 'API 调试', 'SaaS', '沟通协作'],
+    '支持企业客户接入招聘平台，定位配置、数据和接口问题。',
+    '适合技术基础扎实、沟通清楚并愿意贴近客户场景的学生。'
+  ],
+  [
+    'J059',
+    'C039',
+    '方案桥',
+    '售前解决方案实习生',
+    '深圳',
+    '160-240/天',
+    ['解决方案', '云服务', '需求调研', '原型演示'],
+    '协助准备校园招聘数字化方案、演示环境和技术答疑材料。',
+    '适合兼具技术理解、表达能力和业务抽象能力的学生。'
+  ],
+  [
+    'J060',
+    'C040',
+    '开源协作社',
+    '技术文档工程师实习生',
+    '远程',
+    '120-200/天',
+    ['Markdown', 'API 文档', 'Git', '技术写作'],
+    '维护开发者文档、接口示例、部署说明和产品更新日志。',
+    '适合表达准确、能阅读代码并输出清晰技术文档的学生。'
+  ]
+] as const).map(createFallbackJob)
 
 const fallbackMatch: MatchResult = {
   matchId: 'M001',
@@ -1036,21 +2213,24 @@ const fallbackInterviewQuestions: InterviewQuestion[] = [
     category: '项目深挖',
     difficulty: '中等',
     question: '请结合一个项目说明你如何使用 Java 解决核心业务问题，并说明你的个人贡献。',
-    referencePoints: ['项目背景和目标', '技术方案与取舍', '个人负责模块', '量化结果或复盘']
+    referencePoints: ['项目背景和目标', '技术方案与取舍', '个人负责模块', '量化结果或复盘'],
+    knowledgeReferences: ['Campus recruitment Java backend interview guide：Spring Boot、MySQL、Redis 和微服务排障是 Java 后端面试重点。']
   },
   {
     questionId: 'IQ-002',
     category: '技术基础',
     difficulty: '中等',
     question: '如果接口响应突然变慢，你会如何从应用、数据库和缓存三个层面排查？',
-    referencePoints: ['先查看监控与日志', '分析 SQL 与索引', '检查缓存命中率', '补充压测复现方式']
+    referencePoints: ['先查看监控与日志', '分析 SQL 与索引', '检查缓存命中率', '补充压测复现方式'],
+    knowledgeReferences: ['Campus RAG bulk handbook：压测和 P95 延迟可用于定位网关、数据库和缓存瓶颈。']
   },
   {
     questionId: 'IQ-003',
     category: '行为面试',
     difficulty: '基础',
     question: '请讲一次你在团队协作中推动问题解决的经历。',
-    referencePoints: ['使用 STAR 结构', '说明阻塞点', '突出沟通动作', '总结复盘']
+    referencePoints: ['使用 STAR 结构', '说明阻塞点', '突出沟通动作', '总结复盘'],
+    knowledgeReferences: ['Resume evidence checklist：强简历需要把项目主张关联到可验证证据。']
   }
 ]
 
@@ -1935,6 +3115,50 @@ async function request<T>(path: string, init: RequestInit, fallback: T): Promise
   }
 }
 
+async function strictRequest<T>(path: string, init: RequestInit, fallback: T): Promise<T> {
+  if (!shouldUseApi(path)) {
+    return fallback
+  }
+
+  return authenticatedRequest<T>(path, init)
+}
+
+async function authenticatedRequest<T>(path: string, init: RequestInit): Promise<T> {
+  const response = await fetch(resolveRequestPath(path), {
+    ...init,
+    headers: requestHeaders(init)
+  })
+  if (!response.ok) {
+    if (response.status === 401) {
+      if (!path.startsWith('/api/auth/login')) {
+        clearAuthSession()
+      }
+      throw new Error(path.startsWith('/api/auth/login') ? '账号或密码错误，请重新输入' : '登录已失效，请重新登录')
+    }
+    throw new Error(await responseErrorMessage(response, `HTTP ${response.status}`))
+  }
+  const payload = (await response.json()) as ApiResponse<T>
+  if (payload.code !== 0) {
+    if (payload.code === 401) {
+      if (!path.startsWith('/api/auth/login')) {
+        clearAuthSession()
+      }
+      throw new Error(path.startsWith('/api/auth/login') ? '账号或密码错误，请重新输入' : '登录已失效，请重新登录')
+    }
+    throw new Error(payload.message || '请求失败')
+  }
+  return payload.data
+}
+
+async function responseErrorMessage(response: Response, fallback: string) {
+  try {
+    const payload = await response.json() as Partial<ApiResponse<unknown>>
+    return payload.message || fallback
+  } catch {
+    return fallback
+  }
+}
+
 function requestHeaders(init: RequestInit) {
   const headers = new Headers()
   if (!(init.body instanceof FormData)) {
@@ -1959,53 +3183,111 @@ export function login(username: string, password: string) {
   const role: Role = username === 'company' ? 'COMPANY' : username === 'admin' ? 'ADMIN' : 'STUDENT'
   const userId = role === 'COMPANY' ? 'C001' : role === 'ADMIN' ? 'A001' : 'S001'
   const displayName = role === 'COMPANY' ? '星河科技 HR' : role === 'ADMIN' ? '就业办管理员' : '张同学'
-  return request<LoginResponse>('/api/auth/login', {
+  return strictRequest<LoginResponse>('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ username, password })
   }, { token: `demo-${role.toLowerCase()}-token`, userId, displayName, role })
 }
 
 export function getProfile() {
-  return request<UserProfile>('/api/students/profile', { method: 'GET' }, fallbackProfile)
+  return strictRequest<UserProfile>('/api/students/profile', { method: 'GET' }, fallbackProfile)
 }
 
 export function uploadResume(file: File) {
   const formData = new FormData()
   formData.append('file', file)
-  return request<ResumeSummary>('/api/resumes/upload', { method: 'POST', body: formData }, {
+  return strictRequest<ResumeSummary>('/api/resumes/upload', { method: 'POST', body: formData }, {
     ...fallbackResume,
     fileName: file.name
   })
 }
 
-export function getResume(resumeId = 'R001') {
-  return request<ResumeSummary>(`/api/resumes/${resumeId}`, { method: 'GET' }, fallbackResume)
+export function listResumes() {
+  return strictRequest<ResumeSummary[]>('/api/resumes', { method: 'GET' }, [fallbackResume])
 }
 
-export function analyzeResume(resumeId: string) {
-  return request<ResumeSummary>(`/api/resumes/${resumeId}/analyze`, { method: 'POST' }, fallbackResume)
+export function getResume(resumeId = 'R001') {
+  return strictRequest<ResumeSummary>(`/api/resumes/${resumeId}`, { method: 'GET' }, fallbackResume)
+}
+
+export function analyzeResume(resumeId: string, payload: ResumeAnalyzeRequest = {}) {
+  const targetJob = payload.targetJob?.trim()
+  return strictRequest<ResumeSummary>(`/api/resumes/${resumeId}/analyze`, {
+    method: 'POST',
+    ...(targetJob ? { body: JSON.stringify({ targetJob }) } : {})
+  }, fallbackResume)
+}
+
+export function deleteResume(resumeId: string) {
+  return strictRequest<boolean>(`/api/resumes/${encodeURIComponent(resumeId)}`, { method: 'DELETE' }, true)
+}
+
+export function updateResumeProfile(resumeId: string, payload: ResumeProfileUpdateRequest) {
+  const fallback = { ...fallbackResume, ...payload, resumeId }
+  return strictRequest<ResumeSummary>(`/api/resumes/${encodeURIComponent(resumeId)}/profile`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }, fallback)
+}
+
+export function listResumeDiagnoses(resumeId: string) {
+  const fallback: ResumeDiagnosis[] = [{
+    diagnosisId: 'DIAG-DEMO-001',
+    resumeId,
+    studentId: currentStudentId(),
+    targetJob: fallbackProfile.targetPosition,
+    diagnosis: fallbackResume.diagnosis,
+    score: fallbackResume.score,
+    source: 'local-demo',
+    createdAt: new Date().toISOString()
+  }]
+  return strictRequest<ResumeDiagnosis[]>(`/api/resumes/${encodeURIComponent(resumeId)}/diagnoses`, {
+    method: 'GET'
+  }, fallback)
 }
 
 export function listJobs() {
-  return request<JobSummary[]>('/api/jobs', { method: 'GET' }, fallbackJobs)
+  return strictRequest<JobSummary[]>('/api/jobs', { method: 'GET' }, fallbackJobs)
 }
 
 export function createJob(job: Partial<JobSummary>) {
   const payload = { ...job, companyId: job.companyId || currentCompanyId() }
   const created = { ...fallbackJobs[0], ...payload, jobId: `J${Date.now().toString().slice(-6)}` }
-  return request<JobSummary>('/api/jobs', { method: 'POST', body: JSON.stringify(payload) }, created)
+  return strictRequest<JobSummary>('/api/jobs', { method: 'POST', body: JSON.stringify(payload) }, created)
 }
 
 export function analyzeJob(jobId: string) {
-  return request<JobSummary>(`/api/jobs/${jobId}/analyze`, { method: 'POST' }, fallbackJobs[0])
+  return strictRequest<JobSummary>(`/api/jobs/${jobId}/analyze`, { method: 'POST' }, fallbackJobs[0])
+}
+
+export function updateJob(jobId: string, payload: Partial<JobSummary>) {
+  const fallback = { ...fallbackJobs.find((job) => job.jobId === jobId), ...payload, jobId }
+  return strictRequest<JobSummary>(`/api/jobs/${encodeURIComponent(jobId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  }, fallback as JobSummary)
+}
+
+export function updateJobStatus(jobId: string, status: string) {
+  const fallback = { ...fallbackJobs.find((job) => job.jobId === jobId), jobId, status }
+  return strictRequest<JobSummary>(`/api/jobs/${encodeURIComponent(jobId)}/status`, {
+    method: 'POST',
+    body: JSON.stringify({ status })
+  }, fallback as JobSummary)
 }
 
 export function matchResumeJob(resumeId = 'R001', jobId = 'J001') {
   const studentId = currentStudentId()
-  return request<MatchResult>('/api/matches/resume-job', {
+  return strictRequest<MatchResult>('/api/matches/resume-job', {
     method: 'POST',
     body: JSON.stringify({ resumeId, jobId, studentId })
   }, { ...fallbackMatch, resumeId, jobId, studentId })
+}
+
+export function listMyMatches(studentId = currentStudentId()) {
+  return strictRequest<MatchResult[]>(`/api/matches/student/${encodeURIComponent(studentId)}`, {
+    method: 'GET'
+  }, [fallbackMatch])
 }
 
 export function screenCandidate(payload: CandidateScreenRequest) {
@@ -2109,10 +3391,18 @@ export function listMyCandidateScreenRecords(studentId = currentStudentId()) {
 }
 
 export function generateInterviewQuestions(payload: InterviewQuestionRequest) {
+  const count = Math.max(1, Math.min(20, payload.questionCount || fallbackInterviewQuestions.length))
+  const fallback = Array.from({ length: count }, (_, index) => {
+    const base = fallbackInterviewQuestions[index % fallbackInterviewQuestions.length]
+    return {
+      ...base,
+      questionId: `IQ-DEMO-${String(index + 1).padStart(3, '0')}`
+    }
+  })
   return request<InterviewQuestion[]>('/api/ai/interview/questions', {
     method: 'POST',
     body: JSON.stringify(payload)
-  }, fallbackInterviewQuestions)
+  }, fallback)
 }
 
 export function submitInterviewFeedback(payload: InterviewFeedbackRequest) {
@@ -2123,7 +3413,7 @@ export function submitInterviewFeedback(payload: InterviewFeedbackRequest) {
 }
 
 export function rewriteResume(payload: ResumeRewriteRequest) {
-  return request<ResumeRewriteResponse>('/api/ai/resume/rewrite', {
+  return strictRequest<ResumeRewriteResponse>('/api/ai/resume/rewrite', {
     method: 'POST',
     body: JSON.stringify(payload)
   }, {
@@ -2166,6 +3456,240 @@ export function listAiPlanningHistory(studentId = currentStudentId(), limit = 20
     .filter((record) => record.studentId === studentId)
     .slice(0, normalizedLimit)
   return request<AiPlanningRecord[]>(`/api/ai/career/history?${params.toString()}`, { method: 'GET' }, fallback)
+}
+
+const localLearningPlans = new Map<string, LearningPlan>()
+const localInterviewSessions = new Map<string, InterviewSession>()
+
+function localId(prefix: string) {
+  return `${prefix}-DEMO-${Date.now().toString(36).toUpperCase()}`
+}
+
+function buildLocalLearningPlan(payload: LearningPlanRequest, version = 1, revisionOfPlanId?: string): LearningPlan {
+  const now = new Date().toISOString()
+  const durationWeeks = Math.max(1, Math.min(16, payload.durationWeeks || 8))
+  const weeklyHours = Math.max(1, Math.min(40, payload.weeklyHours || 6))
+  const targetRole = payload.targetRole?.trim() || getProfileFallbackTargetRole()
+  return {
+    planId: localId('PLAN'),
+    studentId: payload.studentId || currentStudentId(),
+    resumeId: payload.resumeId,
+    jobId: payload.jobId,
+    matchId: payload.matchId,
+    targetRole,
+    weeklyHours,
+    durationWeeks,
+    status: 'ACTIVE',
+    version,
+    revisionOfPlanId,
+    tasks: Array.from({ length: durationWeeks }, (_, index) => ({
+      taskId: `TASK-${index + 1}`,
+      week: index + 1,
+      title: `第 ${index + 1} 周专项练习`,
+      description: index === 0
+        ? `补齐 ${targetRole} 所需的简历证据与基础知识。`
+        : `围绕 ${targetRole} 完成项目复盘、专项训练和复盘记录。`,
+      estimatedHours: weeklyHours,
+      status: 'TODO',
+      updatedAt: now
+    })),
+    createdAt: now,
+    updatedAt: now
+  }
+}
+
+function getProfileFallbackTargetRole() {
+  return getAuthSession()?.role === 'STUDENT' ? fallbackProfile.targetPosition : '目标岗位'
+}
+
+export function createLearningPlan(payload: LearningPlanRequest) {
+  const path = '/api/ai/learning/plans'
+  const init: RequestInit = { method: 'POST', body: JSON.stringify(payload) }
+  if (shouldUseApi(path)) {
+    return authenticatedRequest<LearningPlan>(path, init)
+  }
+  const plan = buildLocalLearningPlan(payload)
+  localLearningPlans.set(plan.planId, plan)
+  return Promise.resolve(plan)
+}
+
+export function listLearningPlans() {
+  const path = '/api/ai/learning/plans'
+  if (shouldUseApi(path)) {
+    return authenticatedRequest<LearningPlan[]>(path, { method: 'GET' })
+  }
+  return Promise.resolve([...localLearningPlans.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)))
+}
+
+export function getLearningPlan(planId: string) {
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}`
+  if (shouldUseApi(path)) {
+    return authenticatedRequest<LearningPlan>(path, { method: 'GET' })
+  }
+  const plan = localLearningPlans.get(planId)
+  return plan ? Promise.resolve(plan) : Promise.reject(new Error('学习计划不存在'))
+}
+
+export function updateLearningTask(planId: string, taskId: string, payload: LearningTaskUpdateRequest) {
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}`
+  const init: RequestInit = { method: 'PUT', body: JSON.stringify(payload) }
+  if (shouldUseApi(path)) {
+    return authenticatedRequest<LearningTask>(path, init)
+  }
+  const plan = localLearningPlans.get(planId)
+  const task = plan?.tasks.find((item) => item.taskId === taskId)
+  if (!plan || !task) {
+    return Promise.reject(new Error('学习任务不存在'))
+  }
+  const updatedAt = new Date().toISOString()
+  const updated = {
+    ...task,
+    status: payload.status,
+    feedback: payload.feedback?.trim() || undefined,
+    completedAt: payload.status === 'COMPLETED' ? updatedAt : undefined,
+    updatedAt
+  }
+  localLearningPlans.set(planId, {
+    ...plan,
+    tasks: plan.tasks.map((item) => item.taskId === taskId ? updated : item),
+    updatedAt
+  })
+  return Promise.resolve(updated)
+}
+
+export function replanLearningPlan(planId: string, payload: LearningPlanReplanRequest) {
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/replan`
+  const init: RequestInit = { method: 'POST', body: JSON.stringify(payload) }
+  if (shouldUseApi(path)) {
+    return authenticatedRequest<LearningPlan>(path, init)
+  }
+  const current = localLearningPlans.get(planId)
+  if (!current) {
+    return Promise.reject(new Error('学习计划不存在'))
+  }
+  const revised = buildLocalLearningPlan({
+    ...current,
+    weeklyHours: payload.weeklyHours || current.weeklyHours,
+    durationWeeks: payload.durationWeeks || current.durationWeeks
+  }, current.version + 1, current.planId)
+  localLearningPlans.set(revised.planId, revised)
+  return Promise.resolve(revised)
+}
+
+export function listLearningPlanVersions(planId: string) {
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/versions`
+  if (shouldUseApi(path)) {
+    return authenticatedRequest<LearningPlan[]>(path, { method: 'GET' })
+  }
+  const versions = [...localLearningPlans.values()]
+    .filter((plan) => plan.planId === planId || plan.revisionOfPlanId === planId)
+    .sort((left, right) => left.version - right.version)
+  return Promise.resolve(versions)
+}
+
+function buildLocalInterviewSession(payload: InterviewSessionRequest): InterviewSession {
+  const now = new Date().toISOString()
+  const questionCount = Math.max(1, Math.min(10, payload.questionCount || 5))
+  return {
+    sessionId: localId('SESSION'),
+    studentId: payload.studentId || currentStudentId(),
+    resumeId: payload.resumeId,
+    jobId: payload.jobId,
+    matchId: payload.matchId,
+    targetRole: payload.targetRole?.trim() || getProfileFallbackTargetRole(),
+    status: 'IN_PROGRESS',
+    questions: Array.from({ length: questionCount }, (_, index) => {
+      const source = fallbackInterviewQuestions[index % fallbackInterviewQuestions.length]
+      return {
+        questionId: `Q-${index + 1}`,
+        question: source.question,
+        category: source.category,
+        difficulty: source.difficulty,
+        referencePoints: source.referencePoints
+      }
+    }),
+    answers: [],
+    createdAt: now,
+    updatedAt: now
+  }
+}
+
+export function createInterviewSession(payload: InterviewSessionRequest) {
+  const path = '/api/ai/interview/sessions'
+  const init: RequestInit = { method: 'POST', body: JSON.stringify(payload) }
+  if (shouldUseApi(path)) {
+    return authenticatedRequest<InterviewSession>(path, init)
+  }
+  const session = buildLocalInterviewSession(payload)
+  localInterviewSessions.set(session.sessionId, session)
+  return Promise.resolve(session)
+}
+
+export function listInterviewSessions() {
+  const path = '/api/ai/interview/sessions'
+  if (shouldUseApi(path)) {
+    return authenticatedRequest<InterviewSession[]>(path, { method: 'GET' })
+  }
+  return Promise.resolve([...localInterviewSessions.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)))
+}
+
+export function getInterviewSession(sessionId: string) {
+  const path = `/api/ai/interview/sessions/${encodeURIComponent(sessionId)}`
+  if (shouldUseApi(path)) {
+    return authenticatedRequest<InterviewSession>(path, { method: 'GET' })
+  }
+  const session = localInterviewSessions.get(sessionId)
+  return session ? Promise.resolve(session) : Promise.reject(new Error('模拟面试会话不存在'))
+}
+
+export function saveInterviewSessionAnswer(sessionId: string, questionId: string, answer: string) {
+  const path = `/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/answers/${encodeURIComponent(questionId)}`
+  const init: RequestInit = { method: 'PUT', body: JSON.stringify({ questionId, answer }) }
+  if (shouldUseApi(path)) {
+    return authenticatedRequest<InterviewSession>(path, init)
+  }
+  const session = localInterviewSessions.get(sessionId)
+  if (!session) {
+    return Promise.reject(new Error('模拟面试会话不存在'))
+  }
+  const now = new Date().toISOString()
+  const nextAnswer = { questionId, answer: answer.trim(), updatedAt: now }
+  const answers = session.answers.some((item) => item.questionId === questionId)
+    ? session.answers.map((item) => item.questionId === questionId ? nextAnswer : item)
+    : [...session.answers, nextAnswer]
+  const updated = { ...session, answers, updatedAt: now }
+  localInterviewSessions.set(sessionId, updated)
+  return Promise.resolve(updated)
+}
+
+export function finishInterviewSession(sessionId: string) {
+  const path = `/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/finish`
+  if (shouldUseApi(path)) {
+    return authenticatedRequest<InterviewSessionReport>(path, { method: 'POST' })
+  }
+  const session = localInterviewSessions.get(sessionId)
+  if (!session) {
+    return Promise.reject(new Error('模拟面试会话不存在'))
+  }
+  const now = new Date().toISOString()
+  const completed = { ...session, status: 'COMPLETED', completedAt: now, updatedAt: now }
+  localInterviewSessions.set(sessionId, completed)
+  const answered = completed.answers.filter((item) => item.answer).length
+  const overallScore = Math.max(60, Math.min(92, 62 + answered * 6))
+  return Promise.resolve({
+    sessionId,
+    overallScore,
+    strengths: answered ? ['能够完成核心问题作答', '回答内容可用于后续复盘'] : [],
+    gaps: answered < completed.questions.length ? ['仍有题目未完成作答'] : ['建议补充量化成果和技术取舍'],
+    recommendations: ['使用 STAR 结构补全项目回答', '每次练习后记录一个可验证的量化结果'],
+    questionFeedback: completed.questions.map((question) => ({
+      questionId: question.questionId,
+      score: completed.answers.some((answer) => answer.questionId === question.questionId && answer.answer) ? overallScore : 0,
+      suggestions: ['补充背景、个人动作和最终结果']
+    })),
+    generatedAt: now,
+    mocked: true
+  } satisfies InterviewSessionReport)
 }
 
 export function getAiStatus() {
@@ -2254,7 +3778,7 @@ export function searchKnowledgeBase(payload: KnowledgeSearchRequest) {
   const query = payload.query.trim()
   const limit = payload.limit ?? 5
   const role = payload.role || currentRole() || 'STUDENT'
-  return request<AiSearchResponse>('/api/ai/knowledge/search', {
+  return strictRequest<AiSearchResponse>('/api/ai/knowledge/search', {
     method: 'POST',
     body: JSON.stringify({ ...payload, query, role, limit })
   }, fallbackKnowledgeResults({ ...payload, query, role, limit }))
@@ -2272,10 +3796,28 @@ function fallbackKnowledgeAnswer(payload: KnowledgeAnswerRequest): KnowledgeAnsw
     snippet: result.summary
   }))
   const answer = citations.length
-    ? `根据知识库证据，${query || '当前问题'} 可以从这些资料展开：${citations
-      .map((citation, index) => `[${index + 1}] ${citation.snippet}`)
-      .join(' ')}`
-    : '知识库中暂时没有匹配的可读资料。'
+    ? [
+        '## 结论',
+        '',
+        `针对“${query || '当前问题'}”，本地演示知识库命中了以下资料，可按证据归纳回答。`,
+        '',
+        '## 关键证据',
+        '',
+        ...citations.map((citation, index) => (
+          `${index + 1}. **${citation.title}** [${index + 1}]\n   - ${citation.snippet}`
+        )),
+        '',
+        '## 引用依据',
+        '',
+        ...citations.map((citation, index) => `- [${index + 1}] ${citation.title} / ${citation.source} / ${citation.score} 分`)
+      ].join('\n')
+    : [
+        '## 暂未找到可读资料',
+        '',
+        '知识库中暂时没有匹配的可读资料。',
+        '',
+        '可以尝试换成更短的关键词，或让管理员补充相关文档。'
+      ].join('\n')
   return {
     query,
     answer,
@@ -2291,7 +3833,7 @@ export function answerKnowledgeBase(payload: KnowledgeAnswerRequest) {
   const limit = payload.limit ?? 5
   const role = payload.role || currentRole() || 'STUDENT'
   const body = { ...payload, query, role, limit, useAi: payload.useAi ?? true }
-  return request<KnowledgeAnswerResponse>('/api/ai/knowledge/answer', {
+  return strictRequest<KnowledgeAnswerResponse>('/api/ai/knowledge/answer', {
     method: 'POST',
     body: JSON.stringify(body)
   }, fallbackKnowledgeAnswer(body))
@@ -2320,7 +3862,7 @@ export function listKnowledgeDocuments(keyword = '', role: string = currentRole(
       || document.tags.some((tag) => tag.toLowerCase().includes(normalized)))
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     .slice(0, limit)
-  return request<KnowledgeDocument[]>(`/api/ai/knowledge/documents?${params.toString()}`, { method: 'GET' }, fallback)
+  return strictRequest<KnowledgeDocument[]>(`/api/ai/knowledge/documents?${params.toString()}`, { method: 'GET' }, fallback)
 }
 
 export function createKnowledgeDocument(payload: KnowledgeDocumentRequest) {
@@ -2330,10 +3872,84 @@ export function createKnowledgeDocument(payload: KnowledgeDocumentRequest) {
     createdBy: getAuthSession()?.userId || 'demo-admin',
     createdAt: new Date().toISOString()
   }
-  return request<KnowledgeDocument>('/api/ai/knowledge/documents', {
+  return strictRequest<KnowledgeDocument>('/api/ai/knowledge/documents', {
     method: 'POST',
     body: JSON.stringify(payload)
   }, fallback)
+}
+
+export function updateKnowledgeDocumentRoles(documentId: string, roles: string[]) {
+  const normalizedRoles = roles.map((role) => role.trim()).filter(Boolean)
+  const nextRoles = normalizedRoles.length ? normalizedRoles : ['ALL']
+  const fallbackSource = fallbackKnowledgeDocuments.find((document) => document.documentId === documentId)
+  const fallback: KnowledgeDocument = fallbackSource
+    ? { ...fallbackSource, roles: nextRoles }
+    : {
+        documentId,
+        title: 'Unknown knowledge document',
+        content: '',
+        category: 'general',
+        source: 'fallback',
+        tags: [],
+        roles: nextRoles,
+        createdBy: getAuthSession()?.userId || 'demo-admin',
+        createdAt: new Date().toISOString()
+      }
+  const payload: KnowledgeDocumentRolesRequest = { roles: nextRoles }
+  return strictRequest<KnowledgeDocument>(`/api/ai/knowledge/documents/${encodeURIComponent(documentId)}/roles`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }, fallback)
+}
+
+export async function deleteKnowledgeDocument(documentId: string) {
+  const path = `/api/ai/knowledge/documents/${encodeURIComponent(documentId)}`
+  if (!shouldUseApi(path)) {
+    return true
+  }
+  const init: RequestInit = { method: 'DELETE' }
+  const response = await fetch(resolveRequestPath(path), {
+    ...init,
+    headers: requestHeaders(init)
+  })
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+  const payload = (await response.json()) as ApiResponse<boolean>
+  if (payload.code !== 0 || payload.data !== true) {
+    throw new Error(payload.message || 'RAG 文档不存在或删除失败')
+  }
+  return true
+}
+
+export async function batchDeleteKnowledgeDocuments(documentIds: string[]) {
+  const normalizedIds = [...new Set(documentIds.map((id) => id.trim()).filter(Boolean))]
+  const fallback: KnowledgeDocumentBatchDeleteResult = {
+    requestedCount: normalizedIds.length,
+    deletedCount: normalizedIds.length,
+    deletedDocumentIds: normalizedIds,
+    missingDocumentIds: []
+  }
+  const path = '/api/ai/knowledge/documents/batch-delete'
+  if (!shouldUseApi(path)) {
+    return fallback
+  }
+  const init: RequestInit = {
+    method: 'POST',
+    body: JSON.stringify({ documentIds: normalizedIds })
+  }
+  const response = await fetch(resolveRequestPath(path), {
+    ...init,
+    headers: requestHeaders(init)
+  })
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+  const payload = (await response.json()) as ApiResponse<KnowledgeDocumentBatchDeleteResult>
+  if (payload.code !== 0 || !payload.data) {
+    throw new Error(payload.message || 'RAG 文档批量删除失败')
+  }
+  return payload.data
 }
 
 export function uploadKnowledgeFile(payload: KnowledgeFileUploadRequest, options: KnowledgeFileUploadOptions = {}) {
@@ -2379,7 +3995,7 @@ export function uploadKnowledgeFile(payload: KnowledgeFileUploadRequest, options
   if (options.onProgress) {
     return uploadKnowledgeFileWithProgress(formData, fallback, options, fileSize)
   }
-  return request<KnowledgeIngestionJob>('/api/ai/knowledge/files', {
+  return strictRequest<KnowledgeIngestionJob>('/api/ai/knowledge/files', {
     method: 'POST',
     body: formData
   }, fallback)
@@ -2501,7 +4117,7 @@ export function listKnowledgeIngestions(query: KnowledgeIngestionQuery = {}) {
     .filter((job) => !status || job.status === status)
     .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
     .slice(0, limit)
-  return request<KnowledgeIngestionJob[]>(`/api/ai/knowledge/ingestions?${params.toString()}`, {
+  return strictRequest<KnowledgeIngestionJob[]>(`/api/ai/knowledge/ingestions?${params.toString()}`, {
     method: 'GET'
   }, fallback)
 }
@@ -2513,7 +4129,7 @@ export function getKnowledgeVectorStatus() {
 }
 
 export function getKnowledgeBaseStats() {
-  return request<KnowledgeBaseStats>('/api/ai/knowledge/stats', {
+  return strictRequest<KnowledgeBaseStats>('/api/ai/knowledge/stats', {
     method: 'GET'
   }, fallbackKnowledgeBaseStats())
 }
@@ -2655,7 +4271,7 @@ export function listAccounts(query: AccountListQuery = {}) {
     && (!query.keyword?.trim()
       || account.username.toLowerCase().includes(query.keyword.trim().toLowerCase())
       || account.displayName.toLowerCase().includes(query.keyword.trim().toLowerCase())))
-  return request<AccountSummary[]>(`/api/admin/accounts${queryString ? `?${queryString}` : ''}`, { method: 'GET' }, fallback)
+  return strictRequest<AccountSummary[]>(`/api/admin/accounts${queryString ? `?${queryString}` : ''}`, { method: 'GET' }, fallback)
 }
 
 export function createAccount(payload: CreateAccountRequest) {
@@ -2669,7 +4285,7 @@ export function createAccount(payload: CreateAccountRequest) {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   }
-  return request<AccountSummary>('/api/admin/accounts', {
+  return strictRequest<AccountSummary>('/api/admin/accounts', {
     method: 'POST',
     body: JSON.stringify(payload)
   }, account)
@@ -2682,14 +4298,14 @@ export function updateAccountStatus(accountId: string, status: AccountStatus) {
     status,
     updatedAt: new Date().toISOString()
   }
-  return request<AccountSummary>(`/api/admin/accounts/${encodeURIComponent(accountId)}/status`, {
+  return strictRequest<AccountSummary>(`/api/admin/accounts/${encodeURIComponent(accountId)}/status`, {
     method: 'PUT',
     body: JSON.stringify({ status })
   }, fallback)
 }
 
 export function changeAccountPassword(payload: ChangePasswordRequest) {
-  return request<boolean>(`/api/accounts/${encodeURIComponent(payload.accountId)}/password`, {
+  return strictRequest<boolean>(`/api/accounts/${encodeURIComponent(payload.accountId)}/password`, {
     method: 'PUT',
     body: JSON.stringify(payload)
   }, true)
@@ -2842,6 +4458,44 @@ export function exportAdminAudit(query: AdminAuditQuery = {}) {
     generatedAt: fallbackAdminAuditOverviewBase.generatedAt,
     query: normalizedQuery
   })
+}
+
+export async function downloadAdminAuditExport(auditExport: AdminAuditExportResult) {
+  const downloadUrl = auditExport.downloadUrl.trim()
+  if (!downloadUrl) {
+    throw new Error('审计导出下载地址无效')
+  }
+
+  const init: RequestInit = { method: 'GET' }
+  const response = await fetch(resolveRequestPath(downloadUrl), {
+    ...init,
+    headers: requestHeaders(init)
+  })
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `HTTP ${response.status}`))
+  }
+
+  const fileName = auditExportCsvFileName(auditExport.fileName, downloadUrl)
+  const objectUrl = URL.createObjectURL(await response.blob())
+  const anchor = document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = fileName
+  anchor.style.display = 'none'
+  try {
+    document.body.appendChild(anchor)
+    anchor.click()
+  } finally {
+    anchor.remove()
+    URL.revokeObjectURL(objectUrl)
+  }
+  return fileName
+}
+
+function auditExportCsvFileName(fileName: string, downloadUrl: string) {
+  const path = downloadUrl.split(/[?#]/, 1)[0]
+  const derivedName = path.slice(path.lastIndexOf('/') + 1)
+  const candidate = fileName.trim() || derivedName || 'admin-audit-export'
+  return candidate.toLowerCase().endsWith('.csv') ? candidate : `${candidate}.csv`
 }
 
 export function getSystemStatus() {

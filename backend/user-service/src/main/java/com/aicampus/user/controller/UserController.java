@@ -8,8 +8,7 @@ import com.aicampus.common.enums.Role;
 import com.aicampus.user.dashboard.DashboardStatsService;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -22,12 +21,16 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping
 public class UserController {
-    private final Map<String, UserProfile> profiles = new ConcurrentHashMap<>();
+    private final ProfileStore profiles;
     private final DashboardStatsService dashboardStatsService;
 
-    public UserController(DashboardStatsService dashboardStatsService) {
+    public UserController(DashboardStatsService dashboardStatsService, ProfileStore profiles,
+            @Value("${demo.seed.enabled:${DEMO_SEED_ENABLED:false}}") boolean seedEnabled) {
         this.dashboardStatsService = dashboardStatsService;
-        DemoDataFactory.studentProfiles().forEach(profile -> profiles.putIfAbsent(profile.userId(), profile));
+        this.profiles = profiles;
+        if (seedEnabled) DemoDataFactory.studentProfiles().forEach(profile -> {
+            if (profiles.find(profile.userId()) == null) profiles.save(profile);
+        });
     }
 
     @GetMapping("/api/students/profile")
@@ -35,7 +38,8 @@ public class UserController {
             @RequestHeader(value = "X-User-Id", required = false) String userId,
             @RequestHeader(value = "X-User-Role", required = false) String role) {
         String studentId = effectiveStudentId(role, userId, "S001");
-        return ApiResponse.ok(profiles.computeIfAbsent(studentId, UserController::defaultStudentProfile));
+        UserProfile profile = profiles.find(studentId);
+        return ApiResponse.ok(profile == null ? defaultStudentProfile(studentId) : profile);
     }
 
     @PutMapping("/api/students/profile")
@@ -44,14 +48,19 @@ public class UserController {
             @RequestHeader(value = "X-User-Role", required = false) String role) {
         String studentId = effectiveStudentId(role, userId, "S001");
         UserProfile saved = new UserProfile(studentId, profile.displayName(), Role.STUDENT, profile.school(),
-                profile.major(), profile.skills(), profile.targetPosition());
-        profiles.put(studentId, saved);
+                profile.major(), profile.skills() == null ? List.of() : profile.skills().stream()
+                        .filter(skill -> skill != null && !skill.isBlank()).map(String::trim).distinct().toList(),
+                profile.targetPosition());
+        profiles.save(saved);
         return ApiResponse.ok(saved);
     }
 
     @GetMapping("/api/students")
-    public ApiResponse<List<UserProfile>> students() {
-        return ApiResponse.ok(profiles.values().stream()
+    public ApiResponse<List<UserProfile>> students(
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role) {
+        return ApiResponse.ok(profiles.list().stream()
+                .filter(profile -> !"STUDENT".equals(role) || profile.userId().equals(userId))
                 .sorted(Comparator.comparing(UserProfile::userId))
                 .toList());
     }
@@ -62,8 +71,7 @@ public class UserController {
     }
 
     private static UserProfile defaultStudentProfile(String studentId) {
-        return new UserProfile(studentId, "Student " + studentId, Role.STUDENT, "Demo University", "Software Engineering",
-                List.of("Java", "Spring Boot", "MySQL", "Redis"), "Java Backend Intern");
+        return new UserProfile(studentId, "", Role.STUDENT, "", "", List.of(), "");
     }
 
     private static String effectiveStudentId(String role, String userId, String requestedStudentId) {

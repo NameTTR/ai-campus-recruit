@@ -16,6 +16,14 @@ public class InMemoryCandidateScreenRecordStore implements CandidateScreenRecord
     }
 
     @Override
+    public boolean existsById(String screeningId) {
+        if (screeningId == null || screeningId.isBlank()) {
+            return false;
+        }
+        return records.stream().anyMatch(record -> screeningId.trim().equals(record.screeningId()));
+    }
+
+    @Override
     public List<CandidateScreenRecord> list(String companyId, String deliveryId) {
         String companyFilter = blankToNull(companyId);
         String deliveryFilter = blankToNull(deliveryId);

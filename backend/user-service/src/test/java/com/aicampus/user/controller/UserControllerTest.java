@@ -16,7 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest(classes = UserServiceApplication.class, properties = "spring.cloud.nacos.discovery.enabled=false")
+@SpringBootTest(classes = UserServiceApplication.class, properties = {"spring.cloud.nacos.discovery.enabled=false", "demo.seed.enabled=true"})
 @AutoConfigureMockMvc
 class UserControllerTest {
     @Autowired
@@ -43,7 +43,9 @@ class UserControllerTest {
                         .header("X-User-Id", "S-GATEWAY-001")
                         .header("X-User-Role", "STUDENT"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.userId").value("S-GATEWAY-001"));
+                .andExpect(jsonPath("$.data.userId").value("S-GATEWAY-001"))
+                .andExpect(jsonPath("$.data.skills").isEmpty())
+                .andExpect(jsonPath("$.data.major").value(""));
     }
 
     @Test
