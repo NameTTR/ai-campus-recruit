@@ -1,5 +1,8 @@
 FROM docker.m.daocloud.io/library/node:22-alpine AS build
 
+ARG VITE_DEMO_MODE=false
+ENV VITE_DEMO_MODE=${VITE_DEMO_MODE}
+
 WORKDIR /app
 COPY package*.json ./
 RUN npm config set registry https://registry.npmmirror.com && npm ci

@@ -43,8 +43,9 @@ jobs:
         run: npm run test:unit -- --run
       - name: Build frontend
         run: npm run build
-      - name: E2E smoke frontend
+      - name: E2E smoke frontend (demo mode)
         env:
+          VITE_DEMO_MODE: "true"
           E2E_BROWSER: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:e2e
 

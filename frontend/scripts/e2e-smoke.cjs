@@ -4,6 +4,7 @@ const path = require('path')
 
 const rootDir = path.resolve(__dirname, '..')
 const explicitBaseUrl = Boolean(process.env.E2E_BASE_URL)
+const demoMode = ['1', 'true', 'yes', 'on'].includes((process.env.VITE_DEMO_MODE || '').trim().toLowerCase())
 const localPort = process.env.E2E_PORT || '5174'
 const rawBaseUrl = process.env.E2E_BASE_URL || `http://127.0.0.1:${localPort}`
 const baseUrl = rawBaseUrl.replace(/\/+$/, '')
@@ -18,7 +19,8 @@ let devServer
 
 async function main() {
   fs.mkdirSync(artifactsDir, { recursive: true })
-  const coreFixture = readCoreFixture()
+  const coreFixture = demoMode ? null : readCoreFixture()
+  console.log(`E2E smoke mode: ${demoMode ? 'offline demo UI' : 'live service UI'}`)
   await ensureFrontend()
   const browser = await startBrowser()
   const client = await connect(browser.webSocketDebuggerUrl)
@@ -215,6 +217,7 @@ async function verifyCoreFixture(client, fixture) {
   await verifyMatchHistoryRestoreAndContext(client, fixtureMatch, resume, job)
 
   await navigate(client, `${baseUrl}/student/plan`)
+  await selectElementPlusOption(client, '.plan-sidebar .el-select', `${plan.targetRole} · V${plan.version} · 进行中`)
   await assertText(client, ['学习路径', '学习计划', '任务进度', plan.targetRole, `V${plan.version}`, '当前可编辑版本'])
   await assertSelectDisplay(client, `V${plan.version}`)
   await assertPersistedTask(client, persistedTaskFeedback)
@@ -237,9 +240,15 @@ async function verifyCoreFixture(client, fixture) {
   await verifyRetrievalOnlyKnowledge(client)
 }
 
+async function selectFixtureResume(client, resume) {
+  await waitForExpression(client, "Boolean(document.querySelector('.resume-picker .el-select')) && !document.querySelector('.resume-hero .el-loading-mask')")
+  await selectElementPlusOption(client, '.resume-picker .el-select', resume.fileName)
+  await waitForExpression(client, `Boolean(document.querySelector('.resume-summary strong')?.innerText.includes(${JSON.stringify(resume.fileName)}))`)
+}
+
 async function verifyResumeDeleteCancellation(client, fixture, resume) {
   await navigate(client, `${baseUrl}/student/resume`)
-  await waitForExpression(client, `Boolean(document.querySelector('.resume-summary strong')?.innerText.includes(${JSON.stringify(resume.fileName)}))`)
+  await selectFixtureResume(client, resume)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   await clickButton(client, '删除该版本')
   await waitForExpression(client, "Boolean(document.querySelector('.el-message-box'))")
@@ -256,7 +265,7 @@ async function verifyResumeDeleteCancellation(client, fixture, resume) {
 async function verifyResumeDraftPersistence(client, fixture, resume) {
   const educationSelector = '.profile-form .form-field input'
   await navigate(client, `${baseUrl}/student/resume`)
-  await waitForExpression(client, `Boolean(document.querySelector('.resume-summary strong')?.innerText.includes(${JSON.stringify(resume.fileName)}))`)
+  await selectFixtureResume(client, resume)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   const originalEducation = await elementBox(client, `document.querySelector(${JSON.stringify(educationSelector)})?.value`)
   const userId = await elementBox(client, 'localStorage.getItem(\'userId\')')
@@ -383,7 +392,7 @@ async function verifyPlanHistoryReadOnly(client, plan) {
   }
 
   await navigate(client, `${baseUrl}/student/plan`)
-  await selectElementPlusOption(client, '.plan-sidebar .el-select', `V${plan.version} · 进行中`)
+  await selectElementPlusOption(client, '.plan-sidebar .el-select', `${plan.targetRole} · V${plan.version} · 进行中`)
   await waitForText(client, `V${plan.version}`)
   await clickElementByData(client, '.version-actions button', 'planId', historical.planId)
   await waitForText(client, '当前选择的是历史版本')
@@ -402,7 +411,7 @@ async function verifyCompletedInterviewReadOnly(client, fixture, session) {
 
   await navigate(client, `${baseUrl}/student/interview?tab=history`)
   await waitForExpression(client, "Boolean(document.querySelector('.session-card'))")
-  await clickSessionCard(client, fixture.sessionId, session.targetRole)
+  await clickSessionCard(client, fixture.sessionId)
   await waitForExpression(client, "location.pathname === '/student/interview' && !new URLSearchParams(location.search).get('tab')")
   await waitForExpression(client, "Boolean(document.querySelector('.answer-input textarea')?.readOnly)")
   await waitForText(client, '本题反馈')
@@ -474,7 +483,12 @@ async function ensureFrontend() {
     : ['run', 'dev', '--', '--host', host, '--port', port]
   devServer = spawn(command, args, {
     cwd: rootDir,
-    env: { ...process.env, VITE_API_PROXY_TARGET: apiProxyTarget },
+    env: {
+      ...process.env,
+      VITE_DEMO_MODE: demoMode ? 'true' : 'false',
+      VITE_API_PROXY_TARGET: demoMode ? '' : apiProxyTarget,
+      ...(demoMode ? { VITE_API_BASE_URL: '', VITE_AI_PROXY_TARGET: '' } : {})
+    },
     stdio: ['ignore', 'pipe', 'pipe']
   })
   devServer.stdout.on('data', (chunk) => process.stdout.write(chunk))
@@ -714,12 +728,11 @@ async function clickElementByData(client, selector, dataName, expectedValue) {
   throw new Error(`Element with ${dataName}=${expectedValue} not available: ${selector}`)
 }
 
-async function clickSessionCard(client, sessionId, targetRole) {
+async function clickSessionCard(client, sessionId) {
   for (let index = 0; index < 30; index += 1) {
     const box = await elementBox(client, `(() => {
       const element = [...document.querySelectorAll('.session-card')].find((item) => item.getClientRects().length
-        && (item.dataset.sessionId === ${JSON.stringify(sessionId)}
-          || (item.innerText.includes(${JSON.stringify(targetRole)}) && item.innerText.includes('COMPLETED'))));
+        && item.dataset.sessionId === ${JSON.stringify(sessionId)});
       if (!element) return null;
       element.scrollIntoView({ block: 'center', inline: 'nearest' });
       const rect = element.getBoundingClientRect();

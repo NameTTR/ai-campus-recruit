@@ -1,43 +1,55 @@
 package com.aicampus.gateway.security;
 
-import com.aicampus.common.enums.Role;
 import com.aicampus.common.enums.Permission;
+import com.aicampus.common.enums.Role;
 import com.aicampus.common.security.JwtTokenException;
-import com.aicampus.common.security.JwtTokenService;
 import com.aicampus.common.security.JwtTokenService.TokenClaims;
+import com.aicampus.common.security.JwtTokenService;
 import com.aicampus.common.security.RolePermissionPolicy;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cloud.gateway.filter.GatewayFilterChain;
-import org.springframework.cloud.gateway.filter.GlobalFilter;
-import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.Ordered;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.server.PathContainer;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 @Component
-public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
-    private static final List<String> PUBLIC_PREFIXES = List.of(
+public class JwtGatewayAuthFilter implements WebFilter, Ordered {
+    private static final List<String> PUBLIC_PATHS = List.of(
             "/api/auth/login",
             "/api/auth/register",
-            "/api/auth/logout",
-            "/actuator",
+            "/favicon.ico");
+    private static final List<String> DOCUMENTATION_PREFIXES = List.of(
             "/v3/api-docs",
             "/swagger-ui",
             "/doc.html",
             "/webjars",
-            "/swagger-resources",
-            "/favicon.ico");
+            "/swagger-resources");
 
     private final JwtTokenService jwtTokenService;
     private final boolean enabled;
+    private final Map<String, Long> revokedTokens = new ConcurrentHashMap<>();
+
+    /**
+     * API documentation is convenient in development, but should be private in
+     * production.  Keep the default enabled for backwards-compatible local use;
+     * set GATEWAY_PUBLIC_DOCS_ENABLED=false when exposing the gateway publicly.
+     */
+    @Value("${security.gateway.public-docs-enabled:${GATEWAY_PUBLIC_DOCS_ENABLED:true}}")
+    private boolean publicDocumentationEnabled = true;
 
     public JwtGatewayAuthFilter(
             @Value("${security.jwt.secret:${JWT_SECRET:}}") String jwtSecret,
@@ -49,30 +61,41 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
     }
 
     @Override
-    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        if (!enabled || isPublic(exchange.getRequest()) || !isProtectedApi(exchange.getRequest())) {
-            return chain.filter(exchange);
+    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        // Identity headers are gateway-owned.  Strip client-supplied values even
+        // on public/non-API routes so they cannot be trusted by downstream code.
+        ServerHttpRequest sanitizedRequest = stripIdentityHeaders(exchange.getRequest());
+        ServerWebExchange sanitizedExchange = exchange.mutate().request(sanitizedRequest).build();
+        if (enabled && isLogoutPath(sanitizedRequest)) {
+            return revokeLogoutToken(sanitizedRequest, sanitizedExchange, chain);
         }
-        String path = exchange.getRequest().getPath().pathWithinApplication().value();
+        if (!enabled || isPublic(sanitizedRequest)
+                || (!isProtectedApi(sanitizedRequest)
+                && !isDocumentationPath(sanitizedRequest)
+                && !isProtectedManagementPath(sanitizedRequest))) {
+            return chain.filter(sanitizedExchange);
+        }
+        String path = requestPath(sanitizedRequest);
         try {
-            TokenClaims claims = jwtTokenService.verify(extractBearerToken(exchange.getRequest()));
-            if (!isAllowed(path, exchange.getRequest().getMethod(), claims.role())) {
-                return reject(exchange, HttpStatus.FORBIDDEN, "forbidden");
+            String token = extractBearerToken(sanitizedRequest);
+            if (isRevoked(token)) {
+                return reject(sanitizedExchange, HttpStatus.UNAUTHORIZED, "unauthorized");
+            }
+            TokenClaims claims = jwtTokenService.verify(token);
+            if (!isAllowed(path, sanitizedRequest.getMethod(), claims.role())) {
+                return reject(sanitizedExchange, HttpStatus.FORBIDDEN, "forbidden");
             }
             String permissions = String.join(",", RolePermissionPolicy.permissionNames(claims.role()));
-            ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
+            ServerHttpRequest mutatedRequest = sanitizedRequest.mutate()
                     .headers(headers -> {
-                        headers.remove("X-User-Id");
-                        headers.remove("X-User-Role");
-                        headers.remove("X-User-Permissions");
                         headers.set("X-User-Id", claims.userId());
                         headers.set("X-User-Role", claims.role().name());
                         headers.set("X-User-Permissions", permissions);
                     })
                     .build();
-            return chain.filter(exchange.mutate().request(mutatedRequest).build());
+            return chain.filter(sanitizedExchange.mutate().request(mutatedRequest).build());
         } catch (JwtTokenException | IllegalArgumentException ex) {
-            return reject(exchange, HttpStatus.UNAUTHORIZED, "unauthorized");
+            return reject(sanitizedExchange, HttpStatus.UNAUTHORIZED, "unauthorized");
         }
     }
 
@@ -81,17 +104,77 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
         return -100;
     }
 
+    private Mono<Void> revokeLogoutToken(ServerHttpRequest request, ServerWebExchange exchange, WebFilterChain chain) {
+        try {
+            String token = extractBearerToken(request);
+            TokenClaims claims = jwtTokenService.verify(token);
+            revokedTokens.put(token, claims.expiresAt());
+            return chain.filter(exchange);
+        } catch (JwtTokenException | IllegalArgumentException ex) {
+            return reject(exchange, HttpStatus.UNAUTHORIZED, "unauthorized");
+        }
+    }
+
+    private boolean isRevoked(String token) {
+        long now = java.time.Instant.now().getEpochSecond();
+        revokedTokens.entrySet().removeIf(entry -> entry.getValue() <= now);
+        Long expiresAt = revokedTokens.get(token);
+        return expiresAt != null && expiresAt > now;
+    }
+
+    private String requestPath(ServerHttpRequest request) {
+        // Match the decoded path segments used by Spring's route/controller
+        // matching, including matrix parameters, before making authorization decisions.
+        return request.getPath().pathWithinApplication().elements().stream()
+                .map(element -> element instanceof PathContainer.PathSegment segment
+                        ? segment.valueToMatch() : element.value())
+                .collect(Collectors.joining());
+    }
+    private boolean isLogoutPath(ServerHttpRequest request) {
+        return request.getMethod() == HttpMethod.POST
+                && "/api/auth/logout".equals(requestPath(request));
+    }
+
     private boolean isPublic(ServerHttpRequest request) {
-        String path = request.getPath().pathWithinApplication().value();
+        String path = requestPath(request);
         if ("OPTIONS".equalsIgnoreCase(request.getMethod().name())) {
             return true;
         }
-        return PUBLIC_PREFIXES.stream().anyMatch(path::startsWith);
+        if (isHealthPath(path)) {
+            return true;
+        }
+        if (PUBLIC_PATHS.contains(path)) {
+            return true;
+        }
+        return publicDocumentationEnabled
+                && DOCUMENTATION_PREFIXES.stream().anyMatch(path::startsWith);
+    }
+
+    private ServerHttpRequest stripIdentityHeaders(ServerHttpRequest request) {
+        return request.mutate().headers(headers -> {
+            headers.remove("X-User-Id");
+            headers.remove("X-User-Role");
+            headers.remove("X-User-Permissions");
+        }).build();
     }
 
     private boolean isProtectedApi(ServerHttpRequest request) {
-        String path = request.getPath().pathWithinApplication().value();
+        String path = requestPath(request);
         return path.startsWith("/api/");
+    }
+
+    private boolean isDocumentationPath(ServerHttpRequest request) {
+        String path = requestPath(request);
+        return DOCUMENTATION_PREFIXES.stream().anyMatch(path::startsWith);
+    }
+
+    private boolean isProtectedManagementPath(ServerHttpRequest request) {
+        String path = requestPath(request);
+        return ("/actuator".equals(path) || path.startsWith("/actuator/")) && !isHealthPath(path);
+    }
+
+    private boolean isHealthPath(String path) {
+        return "/actuator/health".equals(path) || path.startsWith("/actuator/health/");
     }
 
     private String extractBearerToken(ServerHttpRequest request) {
@@ -112,6 +195,9 @@ public class JwtGatewayAuthFilter implements GlobalFilter, Ordered {
     }
 
     private Permission requiredPermission(String path, HttpMethod method) {
+        if ("/actuator".equals(path) || path.startsWith("/actuator/")) {
+            return Permission.SYSTEM_VIEW;
+        }
         if (path.startsWith("/api/auth/admin") || path.startsWith("/api/admin/accounts")) {
             return method == HttpMethod.GET ? Permission.ACCOUNT_READ : Permission.ACCOUNT_WRITE;
         }

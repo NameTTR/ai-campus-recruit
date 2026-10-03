@@ -22,6 +22,11 @@ public class DeliveryApiExceptionHandler {
         return new ApiResponse<>(400, messageOrDefault(ex, "Invalid delivery request"), false);
     }
 
+    @ExceptionHandler(IllegalStateException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ApiResponse<Boolean> unavailable(IllegalStateException ex) {
+        return new ApiResponse<>(503, messageOrDefault(ex, "Delivery storage unavailable; the delivery was not saved"), false);
+    }
     private static String messageOrDefault(Exception ex, String defaultMessage) {
         return ex.getMessage() == null || ex.getMessage().isBlank() ? defaultMessage : ex.getMessage();
     }

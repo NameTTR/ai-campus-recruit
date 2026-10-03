@@ -4,11 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aicampus.common.enums.Role;
 import com.aicampus.common.security.JwtTokenService;
+import java.net.URI;
 import org.junit.jupiter.api.Test;
-import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 class JwtGatewayAuthFilterTest {
@@ -32,6 +37,24 @@ class JwtGatewayAuthFilterTest {
     private static final String SECRET = "gateway-test-secret-that-is-long-enough";
     private final JwtGatewayAuthFilter filter = new JwtGatewayAuthFilter(SECRET, "ai-campus-test", 86400, true);
     private final JwtTokenService jwtTokenService = new JwtTokenService(SECRET, "ai-campus-test", 86400);
+
+    @Test
+    void logoutRevokesTokenAtGateway() {
+        String token = jwtTokenService.issue("S001", "Student", Role.STUDENT);
+        MockServerWebExchange logout = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/auth/logout")
+                        .header("Authorization", "Bearer " + token)
+                        .build());
+        filter.filter(logout, passThrough()).block();
+
+        MockServerWebExchange nextRequest = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/jobs")
+                        .header("Authorization", "Bearer " + token)
+                        .build());
+        filter.filter(nextRequest, passThrough()).block();
+
+        assertThat(nextRequest.getResponse().getStatusCode().value()).isEqualTo(401);
+    }
 
     @Test
     void rejectsMissingTokenForProtectedApi() {
@@ -396,11 +419,55 @@ class JwtGatewayAuthFilterTest {
                 .contains("admin:audit:export");
     }
 
-    private GatewayFilterChain passThrough() {
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/%61dmin/dashboard", "/api;ignored=value/admin/dashboard"})
+    void encodedAndMatrixPathsCannotBypassAdminPermissions(String path) {
+        String token = jwtTokenService.issue("S001", "Student", Role.STUDENT);
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.method(HttpMethod.GET, URI.create(path))
+                        .header("Authorization", "Bearer " + token).build());
+
+        filter.filter(exchange, passThrough()).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"GET", "OPTIONS"})
+    void onlyPostLogoutRevokesTokens(String method) {
+        String token = jwtTokenService.issue("S001", "Student", Role.STUDENT);
+        MockServerWebExchange logout = MockServerWebExchange.from(
+                MockServerHttpRequest.method(HttpMethod.valueOf(method), "/api/auth/logout")
+                        .header("Authorization", "Bearer " + token).build());
+        filter.filter(logout, passThrough()).block();
+        MockServerWebExchange nextRequest = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/jobs").header("Authorization", "Bearer " + token).build());
+        CapturingChain chain = new CapturingChain();
+
+        filter.filter(nextRequest, chain).block();
+
+        assertThat(chain.exchange).isNotNull();
+        assertThat(nextRequest.getResponse().getStatusCode()).isNull();
+    }
+
+    @Test
+    void publicRoutesStripAllClientSuppliedIdentityHeaders() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/auth/login")
+                        .header("X-User-Id", "A001").header("X-User-Role", "ADMIN")
+                        .header("X-User-Permissions", "admin:account:write").build());
+        CapturingChain chain = new CapturingChain();
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.exchange.getRequest().getHeaders()).doesNotContainKeys(
+                "X-User-Id", "X-User-Role", "X-User-Permissions");
+    }
+    private WebFilterChain passThrough() {
         return exchange -> Mono.empty();
     }
 
-    private static class CapturingChain implements GatewayFilterChain {
+    private static class CapturingChain implements WebFilterChain {
         private ServerWebExchange exchange;
 
         @Override

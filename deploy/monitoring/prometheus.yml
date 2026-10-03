@@ -12,6 +12,9 @@ scrape_configs:
 
   - job_name: "vm1-edge-services"
     metrics_path: /actuator/prometheus
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/gateway-bearer.token
     static_configs:
       - targets:
           - "192.168.6.130:8080"

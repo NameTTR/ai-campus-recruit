@@ -15,9 +15,12 @@ spring:
       globalcors:
         cors-configurations:
           '[/**]':
-            allowedOriginPatterns: "*"
-            allowedMethods: "*"
-            allowedHeaders: "*"
+            # Keep credentials enabled only for explicitly configured browser origins.
+            # Set GATEWAY_ALLOWED_ORIGINS to the production frontend origin(s).
+            allowedOriginPatterns: "${GATEWAY_ALLOWED_ORIGINS:http://localhost,http://127.0.0.1}"
+            allowedMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+            allowedHeaders: "Authorization,Content-Type,X-Requested-With,X-Request-Id"
+            exposedHeaders: "X-Request-Id"
             allowCredentials: true
       routes:
         - id: openapi-auth-service

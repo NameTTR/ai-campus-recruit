@@ -22,6 +22,10 @@ dashscope:
   max-tokens: ${DASHSCOPE_MAX_TOKENS:8192}
   connect-timeout: ${DASHSCOPE_CONNECT_TIMEOUT:10s}
   read-timeout: ${DASHSCOPE_READ_TIMEOUT:120s}
+  max-concurrency: ${DASHSCOPE_MAX_CONCURRENCY:8}
+  acquire-timeout: ${DASHSCOPE_ACQUIRE_TIMEOUT:2s}
+  failure-threshold: ${DASHSCOPE_FAILURE_THRESHOLD:3}
+  circuit-open-time: ${DASHSCOPE_CIRCUIT_OPEN_TIME:30s}
 
 demo:
   seed:

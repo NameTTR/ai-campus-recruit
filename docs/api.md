@@ -10,6 +10,14 @@
 }
 ```
 
+## Gateway 认证与请求追踪
+
+- `GATEWAY_PUBLIC_DOCS_ENABLED=false` 时，聚合 OpenAPI、Swagger 配置和文档页面均要求有效的 Bearer Token。
+- `/actuator/health` 及其子路径保持公开；其他 Gateway Actuator 路径要求管理员权限。
+- `GATEWAY_ALLOWED_ORIGINS` 控制浏览器来源。允许的来源在 401/403 响应中也会获得 CORS 响应头，跨域预检在认证之前处理。
+- Gateway 为响应和下游请求设置 `X-Request-Id`，包括健康检查、预检及认证失败响应。客户端可提供 1-64 位字母、数字、点、下划线或连字符；不符合格式时重新生成编号。
+- Gateway 清除外部请求中的身份头；受保护请求验证 Token 后才设置可信的用户和角色信息。
+
 ## API 文档入口
 
 ### 毕设五大核心模块补充
@@ -77,7 +85,7 @@ RAG 沿用 `/api/ai/knowledge/*` 接口。检索和回答使用认证角色，�
 ## Auth
 
 - `POST /api/auth/login`：登录。
-- `POST /api/auth/logout`：登出。
+- `POST /api/auth/logout`：登出。Gateway 要求携带有效 Bearer Token，并在后续网关请求中拒绝已登出的 Token；GET 和 OPTIONS 请求不会触发登出。失效记录在当前 Gateway 进程中保留至 Token 到期，重启后清空，多个 Gateway 实例之间不共享。每次登录独立签发 Token，重新登录不会复用已登出的 Token。
 - `GET /api/auth/me`：获取当前用户。
 
 ## Resume
@@ -170,6 +178,7 @@ RAG 沿用 `/api/ai/knowledge/*` 接口。检索和回答使用认证角色，�
   - 未配置 `DASHSCOPE_API_KEY` 或模型调用失败时，返回确定性的演示初筛结果，且 `mocked=true`。
   - 生成结果会写入筛选历史；默认内存存储，启用持久化后写入 MySQL。
 - `POST /api/ai/candidates/screen/tasks`：创建 AI 候选人异步初筛任务。
+  - RocketMQ 投递事件消费使用真实简历技能、项目与岗位要求，不把岗位要求当作候选人已具备的技能。上下文读取或任务保存失败时返回重试结果；成功任务按投递去重。无效或缺少必要标识的消息丢弃。
   - 请求体沿用 `CandidateScreenRequest`，字段与同步初筛一致。
   - 返回：`CandidateScreenTask`，包含 `taskId`、`deliveryId`、`companyId`、`studentId`、`resumeId`、`jobId`、`status`、`source`、`message`、`result`、`createdAt`、`updatedAt`。
   - `status` 支持 `PENDING`、`RUNNING`、`COMPLETED`、`FAILED`；`source` 支持 `DEMO`、`RUNTIME`、`ROCKETMQ`。
@@ -178,7 +187,7 @@ RAG 沿用 `/api/ai/knowledge/*` 接口。检索和回答使用认证角色，�
 - `GET /api/ai/candidates/screen/tasks?companyId=C001&deliveryId=D001`：查询 AI 候选人异步初筛任务。
   - 查询参数：`companyId`、`deliveryId` 均可选；为空时不过滤。
   - 返回：`CandidateScreenTask[]`，字段同创建接口。
-  - 企业端投递审核和 AI 筛选历史优先使用该任务列表展示异步状态；开发模式未配置 gateway 或 AI proxy 时前端返回确定性的 `DEMO` 任务数据，且不调用 `fetch`。
+  - 企业端投递审核和 AI 筛选历史优先使用该任务列表展示异步状态；仅显式设置 `VITE_DEMO_MODE=true` 且未配置 gateway 或 AI proxy 时，前端返回 `DEMO` 任务数据且不调用 `fetch`；默认模式报告后端错误。
 - `GET /api/ai/candidates/screen/tasks/{taskId}?companyId=C001`：查询单个 AI 候选人异步初筛任务。
   - 路径参数：`taskId`。
   - 查询参数：`companyId` 可选；Gateway 注入 `X-User-Role=COMPANY` 和 `X-User-Id` 时，下游服务必须以注入的企业身份为准。
@@ -215,6 +224,8 @@ RAG 沿用 `/api/ai/knowledge/*` 接口。检索和回答使用认证角色，�
 ## Delivery
 
 - `POST /api/deliveries`：投递岗位。
+  - 企业归属优先读取显式 `DELIVERY_JOB_COMPANY_MAP` 或已启用的演示岗位映射；其他岗位查询 job-service 的真实归属，不再统一分配给默认企业。
+  - 岗位不存在返回 HTTP 400；岗位服务或企业归属不可用返回 HTTP 503。错误响应保持 `ApiResponse<T>`，失败时不保存投递。
   - 请求体：`studentId`、`resumeId`、`jobId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`。
   - 返回：`DeliveryRecord`，包含 `deliveryId`、`studentId`、`resumeId`、`jobId`、`companyId`、`resumeSourceFormat`、`resumeParseStatus`、`resumeParsedTextLength`、`status`、`createdAt`。
   - 未传简历解析字段时会降级为 `resumeSourceFormat=UNKNOWN`、`resumeParseStatus=UNKNOWN`、`resumeParsedTextLength=0`，保证旧调用方兼容。

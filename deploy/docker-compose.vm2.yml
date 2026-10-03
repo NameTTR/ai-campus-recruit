@@ -12,6 +12,7 @@ services:
       args:
         SERVICE: auth-service
     container_name: recruit-vm2-auth-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
@@ -26,6 +27,12 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
       MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8101/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     ports:
       - "8101:8101"
     networks:
@@ -38,6 +45,7 @@ services:
       args:
         SERVICE: user-service
     container_name: recruit-vm2-user-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
@@ -49,6 +57,12 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
       MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8102/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     ports:
       - "8102:8102"
     networks:
@@ -61,6 +75,7 @@ services:
       args:
         SERVICE: resume-service
     container_name: recruit-vm2-resume-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
@@ -80,6 +95,12 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-resumes}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
       MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8103/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     ports:
       - "8103:8103"
     networks:
@@ -92,6 +113,7 @@ services:
       args:
         SERVICE: job-service
     container_name: recruit-vm2-job-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
@@ -106,6 +128,12 @@ services:
       SPRING_DATA_REDIS_PORT: 6379
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
       MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8104/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     ports:
       - "8104:8104"
     networks:
@@ -118,6 +146,7 @@ services:
       args:
         SERVICE: match-service
     container_name: recruit-vm2-match-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
@@ -134,6 +163,12 @@ services:
       SPRING_DATA_REDIS_PORT: 6379
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
       MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8105/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     ports:
       - "8105:8105"
     networks:
@@ -146,12 +181,15 @@ services:
       args:
         SERVICE: delivery-service
     container_name: recruit-vm2-delivery-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
       DELIVERY_PERSISTENCE_ENABLED: ${DELIVERY_PERSISTENCE_ENABLED:-true}
       DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
       DELIVERY_CACHE_TTL: ${DELIVERY_CACHE_TTL:-10m}
+      JOB_SERVICE_URI: http://job-service:8104
+      DELIVERY_JOB_COMPANY_MAP: ${DELIVERY_JOB_COMPANY_MAP:-}
       SPRING_DATASOURCE_URL: jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
@@ -162,6 +200,15 @@ services:
       DELIVERY_EVENTS_TOPIC: ${DELIVERY_EVENTS_TOPIC:-delivery-events}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
       MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8107/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
+    depends_on:
+      job-service:
+        condition: service_healthy
     ports:
       - "8107:8107"
     networks:

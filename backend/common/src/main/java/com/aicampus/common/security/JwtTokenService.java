@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -38,6 +39,8 @@ public class JwtTokenService {
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("iss", issuer);
+        // Keep separate logins independent even when issued within the same second.
+        payload.put("jti", UUID.randomUUID().toString());
         payload.put("sub", userId);
         payload.put("name", displayName);
         payload.put("role", role.name());

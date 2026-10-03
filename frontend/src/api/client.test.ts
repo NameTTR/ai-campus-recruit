@@ -71,6 +71,7 @@ describe('api fallback behavior', () => {
     localStorage.clear()
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
+    vi.stubEnv('VITE_DEMO_MODE', 'true')
     vi.stubEnv('VITE_API_BASE_URL', '')
     vi.stubEnv('VITE_API_PROXY_TARGET', '')
     vi.stubEnv('VITE_AI_PROXY_TARGET', '')
@@ -82,6 +83,66 @@ describe('api fallback behavior', () => {
 
     expect(result.userId).toBe('S001')
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('surfaces gateway failures when demo mode is disabled', async () => {
+    vi.stubEnv('VITE_DEMO_MODE', 'false')
+
+    await expect(getProfile()).rejects.toThrow('无法连接服务，请检查网络或服务状态后重试；本次操作未确认成功')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not hide read request failures behind demo data when demo mode is disabled', async () => {
+    vi.stubEnv('VITE_DEMO_MODE', 'off')
+
+    await expect(getAiStatus()).rejects.toThrow('无法连接服务，请检查网络或服务状态后重试；本次操作未确认成功')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not enable demo data when demo mode is unset', async () => {
+    vi.stubEnv('VITE_DEMO_MODE', '')
+
+    await expect(getAiStatus()).rejects.toThrow('无法连接服务')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces server errors from read requests in live mode', async () => {
+    vi.stubEnv('VITE_DEMO_MODE', 'false')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: () => Promise.resolve({ code: 503, message: 'AI service unavailable', data: null })
+    } as Response)
+
+    await expect(getAiStatus()).rejects.toThrow('AI service unavailable')
+  })
+
+  it('surfaces business errors from read requests in live mode', async () => {
+    vi.stubEnv('VITE_DEMO_MODE', 'false')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ code: 1, message: 'AI provider not configured', data: null })
+    } as Response)
+
+    await expect(getAiStatus()).rejects.toThrow('AI provider not configured')
+  })
+
+  it.each([false, true])('clears an expired session on read requests (HTTP success: %s)', async (httpSuccess) => {
+    vi.stubEnv('VITE_DEMO_MODE', 'false')
+    saveAuthSession({
+      token: 'expired-token',
+      userId: 'S001',
+      displayName: 'Session Student',
+      role: 'STUDENT'
+    })
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: httpSuccess,
+      status: httpSuccess ? 200 : 401,
+      json: () => Promise.resolve({ code: 401, message: 'unauthorized', data: null })
+    } as Response)
+
+    await expect(getAiStatus()).rejects.toThrow('登录已失效，请重新登录')
+    expect(getAuthSession()).toBeNull()
   })
 
   it('returns account list fallback with filters when gateway is offline', async () => {

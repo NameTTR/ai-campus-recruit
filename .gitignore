@@ -22,6 +22,7 @@ logs/
 *.log
 .env
 deploy/three-vm.env
+deploy/monitoring/secrets/
 uploads/
 backups/
 reports/security/
@@ -30,3 +31,6 @@ reports/security/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Browser verification artifacts
+output/playwright/

@@ -11,6 +11,9 @@ public class ProfileExceptionHandler {
     @ExceptionHandler(IllegalStateException.class)
     @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
     public ApiResponse<Void> unavailable(IllegalStateException ex) {
+        if (ex.getMessage() != null && ex.getMessage().startsWith("Dashboard statistics")) {
+            return ApiResponse.fail(ex.getMessage());
+        }
         return ApiResponse.fail("Student profile storage unavailable; changes were not saved");
     }
 }

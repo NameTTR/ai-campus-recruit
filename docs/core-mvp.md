@@ -1,5 +1,24 @@
 # 毕设五大核心功能
 
+## Docker 启动与运行边界
+
+本地完整环境使用仓库根目录的 `docker-compose.yml`：
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+docker compose up -d --build
+docker compose ps
+```
+
+默认访问 `http://localhost`；Gateway 健康检查为 `http://localhost:8080/actuator/health`。
+`.env` 的 `FRONTEND_HOST_PORT` 和 `GATEWAY_HOST_PORT` 可调整这两个端口，访问时使用实际值。
+Compose 默认不发布业务服务的宿主机端口，服务通过 Docker 网络访问；调试时添加单独的
+Compose 覆盖文件发布端口。`GATEWAY_ALLOWED_ORIGINS` 限制浏览器来源，`GATEWAY_PUBLIC_DOCS_ENABLED`
+控制聚合 OpenAPI 是否免登录。前端 `VITE_DEMO_MODE` 默认关闭；更改后需重新构建前端。
+
+管理员大屏启用 `DASHBOARD_REALTIME_ENABLED=true` 后，MySQL 不可用会返回 503 并保留错误信息，
+避免把演示数据误当成真实统计；只有显式关闭实时模式才使用演示数据。
+
 本版聚焦简历诊断、岗位匹配、AI 学习路径、AI 模拟面试、RAG 知识问答。岗位发布与账号、知识库管理是配套功能。投递、企业初筛、通知、审计、部署向导等辅助前端页面下线，原后端接口与历史数据保留。
 
 ## 数据与启动
@@ -36,6 +55,9 @@ npm.cmd run build
 $env:E2E_BASE_URL = 'http://127.0.0.1:5173'
 npm.cmd run test:e2e
 ```
+
+CI 中的浏览器 smoke 使用显式 `VITE_DEMO_MODE=true` 验证页面与导航，不验证数据库或真实模型。
+本地默认关闭演示兜底；执行上面的浏览器命令前，应先启动真实后端并指定实际前端地址。
 
 接口与字段以 `docs/api.md` 和服务 OpenAPI 为准。浏览器验证须使用真实登录令牌，不手工伪造用户会话。数据库重启恢复和真实模型调用需在持久化运行实例中额外验证，单元测试通过并不替代这些检查。
 

@@ -116,6 +116,14 @@ DELIVERY_EVENTS_ROCKETMQ_ENABLED=true
 DELIVERY_EVENTS_TOPIC=delivery-events
 DASHBOARD_REALTIME_ENABLED=true
 
+# AI provider protection; tune for the provider quota and VM capacity.
+DASHSCOPE_CONNECT_TIMEOUT=10s
+DASHSCOPE_READ_TIMEOUT=120s
+DASHSCOPE_MAX_CONCURRENCY=8
+DASHSCOPE_ACQUIRE_TIMEOUT=2s
+DASHSCOPE_FAILURE_THRESHOLD=3
+DASHSCOPE_CIRCUIT_OPEN_TIME=30s
+
 FRONTEND_PORT=80
 GATEWAY_PORT=8080
 SENTINEL_DASHBOARD_PORT=8858
@@ -143,6 +151,12 @@ SENTINEL_DASHBOARD_PASSWORD=replace-with-a-strong-sentinel-password
 | `DASHSCOPE_MODEL` | 默认 `qwen-plus` |
 | `DASHSCOPE_BASE_URL` | 默认 `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | `DASHSCOPE_TEMPERATURE` | DashScope 生成温度，三机联调建议使用低温度值保持结构化输出稳定；服务会将异常值限制在 `0` 到 `1` |
+| `DASHSCOPE_CONNECT_TIMEOUT` | 外部 AI 连接超时，默认 `10s` |
+| `DASHSCOPE_READ_TIMEOUT` | 外部 AI 响应超时，默认 `120s` |
+| `DASHSCOPE_MAX_CONCURRENCY` | AI 外部请求并发上限，超过上限的请求会快速失败，默认 `8` |
+| `DASHSCOPE_ACQUIRE_TIMEOUT` | 等待 AI 并发许可的最长时间，默认 `2s` |
+| `DASHSCOPE_FAILURE_THRESHOLD` | 连续外部调用失败后打开熔断的次数，默认 `3` |
+| `DASHSCOPE_CIRCUIT_OPEN_TIME` | 熔断保持打开的时间，默认 `30s` |
 | `AI_SCREENING_PERSISTENCE_ENABLED` | AI 候选人初筛历史是否写入 MySQL，v0.9 建议为 `true` |
 | `AI_PLANNING_PERSISTENCE_ENABLED` | AI 简历改写和求职规划历史是否写入 VM3 MySQL 的 `ai_planning_record`，v3.5 建议为 `true` |
 | `AI_KNOWLEDGE_PERSISTENCE_ENABLED` | RAG 知识文档和 chunk 是否写入 VM3 MySQL 的 `ai_knowledge_document`、`ai_knowledge_chunk`，v3.9 建议为 `true` |
@@ -168,7 +182,9 @@ SENTINEL_DASHBOARD_PASSWORD=replace-with-a-strong-sentinel-password
 | `DELIVERY_CACHE_TTL` | 企业投递列表 Redis 缓存 TTL |
 | `DELIVERY_EVENTS_ROCKETMQ_ENABLED` | 投递事件是否发布到 RocketMQ，三机部署默认 `true` |
 | `DELIVERY_EVENTS_TOPIC` | 投递事件 topic，默认 `delivery-events` |
-| `DASHBOARD_REALTIME_ENABLED` | `user-service` 管理大屏是否读取 VM3 MySQL 聚合真实表；为 `false` 或 datasource 不可用时返回稳定 fallback |
+| `DELIVERY_JOB_COMPANY_MAP` | 可选的显式 `jobId=companyId` 映射；其他岗位通过 VM2 job-service 查询真实企业归属 |
+| `DASHBOARD_REALTIME_ENABLED` | `user-service` 管理大屏是否读取 VM3 MySQL 聚合真实表；`false` 才使用演示数据，实时模式下 datasource 不可用会返回 503 |
+| `VITE_DEMO_MODE` | 前端构建时是否启用演示 fallback，默认 `false`；修改后重新构建前端 |
 | `FRONTEND_PORT` | VM1 前端暴露端口 |
 | `GATEWAY_PORT` | VM1 Gateway 暴露端口 |
 | `SENTINEL_DASHBOARD_PORT` | VM1 Sentinel Dashboard 暴露端口 |
@@ -418,7 +434,7 @@ curl -sS -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   "http://<VM1_IP>:8080/api/admin/dashboard"
 ```
 
-当 `DASHBOARD_REALTIME_ENABLED=true` 且 VM2 `user-service` 可以访问 VM3 MySQL 时，管理大屏会聚合真实持久化表；否则应返回稳定 fallback 数据而不是中断验收。
+When `DASHBOARD_REALTIME_ENABLED=true`, VM2 user-service aggregates real VM3 MySQL data; an unavailable datasource returns HTTP 503 with an explicit error. Set it to `false` only when the demo dataset is intentional.
 
 OpenAPI 直连路径：
 
@@ -577,7 +593,69 @@ VM3 node-exporter: http://<VM3_IP>:9100/metrics
 .\scripts\render-monitoring-config.ps1 -EnvFile .\deploy\three-vm.env
 ```
 
-该脚本读取 `VM1_HOST`、`VM2_HOST`、`VM3_HOST` 并渲染 Prometheus scrape 配置，目标包括 VM1/VM2/VM3 node-exporter、Gateway、VM2 业务服务和 VM3 AI 服务。渲染后按 compose 文件重新启动监控组件：
+该脚本读取 `VM1_HOST`、`VM2_HOST`、`VM3_HOST` 并渲染 Prometheus scrape 配置，目标包括 VM1/VM2/VM3 node-exporter、Gateway、VM2 业务服务和 VM3 AI 服务。
+
+### Gateway 指标抓取凭据
+
+Gateway 的 `/actuator/health` 可直接访问；`/actuator/prometheus`、`/actuator/info` 等管理端点需要有效的管理员登录身份。未携带令牌返回 `401`，非管理员访问返回 `403`，均是预期行为。保持 `GATEWAY_AUTH_ENABLED=true`。
+
+首次启动 Prometheus 前，先完成 VM2 认证服务与 VM1 Gateway 的启动，再准备 `deploy/monitoring/secrets/gateway-bearer.token`。在 Windows 宿主机的仓库根目录运行以下 PowerShell。管理员用户名、密码可以分别从 `MONITORING_ADMIN_USERNAME`、`MONITORING_ADMIN_PASSWORD` 环境变量读取；缺失时交互输入，密码输入不会回显。Gateway 地址使用 VM1 的实际 Gateway 地址和端口。
+
+```powershell
+$MonitoringGatewayBaseUrl = Read-Host 'Gateway 地址，例如 http://192.168.56.11:8080'
+$MonitoringAdminUsername = $env:MONITORING_ADMIN_USERNAME
+if ([string]::IsNullOrWhiteSpace($MonitoringAdminUsername)) {
+    $MonitoringAdminUsername = Read-Host '管理员用户名'
+}
+$MonitoringAdminPassword = $env:MONITORING_ADMIN_PASSWORD
+$MonitoringPasswordPointer = [IntPtr]::Zero
+try {
+    if ([string]::IsNullOrWhiteSpace($MonitoringAdminPassword)) {
+        $MonitoringSecurePassword = Read-Host '管理员密码' -AsSecureString
+        $MonitoringPasswordPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($MonitoringSecurePassword)
+        $MonitoringAdminPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($MonitoringPasswordPointer)
+    }
+    $MonitoringLoginBody = @{
+        username = $MonitoringAdminUsername
+        password = $MonitoringAdminPassword
+    } | ConvertTo-Json -Compress
+    $MonitoringLoginResponse = Invoke-RestMethod `
+        -Method Post `
+        -Uri ($MonitoringGatewayBaseUrl.TrimEnd('/') + '/api/auth/login') `
+        -ContentType 'application/json; charset=utf-8' `
+        -Body $MonitoringLoginBody `
+        -ErrorAction Stop
+    if ($MonitoringLoginResponse.code -ne 0 -or
+        $MonitoringLoginResponse.data.role -ne 'ADMIN' -or
+        [string]::IsNullOrWhiteSpace($MonitoringLoginResponse.data.token)) {
+        throw '登录失败或账号不是管理员，未更新监控令牌文件。'
+    }
+    $MonitoringSecretsDirectory = Join-Path (Get-Location).Path 'deploy/monitoring/secrets'
+    [System.IO.Directory]::CreateDirectory($MonitoringSecretsDirectory) | Out-Null
+    $MonitoringTokenFile = Join-Path $MonitoringSecretsDirectory 'gateway-bearer.token'
+    [System.IO.File]::WriteAllText(
+        $MonitoringTokenFile,
+        $MonitoringLoginResponse.data.token,
+        (New-Object System.Text.UTF8Encoding($false))
+    )
+} finally {
+    if ($MonitoringPasswordPointer -ne [IntPtr]::Zero) {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($MonitoringPasswordPointer)
+    }
+    $MonitoringAdminPassword = $null
+    $MonitoringSecurePassword = $null
+    $MonitoringLoginBody = $null
+    $MonitoringLoginResponse = $null
+}
+```
+
+令牌只写入本地文件，采用 UTF-8 无 BOM 编码，不会输出到终端。将该文件通过受控的 SSH/SCP 连接复制到 VM1 仓库内的同一路径；先在 VM1 创建 `deploy/monitoring/secrets` 目录，确保 Prometheus 容器运行用户可读取令牌文件，且仅允许运维账号修改。该目录已从 Git 排除，不要上传到仓库或放入共享日志。
+
+VM1 Compose 将整个凭据目录只读挂载到 `/etc/prometheus/secrets`。Prometheus 的 `vm1-edge-services` 任务使用 `authorization.type: Bearer` 和 `credentials_file` 读取令牌，无需把 secret 写入 `prometheus.yml` 或模板。该 JWT 使用认证服务的 `JWT_TTL_SECONDS` 有效期；令牌过期或使用它登出后，需要重新运行上述步骤并更新 VM1 文件。仅更新令牌文件即可供后续抓取使用，不需要重新渲染 YAML；在到期前刷新，并在 Prometheus Targets 页面确认 `vm1-edge-services` 为 `UP`。不要在生成文件后立即使用同一个令牌登出。
+
+### 启动与检查监控
+
+配置渲染、VM1 令牌文件准备完成后，启动监控组件：
 
 ```bash
 docker compose --env-file deploy/three-vm.env -f deploy/docker-compose.vm1.yml up -d prometheus grafana node-exporter

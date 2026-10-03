@@ -19,14 +19,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
 @Service
 public class DashboardStatsService {
-    private static final Logger log = LoggerFactory.getLogger(DashboardStatsService.class);
     private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
     };
 
@@ -44,13 +41,12 @@ public class DashboardStatsService {
         }
         String url = property("spring.datasource.url", "SPRING_DATASOURCE_URL");
         if (url == null || url.isBlank()) {
-            return fallback();
+            throw unavailable("Dashboard statistics are enabled for realtime mode, but no datasource URL is configured", null);
         }
         try {
             Class.forName("com.mysql.cj.jdbc.Driver");
         } catch (ClassNotFoundException ex) {
-            log.warn("MySQL driver is unavailable; dashboard returns fallback data", ex);
-            return fallback();
+            throw unavailable("Dashboard statistics cannot load because the MySQL driver is unavailable", ex);
         }
 
         String username = property("spring.datasource.username", "SPRING_DATASOURCE_USERNAME");
@@ -58,9 +54,12 @@ public class DashboardStatsService {
         try (Connection connection = DriverManager.getConnection(url, username, password)) {
             return aggregate(connection);
         } catch (Exception ex) {
-            log.warn("Failed to aggregate dashboard stats from datasource; returning fallback data", ex);
-            return fallback();
+            throw unavailable("Dashboard statistics could not be loaded from the datasource", ex);
         }
+    }
+
+    private static IllegalStateException unavailable(String message, Exception cause) {
+        return cause == null ? new IllegalStateException(message) : new IllegalStateException(message, cause);
     }
 
     DashboardStats aggregate(Connection connection) throws SQLException {

@@ -14,6 +14,7 @@ services:
   mysql:
     image: docker.m.daocloud.io/library/mysql:8.4
     container_name: recruit-mysql
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-ai_campus_recruit}
@@ -25,7 +26,9 @@ services:
       timeout: 3s
       retries: 30
     ports:
-      - "${MYSQL_HOST_PORT:-3306}:3306"
+      # Bind local development infrastructure to loopback; Docker services use
+      # the service name and never need these ports on the LAN.
+      - "127.0.0.1:${MYSQL_HOST_PORT:-3306}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     networks:
@@ -34,9 +37,16 @@ services:
   redis:
     image: docker.m.daocloud.io/library/redis:7.4-alpine
     container_name: recruit-redis
+    restart: unless-stopped
     command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     ports:
-      - "${REDIS_HOST_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     networks:
@@ -45,28 +55,43 @@ services:
   nacos:
     image: docker.m.daocloud.io/nacos/nacos-server:v2.4.3
     container_name: recruit-nacos
+    restart: unless-stopped
     environment:
       MODE: standalone
       PREFER_HOST_MODE: hostname
       NACOS_AUTH_ENABLE: "false"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8848/nacos/v1/console/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     ports:
-      - "8848:8848"
-      - "9848:9848"
+      - "127.0.0.1:8848:8848"
+      - "127.0.0.1:9848:9848"
     volumes:
       - nacos-data:/home/nacos/data
     networks:
       - recruit-net
 
   minio:
-    image: docker.m.daocloud.io/minio/minio:RELEASE.2025-01-20T14-49-07Z
+    # This tag is available through DaoCloud's mainland registry mirror.
+    image: docker.m.daocloud.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
     container_name: recruit-minio
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio-data:/data
     networks:
@@ -75,21 +100,37 @@ services:
   rocketmq-namesrv:
     image: docker.m.daocloud.io/apache/rocketmq:5.3.0
     container_name: recruit-rocketmq-namesrv
+    restart: unless-stopped
     command: sh mqnamesrv
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/9876"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
     ports:
-      - "9876:9876"
+      - "127.0.0.1:9876:9876"
     networks:
       - recruit-net
 
   rocketmq-broker:
     image: docker.m.daocloud.io/apache/rocketmq:5.3.0
     container_name: recruit-rocketmq-broker
+    restart: unless-stopped
     command: sh mqbroker -n rocketmq-namesrv:9876
     depends_on:
-      - rocketmq-namesrv
+      rocketmq-namesrv:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/10911"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     ports:
-      - "10909:10909"
-      - "10911:10911"
+      - "127.0.0.1:10909:10909"
+      - "127.0.0.1:10911:10911"
     networks:
       - recruit-net
 
@@ -100,13 +141,21 @@ services:
       args:
         SERVICE: ai-service
     container_name: recruit-ai-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       DASHSCOPE_MODEL: ${DASHSCOPE_MODEL:-qwen-plus}
       DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      DASHSCOPE_TEMPERATURE: ${DASHSCOPE_TEMPERATURE:-0.2}
       DASHSCOPE_MAX_TOKENS: ${DASHSCOPE_MAX_TOKENS:-8192}
+      DASHSCOPE_CONNECT_TIMEOUT: ${DASHSCOPE_CONNECT_TIMEOUT:-10s}
+      DASHSCOPE_READ_TIMEOUT: ${DASHSCOPE_READ_TIMEOUT:-120s}
+      DASHSCOPE_MAX_CONCURRENCY: ${DASHSCOPE_MAX_CONCURRENCY:-8}
+      DASHSCOPE_ACQUIRE_TIMEOUT: ${DASHSCOPE_ACQUIRE_TIMEOUT:-2s}
+      DASHSCOPE_FAILURE_THRESHOLD: ${DASHSCOPE_FAILURE_THRESHOLD:-3}
+      DASHSCOPE_CIRCUIT_OPEN_TIME: ${DASHSCOPE_CIRCUIT_OPEN_TIME:-30s}
       AI_SCREENING_PERSISTENCE_ENABLED: ${AI_SCREENING_PERSISTENCE_ENABLED:-true}
       AI_PLANNING_PERSISTENCE_ENABLED: ${AI_PLANNING_PERSISTENCE_ENABLED:-true}
       AI_CORE_PERSISTENCE_ENABLED: ${AI_CORE_PERSISTENCE_ENABLED:-true}
@@ -125,14 +174,25 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8106/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     depends_on:
-      - nacos
-      - mysql
-      - redis
-      - rocketmq-namesrv
-      - rocketmq-broker
-    ports:
-      - "8106:8106"
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rocketmq-namesrv:
+        condition: service_healthy
+      rocketmq-broker:
+        condition: service_healthy
+    # Internal service is intentionally network-only. Add a local compose override
+    # when debugging is needed instead of exposing it in the default stack.
     networks:
       - recruit-net
 
@@ -143,6 +203,7 @@ services:
       args:
         SERVICE: auth-service
     container_name: recruit-auth-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
@@ -155,13 +216,19 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8101/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     depends_on:
       nacos:
-        condition: service_started
+        condition: service_healthy
       mysql:
         condition: service_healthy
-    ports:
-      - "8101:8101"
+    # Internal service is intentionally network-only. Add a local compose override
+    # when debugging is needed instead of exposing it in the default stack.
     networks:
       - recruit-net
 
@@ -172,21 +239,29 @@ services:
       args:
         SERVICE: user-service
     container_name: recruit-user-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
       USER_PERSISTENCE_ENABLED: ${USER_PERSISTENCE_ENABLED:-true}
+      DASHBOARD_REALTIME_ENABLED: ${DASHBOARD_REALTIME_ENABLED:-true}
       DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8102/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     depends_on:
       nacos:
-        condition: service_started
+        condition: service_healthy
       mysql:
         condition: service_healthy
-    ports:
-      - "8102:8102"
+    # Internal service is intentionally network-only. Add a local compose override
+    # when debugging is needed instead of exposing it in the default stack.
     networks:
       - recruit-net
 
@@ -197,6 +272,7 @@ services:
       args:
         SERVICE: resume-service
     container_name: recruit-resume-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
@@ -214,14 +290,25 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-resumes}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8103/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     depends_on:
-      - nacos
-      - ai-service
-      - mysql
-      - redis
-      - minio
-    ports:
-      - "8103:8103"
+      nacos:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    # Internal service is intentionally network-only. Add a local compose override
+    # when debugging is needed instead of exposing it in the default stack.
     networks:
       - recruit-net
 
@@ -232,6 +319,7 @@ services:
       args:
         SERVICE: job-service
     container_name: recruit-job-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
@@ -244,13 +332,23 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8104/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     depends_on:
-      - nacos
-      - ai-service
-      - mysql
-      - redis
-    ports:
-      - "8104:8104"
+      nacos:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Internal service is intentionally network-only. Add a local compose override
+    # when debugging is needed instead of exposing it in the default stack.
     networks:
       - recruit-net
 
@@ -261,6 +359,7 @@ services:
       args:
         SERVICE: match-service
     container_name: recruit-match-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
@@ -275,12 +374,21 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8105/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     depends_on:
-      - nacos
-      - mysql
-      - redis
-    ports:
-      - "8105:8105"
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Internal service is intentionally network-only. Add a local compose override
+    # when debugging is needed instead of exposing it in the default stack.
     networks:
       - recruit-net
 
@@ -291,12 +399,15 @@ services:
       args:
         SERVICE: delivery-service
     container_name: recruit-delivery-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
       DELIVERY_PERSISTENCE_ENABLED: ${DELIVERY_PERSISTENCE_ENABLED:-true}
       DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
       DELIVERY_CACHE_TTL: ${DELIVERY_CACHE_TTL:-10m}
+      JOB_SERVICE_URI: http://job-service:8104
+      DELIVERY_JOB_COMPANY_MAP: ${DELIVERY_JOB_COMPANY_MAP:-}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
@@ -305,14 +416,27 @@ services:
       DELIVERY_EVENTS_ROCKETMQ_ENABLED: ${DELIVERY_EVENTS_ROCKETMQ_ENABLED:-true}
       ROCKETMQ_NAME_SERVER: rocketmq-namesrv:9876
       DELIVERY_EVENTS_TOPIC: ${DELIVERY_EVENTS_TOPIC:-delivery-events}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8107/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     depends_on:
-      - nacos
-      - mysql
-      - redis
-      - rocketmq-namesrv
-      - rocketmq-broker
-    ports:
-      - "8107:8107"
+      job-service:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rocketmq-namesrv:
+        condition: service_healthy
+      rocketmq-broker:
+        condition: service_healthy
+    # Internal service is intentionally network-only. Add a local compose override
+    # when debugging is needed instead of exposing it in the default stack.
     networks:
       - recruit-net
 
@@ -323,6 +447,7 @@ services:
       args:
         SERVICE: gateway-service
     container_name: recruit-gateway-service
+    restart: unless-stopped
     environment:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
@@ -337,13 +462,29 @@ services:
       JWT_ISSUER: ${JWT_ISSUER:-ai-campus-recruit}
       JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-86400}
       GATEWAY_AUTH_ENABLED: ${GATEWAY_AUTH_ENABLED:-true}
+      GATEWAY_PUBLIC_DOCS_ENABLED: ${GATEWAY_PUBLIC_DOCS_ENABLED:-true}
+      GATEWAY_ALLOWED_ORIGINS: ${GATEWAY_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1,http://localhost:5173,http://127.0.0.1:5173}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     depends_on:
-      - auth-service
-      - user-service
-      - resume-service
-      - job-service
-      - match-service
-      - delivery-service
+      auth-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      resume-service:
+        condition: service_healthy
+      job-service:
+        condition: service_healthy
+      match-service:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+      delivery-service:
+        condition: service_healthy
     ports:
       - "${GATEWAY_HOST_PORT:-8080}:8080"
     networks:
@@ -353,12 +494,22 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_DEMO_MODE: ${VITE_DEMO_MODE:-false}
     container_name: recruit-frontend
+    restart: unless-stopped
     environment:
       GATEWAY_UPSTREAM: http://gateway-service:8080
     depends_on:
-      - gateway-service
+      gateway-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     ports:
-      - "80:80"
+      - "${FRONTEND_HOST_PORT:-80}:80"
     networks:
       - recruit-net

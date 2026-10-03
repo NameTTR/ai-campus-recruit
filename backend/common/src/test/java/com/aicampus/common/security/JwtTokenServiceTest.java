@@ -2,6 +2,8 @@ package com.aicampus.common.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mockStatic;
 
 import com.aicampus.common.enums.Role;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,6 +15,7 @@ import java.util.Map;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 class JwtTokenServiceTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -31,6 +34,30 @@ class JwtTokenServiceTest {
         assertThat(claims.displayName()).isEqualTo("Student");
         assertThat(claims.role()).isEqualTo(Role.STUDENT);
         assertThat(claims.expiresAt()).isGreaterThan(Instant.now().getEpochSecond());
+    }
+
+    @Test
+    void separateLoginsAtTheSameInstantReceiveDistinctValidTokens() {
+        Instant issuedAt = Instant.parse("2026-10-03T00:00:00Z");
+        try (MockedStatic<Instant> clock = mockStatic(Instant.class, CALLS_REAL_METHODS)) {
+            clock.when(Instant::now).thenReturn(issuedAt);
+
+            String firstToken = jwtTokenService.issue("S001", "Student", Role.STUDENT);
+            String secondToken = jwtTokenService.issue("S001", "Student", Role.STUDENT);
+
+            assertThat(secondToken).isNotEqualTo(firstToken);
+            assertThat(jwtTokenService.verify(secondToken)).isEqualTo(jwtTokenService.verify(firstToken));
+        }
+    }
+
+    @Test
+    void verifiesPreviouslyIssuedTokensWithoutATokenId() {
+        String token = signedToken(ISSUER, "S001", "Student", "STUDENT", 3600);
+
+        JwtTokenService.TokenClaims claims = jwtTokenService.verify(token);
+
+        assertThat(claims.userId()).isEqualTo("S001");
+        assertThat(claims.role()).isEqualTo(Role.STUDENT);
     }
 
     @Test

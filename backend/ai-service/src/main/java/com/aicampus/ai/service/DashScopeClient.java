@@ -5,6 +5,8 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -38,6 +40,13 @@ public class DashScopeClient {
     private final double temperature;
     private final int maxTokens;
     private final RestClient restClient;
+    private final Semaphore concurrencyLimiter;
+    private final int failureThreshold;
+    private final long circuitOpenMillis;
+    private final long acquireTimeoutMillis;
+    private int consecutiveFailures;
+    private long circuitGeneration;
+    private volatile long circuitOpenUntil;
 
     @Autowired
     public DashScopeClient(
@@ -47,13 +56,38 @@ public class DashScopeClient {
             @Value("${dashscope.temperature:0.2}") double temperature,
             @Value("${dashscope.max-tokens:8192}") int maxTokens,
             @Value("${dashscope.connect-timeout:10s}") Duration connectTimeout,
-            @Value("${dashscope.read-timeout:120s}") Duration readTimeout) {
+            @Value("${dashscope.read-timeout:120s}") Duration readTimeout,
+            @Value("${dashscope.max-concurrency:8}") int maxConcurrency,
+            @Value("${dashscope.acquire-timeout:2s}") Duration acquireTimeout,
+            @Value("${dashscope.failure-threshold:3}") int failureThreshold,
+            @Value("${dashscope.circuit-open-time:30s}") Duration circuitOpenTime) {
+        this(apiKey, model, baseUrl, temperature, maxTokens, connectTimeout, readTimeout,
+                maxConcurrency, acquireTimeout, failureThreshold, circuitOpenTime, null);
+    }
+
+    DashScopeClient(
+            String apiKey,
+            String model,
+            String baseUrl,
+            double temperature,
+            int maxTokens,
+            Duration connectTimeout,
+            Duration readTimeout,
+            int maxConcurrency,
+            Duration acquireTimeout,
+            int failureThreshold,
+            Duration circuitOpenTime,
+            RestClient suppliedClient) {
         this.apiKey = apiKey;
         this.model = valueOr(model, "qwen-plus");
         this.baseUrl = valueOr(baseUrl, "https://dashscope.aliyuncs.com/compatible-mode/v1");
         this.temperature = clampTemperature(temperature);
         this.maxTokens = normalizeMaxTokens(maxTokens);
-        this.restClient = RestClient.builder()
+        this.concurrencyLimiter = new Semaphore(normalizePositive(maxConcurrency, 8), true);
+        this.acquireTimeoutMillis = toMilliseconds(acquireTimeout, "acquire timeout");
+        this.failureThreshold = normalizePositive(failureThreshold, 3);
+        this.circuitOpenMillis = toMilliseconds(circuitOpenTime, "circuit open time");
+        this.restClient = suppliedClient != null ? suppliedClient : RestClient.builder()
                 .baseUrl(this.baseUrl)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .requestFactory(requestFactory(connectTimeout, readTimeout))
@@ -69,35 +103,65 @@ public class DashScopeClient {
     }
 
     public DashScopeClient(String apiKey, String model, String baseUrl, double temperature, int maxTokens) {
-        this(apiKey, model, baseUrl, temperature, maxTokens, Duration.ofSeconds(10), Duration.ofSeconds(120));
+        this(apiKey, model, baseUrl, temperature, maxTokens, Duration.ofSeconds(10), Duration.ofSeconds(120),
+                8, Duration.ofSeconds(2), 3, Duration.ofSeconds(30), null);
     }
 
     public String complete(String systemPrompt, String userPrompt, boolean jsonResponse) {
         if (!isConfigured()) {
             throw new IllegalStateException("DASHSCOPE_API_KEY is not configured");
         }
-
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("model", model);
-        payload.put("messages", List.of(
-                Map.of("role", "system", "content", systemPrompt),
-                Map.of("role", "user", "content", userPrompt)
-        ));
-        payload.put("temperature", temperature);
-        if (maxTokens > 0) {
-            payload.put("max_tokens", maxTokens);
+        if (System.currentTimeMillis() < circuitOpenUntil) {
+            throw new IllegalStateException("DashScope circuit is open; retry later");
         }
-        if (jsonResponse) {
-            payload.put("response_format", Map.of("type", "json_object"));
-        }
+        boolean acquired = false;
+        boolean requestStarted = false;
+        long requestGeneration = 0;
+        try {
+            acquired = concurrencyLimiter.tryAcquire(acquireTimeoutMillis, TimeUnit.MILLISECONDS);
+            if (!acquired) {
+                throw new IllegalStateException("DashScope concurrency limit reached; retry later");
+            }
 
-        Map<?, ?> response = restClient.post()
-                .uri("/chat/completions")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                .body(payload)
-                .retrieve()
-                .body(Map.class);
-        return extractContent(response);
+            requestGeneration = beginRequest();
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("model", model);
+            payload.put("messages", List.of(
+                    Map.of("role", "system", "content", systemPrompt),
+                    Map.of("role", "user", "content", userPrompt)
+            ));
+            payload.put("temperature", temperature);
+            if (maxTokens > 0) {
+                payload.put("max_tokens", maxTokens);
+            }
+            if (jsonResponse) {
+                payload.put("response_format", Map.of("type", "json_object"));
+            }
+
+            requestStarted = true;
+            Map<?, ?> response = restClient.post()
+                    .uri("/chat/completions")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .body(payload)
+                    .retrieve()
+                    .body(Map.class);
+            String content = extractContent(response);
+            recordSuccess(requestGeneration);
+            return content;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("DashScope request was interrupted", ex);
+        } catch (RuntimeException ex) {
+            if (requestStarted) {
+                recordFailure(requestGeneration);
+            }
+            throw ex;
+        } finally {
+            if (acquired) {
+                concurrencyLimiter.release();
+            }
+        }
     }
 
     public AiModuleStatus status() {
@@ -151,6 +215,38 @@ public class DashScopeClient {
             return 0;
         }
         return Math.min(value, 32768);
+    }
+
+    private synchronized long beginRequest() {
+        if (System.currentTimeMillis() < circuitOpenUntil) {
+            throw new IllegalStateException("DashScope circuit is open; retry later");
+        }
+        if (circuitOpenUntil != 0) {
+            circuitOpenUntil = 0;
+            consecutiveFailures = 0;
+            circuitGeneration++;
+        }
+        return circuitGeneration;
+    }
+
+    private synchronized void recordSuccess(long requestGeneration) {
+        if (requestGeneration == circuitGeneration) {
+            consecutiveFailures = 0;
+        }
+    }
+
+    private synchronized void recordFailure(long requestGeneration) {
+        if (requestGeneration != circuitGeneration) {
+            return;
+        }
+        if (++consecutiveFailures >= failureThreshold) {
+            circuitOpenUntil = System.currentTimeMillis() + circuitOpenMillis;
+            // Completions from already running requests cannot close or extend this circuit window.
+            circuitGeneration++;
+        }
+    }
+    private static int normalizePositive(int value, int fallback) {
+        return value > 0 ? value : fallback;
     }
 
     private static SimpleClientHttpRequestFactory requestFactory(Duration connectTimeout, Duration readTimeout) {

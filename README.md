@@ -12,7 +12,7 @@
 ## Quick Start
 
 ```powershell
-cd D:\Study\homework\fenbushixitong\exfinal1
+cd D:\project\bishe
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 cd backend
 mvn -s settings.xml.example clean package
@@ -29,6 +29,30 @@ npm run dev
 ```powershell
 .\scripts\start-local-dev.ps1
 ```
+
+使用 Docker Compose 启动完整环境（镜像、Maven 和 npm 已配置为中国可访问源）：
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+docker compose up -d --build
+docker compose ps
+Invoke-WebRequest http://localhost/health
+Invoke-WebRequest http://localhost:8080/actuator/health
+```
+
+本地 Compose 的前端端口默认 `80`，Gateway 默认 `8080`，可在 `.env` 中分别设置
+`FRONTEND_HOST_PORT` 和 `GATEWAY_HOST_PORT`；修改后按实际端口访问和检查健康状态。
+基础设施的宿主机端口绑定到 `127.0.0.1`，业务服务通过 Docker 网络互相访问。
+需要调试单个业务服务时，添加独立的 Compose 覆盖文件发布该服务端口。
+三机部署的业务端口需供虚拟机间访问，部署规则见下方链接。
+
+浏览器来源由 `GATEWAY_ALLOWED_ORIGINS` 控制，Knife4j/OpenAPI 公开访问由
+`GATEWAY_PUBLIC_DOCS_ENABLED` 控制；示例配置默认要求登录后访问接口文档。
+前端 API fallback 只有构建变量 `VITE_DEMO_MODE=true` 时启用，正常环境直接报告后端错误。
+修改该变量后执行 `docker compose up -d --build frontend` 重新构建前端。
+
+首次启动前，在 `.env` 中设置足够长的随机 `JWT_SECRET` 和 `BOOTSTRAP_ADMIN_PASSWORD`。
+不要提交真实凭据。若需要已有的演示账号，可显式设置 `DEMO_SEED_ENABLED=true`；默认不开启。
 
 没有运行 Nacos、MySQL、Redis、RocketMQ、MinIO 或 Milvus 时，使用本地内存演示模式：
 
@@ -122,6 +146,10 @@ docker compose config --quiet
 DASHSCOPE_API_KEY=your_api_key
 DASHSCOPE_MODEL=qwen-plus
 DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+DASHSCOPE_MAX_CONCURRENCY=8
+DASHSCOPE_ACQUIRE_TIMEOUT=2s
+DASHSCOPE_FAILURE_THRESHOLD=3
+DASHSCOPE_CIRCUIT_OPEN_TIME=30s
 ```
 
 未配置 Key 时，`ai-service` 会返回可演示的 mock 结果。

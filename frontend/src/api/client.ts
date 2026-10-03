@@ -927,6 +927,13 @@ interface ApiResponse<T> {
   data: T
 }
 
+class ApiRequestError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ApiRequestError'
+  }
+}
+
 type DeliveryResumeInput = string | (ResumeParseMetadata & { resumeId?: string })
 const authStorageKeys = ['token', 'userId', 'role', 'displayName'] as const
 const roleValues: Role[] = ['STUDENT', 'COMPANY', 'ADMIN']
@@ -937,6 +944,15 @@ function trimTrailingSlash(value: string) {
 
 function getEnvValue(key: string) {
   return (import.meta.env[key] || '').trim()
+}
+
+/**
+ * Demo data is intentionally opt-in. Static builds and normal development
+ * builds must surface gateway failures instead of silently presenting seeded
+ * data as if it came from the backend.
+ */
+export function isDemoMode() {
+  return ['1', 'true', 'yes', 'on'].includes(getEnvValue('VITE_DEMO_MODE').toLowerCase())
 }
 
 function isRole(value: string | null): value is Role {
@@ -1000,12 +1016,14 @@ function resolveRequestPath(path: string) {
 }
 
 function shouldUseApi(path: string) {
-  if (!import.meta.env.DEV) {
+  if (!isDemoMode()) {
     return true
   }
+
   if (getEnvValue('VITE_API_BASE_URL') || getEnvValue('VITE_API_PROXY_TARGET')) {
     return true
   }
+
   return path.startsWith('/api/ai') && Boolean(getEnvValue('VITE_AI_PROXY_TARGET'))
 }
 
@@ -3105,17 +3123,12 @@ async function request<T>(path: string, init: RequestInit, fallback: T): Promise
   }
 
   try {
-    const response = await fetch(resolveRequestPath(path), {
-      ...init,
-      headers: requestHeaders(init)
-    })
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+    return await authenticatedRequest<T>(path, init)
+  } catch (error) {
+    if (isDemoMode()) {
+      return fallback
     }
-    const payload = (await response.json()) as ApiResponse<T>
-    return payload.data
-  } catch {
-    return fallback
+    throw error
   }
 }
 
@@ -4107,7 +4120,22 @@ function uploadKnowledgeFileWithProgress(
       }
       try {
         const payload = JSON.parse(xhr.responseText || '{}') as ApiResponse<KnowledgeIngestionJob>
-        const job = payload.data || fallback
+        if (payload.code !== 0 || !payload.data) {
+          const message = readableApiError(payload.message || 'RAG 文件上传失败')
+          if (isDemoMode()) {
+            options.onProgress?.({
+              phase: 'completed',
+              percent: 100,
+              loaded: fileSize,
+              total: fileSize,
+              message: '演示模式已使用本地 RAG 导入结果。'
+            })
+            resolve(fallback)
+            return
+          }
+          throw new ApiRequestError(message)
+        }
+        const job = payload.data
         options.onProgress?.({
           phase: 'completed',
           percent: 100,

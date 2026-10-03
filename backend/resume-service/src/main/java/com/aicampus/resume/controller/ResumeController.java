@@ -139,7 +139,13 @@ public class ResumeController {
                 sourceFormat(file.getOriginalFilename()),
                 "TEXT_EXTRACTED",
                 extractedText.length());
-        resumeStore.save(new ResumeRecord(summary, extractedText));
+        try {
+            resumeStore.save(new ResumeRecord(summary, extractedText));
+        } catch (RuntimeException ex) {
+            // Avoid leaving an orphaned object when the authoritative database write fails.
+            storageService.delete(stored.objectKey());
+            throw ex;
+        }
         return ApiResponse.ok(summary);
     }
 
@@ -170,7 +176,13 @@ public class ResumeController {
         if (!canAccess(record.summary(), userId, role)) {
             return ApiResponse.fail("You do not have permission to delete this resume");
         }
-        return resumeStore.delete(id) ? ApiResponse.ok(true) : ApiResponse.fail("Resume not found");
+        if (!resumeStore.delete(id)) {
+            return ApiResponse.fail("Resume not found");
+        }
+        if ("STORED".equalsIgnoreCase(record.summary().storageStatus())) {
+            storageService.delete(record.summary().objectKey());
+        }
+        return ApiResponse.ok(true);
     }
 
     @GetMapping

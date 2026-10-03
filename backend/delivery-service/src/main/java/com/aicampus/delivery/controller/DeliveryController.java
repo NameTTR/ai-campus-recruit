@@ -1,6 +1,7 @@
 package com.aicampus.delivery.controller;
 
 import com.aicampus.common.api.ApiResponse;
+import com.aicampus.delivery.client.JobOwnershipClient;
 import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.DeliveryEvent;
 import com.aicampus.common.dto.DeliveryRecord;
@@ -14,6 +15,8 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -33,23 +36,33 @@ import org.springframework.web.bind.annotation.RestController;
 public class DeliveryController {
     @org.springframework.beans.factory.annotation.Value("${demo.seed.enabled:${DEMO_SEED_ENABLED:false}}")
     private boolean seedEnabled;
-    private static final Map<String, String> JOB_COMPANIES = Map.of(
-            "J001", "C001",
-            "J002", "C001",
-            "J003", "C002"
-    );
+    /**
+     * Job ownership is runtime data. The map is populated from the configured
+     * deployment mapping and demo job snapshots, instead of embedding job IDs
+     * in controller code. Other jobs resolve ownership from job-service.
+     */
+    private final Map<String, String> jobCompanies = new ConcurrentHashMap<>();
+    private final JobOwnershipClient jobOwnershipClient;
 
     private final DeliveryEventPublisher eventPublisher;
     private final DeliveryRecordStore deliveryStore;
 
-    public DeliveryController(DeliveryEventPublisher eventPublisher, DeliveryRecordStore deliveryStore) {
+    public DeliveryController(
+            DeliveryEventPublisher eventPublisher,
+            DeliveryRecordStore deliveryStore,
+            JobOwnershipClient jobOwnershipClient,
+            @Value("${DELIVERY_JOB_COMPANY_MAP:}") String configuredJobCompanies) {
         this.eventPublisher = eventPublisher;
         this.deliveryStore = deliveryStore;
+        this.jobOwnershipClient = jobOwnershipClient;
+        parseJobCompanies(configuredJobCompanies).forEach(jobCompanies::put);
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void seedDefaultRecords() {
         if (!seedEnabled) return;
+        // Demo jobs are the same source used by job-service, so ownership stays consistent.
+        DemoDataFactory.jobs().forEach(job -> jobCompanies.putIfAbsent(job.jobId(), job.companyId()));
         DemoDataFactory.deliveries().forEach(this::seed);
         seed(new DeliveryRecord("D001", "S001", "R001", "J001", "C001", "PDF", "SEEDED", 62, DeliveryStatus.SUBMITTED, LocalDateTime.now().minusDays(1)));
         seed(new DeliveryRecord("D002", "S002", "R002", "J001", "C001", "DOCX", "UNPARSED", 0, DeliveryStatus.VIEWED, LocalDateTime.now().minusHours(20)));
@@ -65,8 +78,9 @@ public class DeliveryController {
         String id = "D" + UUID.randomUUID().toString().substring(0, 8);
         String jobId = valueOr(request.jobId(), "J001");
         String studentId = effectiveStudentId(role, userId, request.studentId());
+        String companyId = companyIdFor(jobId);
         DeliveryRecord record = new DeliveryRecord(id, studentId, valueOr(request.resumeId(), "R001"),
-                jobId, companyIdFor(jobId), request.resumeSourceFormat(), request.resumeParseStatus(),
+                jobId, companyId, request.resumeSourceFormat(), request.resumeParseStatus(),
                 request.resumeParsedTextLength(), DeliveryStatus.SUBMITTED, LocalDateTime.now());
         deliveryStore.save(record);
         eventPublisher.publish("DELIVERY_CREATED", record);
@@ -142,8 +156,28 @@ public class DeliveryController {
         return new DeliveryStatistics(records.size(), statusCounts, statusCounts.get(DeliveryStatus.SUBMITTED));
     }
 
-    private static String companyIdFor(String jobId) {
-        return JOB_COMPANIES.getOrDefault(jobId, "C001");
+    private String companyIdFor(String jobId) {
+        String normalizedJobId = valueOr(jobId, "").trim();
+        String companyId = normalizedJobId.isBlank() ? null : jobCompanies.get(normalizedJobId);
+        if (companyId == null || companyId.isBlank()) {
+            return jobOwnershipClient.companyIdFor(normalizedJobId);
+        }
+        return companyId;
+    }
+
+    private static Map<String, String> parseJobCompanies(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Map.of();
+        }
+        Map<String, String> mappings = new java.util.LinkedHashMap<>();
+        for (String entry : raw.split(",")) {
+            String[] pair = entry.split("=", 2);
+            if (pair.length != 2 || pair[0].isBlank() || pair[1].isBlank()) {
+                continue;
+            }
+            mappings.put(pair[0].trim(), pair[1].trim());
+        }
+        return mappings;
     }
 
     private static String effectiveStudentId(String role, String userId, String requestedStudentId) {

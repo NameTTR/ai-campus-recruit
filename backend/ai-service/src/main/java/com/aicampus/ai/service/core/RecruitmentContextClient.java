@@ -74,6 +74,18 @@ public class RecruitmentContextClient {
                 missingSkills(resumeSkills, requiredSkills));
     }
 
+    /**
+     * Resolves a job snapshot for trusted asynchronous consumers such as the
+     * RocketMQ candidate-screening worker. The worker has no end-user JWT, so
+     * it uses the internal ADMIN identity accepted by the service endpoint.
+     */
+    public JobSummary loadJobForInternal(String jobId) {
+        if (!hasText(jobId)) {
+            throw new IllegalArgumentException("jobId is required");
+        }
+        return loadJob(jobId.trim(), "internal-screening", "ADMIN");
+    }
+
     private ResumeSummary loadResume(String resumeId, String studentId, String userRole) {
         ApiResponse<ResumeSummary> response = get(
                 resumeServiceUri + "/api/resumes/" + resumeId,
