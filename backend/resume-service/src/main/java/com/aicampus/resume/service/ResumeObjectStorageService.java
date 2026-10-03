@@ -5,13 +5,15 @@ import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
-import java.io.IOException;
-import java.io.InputStream;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.io.InputStream;
 
 @Service
 public class ResumeObjectStorageService {
@@ -46,12 +48,11 @@ public class ResumeObjectStorageService {
             MinioClient minioClient = minioClient();
             ensureBucket(minioClient);
             try (InputStream stream = file.getInputStream()) {
-                minioClient.putObject(PutObjectArgs.builder()
-                        .bucket(bucket)
-                        .object(objectKey)
-                        .stream(stream, file.getSize(), -1L)
-                        .contentType(contentType(file))
-                        .build());
+                minioClient.putObject(
+                        PutObjectArgs.builder().bucket(bucket).object(objectKey).stream(
+                                        stream, file.getSize(), -1L)
+                                .contentType(contentType(file))
+                                .build());
             }
             return new StoredResumeObject(objectKey, "minio", "STORED");
         } catch (Exception ex) {
@@ -60,18 +61,17 @@ public class ResumeObjectStorageService {
     }
 
     /**
-     * Best-effort cleanup for a file that was uploaded before its database
-     * transaction completed, or when a persisted resume is deleted.
+     * Best-effort cleanup for a file that was uploaded before its database transaction completed,
+     * or when a persisted resume is deleted.
      */
     public boolean delete(String objectKey) {
         if (!enabled || objectKey == null || objectKey.isBlank()) {
             return true;
         }
         try {
-            minioClient().removeObject(RemoveObjectArgs.builder()
-                    .bucket(bucket)
-                    .object(objectKey)
-                    .build());
+            minioClient()
+                    .removeObject(
+                            RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build());
             return true;
         } catch (Exception ex) {
             log.warn("Unable to delete resume object from MinIO, objectKey={}", objectKey, ex);
@@ -85,10 +85,11 @@ public class ResumeObjectStorageService {
             synchronized (this) {
                 current = client;
                 if (current == null) {
-                    current = MinioClient.builder()
-                            .endpoint(endpoint)
-                            .credentials(accessKey, secretKey)
-                            .build();
+                    current =
+                            MinioClient.builder()
+                                    .endpoint(endpoint)
+                                    .credentials(accessKey, secretKey)
+                                    .build();
                     client = current;
                 }
             }
@@ -97,7 +98,8 @@ public class ResumeObjectStorageService {
     }
 
     private void ensureBucket(MinioClient minioClient) throws Exception {
-        boolean exists = minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build());
+        boolean exists =
+                minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build());
         if (!exists) {
             minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
         }
@@ -110,9 +112,11 @@ public class ResumeObjectStorageService {
 
     private static String contentType(MultipartFile file) throws IOException {
         String contentType = file.getContentType();
-        return contentType == null || contentType.isBlank() ? "application/octet-stream" : contentType;
+        return contentType == null || contentType.isBlank()
+                ? "application/octet-stream"
+                : contentType;
     }
 
-    public record StoredResumeObject(String objectKey, String storageProvider, String storageStatus) {
-    }
+    public record StoredResumeObject(
+            String objectKey, String storageProvider, String storageStatus) {}
 }

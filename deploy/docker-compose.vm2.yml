@@ -81,6 +81,9 @@ services:
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
       AI_SERVICE_URI: http://${VM3_HOST}:8106
       RESUME_PERSISTENCE_ENABLED: ${RESUME_PERSISTENCE_ENABLED:-true}
+      RESUME_EVIDENCE_ENABLED: ${RESUME_EVIDENCE_ENABLED:-true}
+      JOB_SERVICE_URL: http://job-service:8104
+      DASHSCOPE_MODEL: ${DASHSCOPE_MODEL:-qwen-plus}
       DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
       RESUME_CACHE_TTL: ${RESUME_CACHE_TTL:-10m}
       SPRING_DATASOURCE_URL: jdbc:mysql://${VM3_HOST}:3306/${MYSQL_DATABASE:-ai_campus_recruit}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
@@ -151,6 +154,7 @@ services:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: ${VM1_HOST}:8848
       MATCH_PERSISTENCE_ENABLED: ${MATCH_PERSISTENCE_ENABLED:-true}
+      MATCH_EVIDENCE_ENABLED: ${MATCH_EVIDENCE_ENABLED:-true}
       DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
       RESUME_SERVICE_URI: http://resume-service:8103
       JOB_SERVICE_URI: http://job-service:8104

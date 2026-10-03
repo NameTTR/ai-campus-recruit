@@ -1,0 +1,35 @@
+{
+  "metadata": {
+    "version": "core-deepening-eval-v1",
+    "createdAt": "2026-10-03",
+    "origin": "SYNTHETIC_ANONYMOUS",
+    "labelSource": "设计者依据材料语义拟定的预期标签；未调用被测规则反向生成标签",
+    "reviewStatus": "OWNER_REVIEW_PENDING",
+    "reviewedBy": null,
+    "usage": "固定回归与首轮校准；未获人工复核前不能作为已审核的模型质量基准"
+  },
+  "datasets": [
+    {
+      "file": "resume-job.json",
+      "expectedCount": 90,
+      "sha256": "f37381ae21af6a588fe6be6b04c94c67032872fe32544e6b6d022a41edc139f5"
+    },
+    {
+      "file": "interview-answers.json",
+      "expectedCount": 45,
+      "sha256": "c5363183453e8e8601522602ebece20ee77c41aa66f2b8b111277c14a3778fa6"
+    },
+    {
+      "file": "knowledge-queries.json",
+      "expectedCount": 60,
+      "sha256": "a64039bd6b2d210d920adc7beebe0b3887ba7fcd7e467c4f522095ec0b77d1bf"
+    }
+  ],
+  "splitPolicy": "评估脚本先读取 calibration 推荐阈值，test 仅计算一次最终指标。RAG 两个集合使用不同教学文档；简历与面试按角色场景分开输入且不复用同一材料。",
+  "targets": {
+    "ragAnswerableTestRecallAt5": 0.85,
+    "citationPositionsValid": 1.0,
+    "permissionLeakCount": 0
+  },
+  "reviewStatus": "OWNER_REVIEW_PENDING"
+}

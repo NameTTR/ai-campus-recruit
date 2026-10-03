@@ -188,3 +188,9 @@ docker compose exec -T frontend nginx -T
 
 本轮 2 MB 无效上传 fixture 已通过 Nginx 到达后端 API 校验，且没有生成简历记录。
 这验证了上传请求不再被 Nginx 默认 1 MB 限制提前拦截；合法文件导入结果由核心流程单独验证。
+
+## Core deepening evaluation image and migration notes
+
+评估脚本使用 Node.js 内置 `fetch`、Java 17 和仓库已有构建产物，不需要新增 Docker 服务。执行前先用中国可访问 Maven 源完成后端构建，再通过 Gateway 运行 RAG API 评估。Compose 继续使用项目已有镜像源，不改变基础设施拓扑。
+
+语义 RAG 升级只新增 MySQL 元数据表，并使用独立的 1024 维索引版本。不要把旧 collection 直接改维度；先执行索引重建，检查管理员状态，再让新版本承接查询。若排序或向量接口失败，服务保留关键词路径，便于在没有 Milvus 或临时没有模型配额时完成基础验证。

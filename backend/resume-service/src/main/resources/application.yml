@@ -21,6 +21,7 @@ spring:
             read-timeout: ${FEIGN_READ_TIMEOUT_MS:130000}
 
 services:
+  job: ${JOB_SERVICE_URL:http://localhost:8104}
   ai: ${AI_SERVICE_URI:http://localhost:8106}
 
 demo:
@@ -28,6 +29,9 @@ demo:
     enabled: ${DEMO_SEED_ENABLED:false}
 
 resume:
+  evidence:
+    enabled: ${RESUME_EVIDENCE_ENABLED:true}
+    model: ${DASHSCOPE_MODEL:qwen-plus}
   persistence:
     enabled: ${RESUME_PERSISTENCE_ENABLED:false}
   cache:

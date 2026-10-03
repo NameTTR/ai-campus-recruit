@@ -12,7 +12,7 @@ public class InMemoryKnowledgeBaseStore implements KnowledgeBaseStore {
     private final ConcurrentMap<String, KnowledgeChunkRecord> chunks = new ConcurrentHashMap<>();
 
     @Override
-    public void save(KnowledgeDocument document, List<KnowledgeChunkRecord> newChunks) {
+    public synchronized void save(KnowledgeDocument document, List<KnowledgeChunkRecord> newChunks) {
         if (document == null) {
             return;
         }
@@ -28,7 +28,7 @@ public class InMemoryKnowledgeBaseStore implements KnowledgeBaseStore {
     }
 
     @Override
-    public KnowledgeDocument updateRoles(String documentId, List<String> roles) {
+    public synchronized KnowledgeDocument updateRoles(String documentId, List<String> roles) {
         if (documentId == null || documentId.isBlank()) {
             return null;
         }
@@ -46,31 +46,25 @@ public class InMemoryKnowledgeBaseStore implements KnowledgeBaseStore {
             return null;
         }
         chunks.replaceAll((ignored, chunk) -> Objects.equals(documentId, chunk.documentId())
-                ? new KnowledgeChunkRecord(
-                chunk.chunkId(),
-                chunk.documentId(),
-                chunk.chunkIndex(),
-                chunk.title(),
-                chunk.text(),
-                chunk.category(),
-                chunk.source(),
-                chunk.tags(),
-                roles,
-                chunk.createdBy(),
-                chunk.createdAt(),
-                chunk.embedding())
+                ? chunk.withRoles(roles)
                 : chunk);
         return updated;
     }
 
     @Override
-    public boolean delete(String documentId) {
+    public synchronized boolean delete(String documentId) {
         if (documentId == null || documentId.isBlank()) {
             return false;
         }
         KnowledgeDocument removed = documents.remove(documentId);
         chunks.entrySet().removeIf(entry -> documentId.equals(entry.getValue().documentId()));
         return removed != null;
+    }
+
+    @Override
+    public synchronized void replaceAllChunks(List<KnowledgeChunkRecord> newChunks) {
+        chunks.clear();
+        newChunks.forEach(chunk -> chunks.put(chunk.chunkId(), chunk));
     }
 
     @Override
@@ -82,7 +76,7 @@ public class InMemoryKnowledgeBaseStore implements KnowledgeBaseStore {
     }
 
     @Override
-    public List<KnowledgeChunkRecord> listChunks() {
+    public synchronized List<KnowledgeChunkRecord> listChunks() {
         return chunks.values().stream()
                 .sorted(Comparator.comparing(KnowledgeChunkRecord::createdAt).reversed()
                         .thenComparing(KnowledgeChunkRecord::chunkIndex)

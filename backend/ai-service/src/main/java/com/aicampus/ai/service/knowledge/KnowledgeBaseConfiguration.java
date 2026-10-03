@@ -58,7 +58,7 @@ public class KnowledgeBaseConfiguration {
     public KnowledgeVectorIndex knowledgeVectorIndex(KnowledgeBaseProperties properties) {
         KnowledgeBaseProperties.Vector vector = properties.getVector();
         if (vector.isEnabled() && "milvus-rest".equalsIgnoreCase(vector.getProvider())) {
-            return new MilvusKnowledgeVectorIndex(vector);
+            return new MilvusKnowledgeVectorIndex(vector, properties.getSemantic().getEmbeddingModel(), properties.getSemantic().getVersion());
         }
         return new NoopKnowledgeVectorIndex(properties);
     }

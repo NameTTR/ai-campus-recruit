@@ -108,59 +108,45 @@ public class DashScopeClient {
     }
 
     public String complete(String systemPrompt, String userPrompt, boolean jsonResponse) {
-        if (!isConfigured()) {
-            throw new IllegalStateException("DASHSCOPE_API_KEY is not configured");
-        }
-        if (System.currentTimeMillis() < circuitOpenUntil) {
+        if (!isConfigured()) throw new IllegalStateException("DASHSCOPE_API_KEY is not configured");
+        if (System.currentTimeMillis() < circuitOpenUntil)
             throw new IllegalStateException("DashScope circuit is open; retry later");
-        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("model", model);
+        payload.put("messages", List.of(Map.of("role", "system", "content", systemPrompt),
+                Map.of("role", "user", "content", userPrompt)));
+        payload.put("temperature", temperature);
+        if (maxTokens > 0) payload.put("max_tokens", maxTokens);
+        if (jsonResponse) payload.put("response_format", Map.of("type", "json_object"));
+        return postJson("/chat/completions", payload, this::extractContent);
+    }
+
+    /** Native embedding and rerank requests share chat timeouts, credentials, permits and circuit state. */
+    public <T> T postJson(String uri, Map<String, Object> payload, java.util.function.Function<Map<?, ?>, T> decode) {
+        if (!isConfigured()) throw new IllegalStateException("DASHSCOPE_API_KEY is not configured");
+        if (System.currentTimeMillis() < circuitOpenUntil)
+            throw new IllegalStateException("DashScope circuit is open; retry later");
         boolean acquired = false;
         boolean requestStarted = false;
         long requestGeneration = 0;
         try {
             acquired = concurrencyLimiter.tryAcquire(acquireTimeoutMillis, TimeUnit.MILLISECONDS);
-            if (!acquired) {
-                throw new IllegalStateException("DashScope concurrency limit reached; retry later");
-            }
-
+            if (!acquired) throw new IllegalStateException("DashScope concurrency limit reached; retry later");
             requestGeneration = beginRequest();
-
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("model", model);
-            payload.put("messages", List.of(
-                    Map.of("role", "system", "content", systemPrompt),
-                    Map.of("role", "user", "content", userPrompt)
-            ));
-            payload.put("temperature", temperature);
-            if (maxTokens > 0) {
-                payload.put("max_tokens", maxTokens);
-            }
-            if (jsonResponse) {
-                payload.put("response_format", Map.of("type", "json_object"));
-            }
-
             requestStarted = true;
-            Map<?, ?> response = restClient.post()
-                    .uri("/chat/completions")
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                    .body(payload)
-                    .retrieve()
-                    .body(Map.class);
-            String content = extractContent(response);
+            Map<?, ?> response = restClient.post().uri(uri)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey).body(payload).retrieve().body(Map.class);
+            T result = decode.apply(response);
             recordSuccess(requestGeneration);
-            return content;
+            return result;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("DashScope request was interrupted", ex);
         } catch (RuntimeException ex) {
-            if (requestStarted) {
-                recordFailure(requestGeneration);
-            }
+            if (requestStarted) recordFailure(requestGeneration);
             throw ex;
         } finally {
-            if (acquired) {
-                concurrencyLimiter.release();
-            }
+            if (acquired) concurrencyLimiter.release();
         }
     }
 

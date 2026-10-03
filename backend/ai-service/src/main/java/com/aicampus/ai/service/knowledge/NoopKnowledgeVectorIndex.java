@@ -31,7 +31,7 @@ public class NoopKnowledgeVectorIndex implements KnowledgeVectorIndex {
                 vector.getCollection(),
                 vector.getDimension(),
                 0,
-                "Milvus vector index is disabled; using local hash-vector retrieval",
+                "External Milvus index is disabled; local semantic vectors or keyword retrieval remain available",
                 Instant.now());
     }
 }

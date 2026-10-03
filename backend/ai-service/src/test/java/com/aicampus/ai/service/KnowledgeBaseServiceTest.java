@@ -89,7 +89,7 @@ class KnowledgeBaseServiceTest {
     }
 
     @Test
-    void answerNormalizesEscapedMarkdownHeadingsFromAiProvider() {
+    void rejectsUnstructuredProviderMarkdownAndRetainsOnlyVerifiableEvidence() {
         InMemoryKnowledgeBaseStore store = new InMemoryKnowledgeBaseStore();
         KnowledgeDocument document = new KnowledgeDocument(
                 "KB-RAG-HEADING",
@@ -116,7 +116,7 @@ class KnowledgeBaseServiceTest {
 
         assertThat(answer).contains("## 结论");
         assertThat(answer).doesNotContain("\\## 结论");
-        assertThat(answer).contains("// 代码块里的 \\## 不应该被当成标题处理");
+        assertThat(answer).doesNotContain("这里应该被渲染", "// 代码块里的");
     }
 
     private KnowledgeBaseService service(InMemoryKnowledgeBaseStore store) {

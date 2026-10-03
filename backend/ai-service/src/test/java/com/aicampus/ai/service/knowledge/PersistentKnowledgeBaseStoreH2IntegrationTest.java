@@ -40,6 +40,12 @@ class PersistentKnowledgeBaseStoreH2IntegrationTest {
                     CONSTRAINT chunk_role_guard CHECK (chunk_id <> 'chunk-2' OR roles <> 'RECRUITER')
                 )
                 """);
+        jdbcTemplate.execute("""
+                CREATE TABLE ai_knowledge_chunk_metadata (
+                    chunk_id VARCHAR(96) PRIMARY KEY, document_id VARCHAR(64), embedding_model VARCHAR(128),
+                    embedding_dimension INT, index_version VARCHAR(128), start_offset INT, end_offset INT, heading VARCHAR(768)
+                )
+                """);
     }
 
     @Test
@@ -64,6 +70,27 @@ class PersistentKnowledgeBaseStoreH2IntegrationTest {
 
         assertThat(count("ai_knowledge_document")).isZero();
         assertThat(count("ai_knowledge_chunk")).isZero();
+    }
+
+    @Test
+    void rebuildingRollsBackEntirePreviousIndexWhenAnyNewChunkFails() {
+        jdbcTemplate.update("INSERT INTO ai_knowledge_document (document_id, roles) VALUES (?, ?)", "document-1", "STUDENT");
+        jdbcTemplate.update("INSERT INTO ai_knowledge_chunk (chunk_id,document_id,roles) VALUES (?,?,?)", "old-chunk", "document-1", "STUDENT");
+        jdbcTemplate.update("INSERT INTO ai_knowledge_chunk_metadata (chunk_id,document_id,index_version) VALUES (?,?,?)", "old-chunk", "document-1", "legacy");
+        KnowledgeDocumentMapper documentMapper = mock(KnowledgeDocumentMapper.class);
+        KnowledgeChunkMapper chunkMapper = mock(KnowledgeChunkMapper.class);
+        when(chunkMapper.delete(any())).thenAnswer(invocation -> jdbcTemplate.update("DELETE FROM ai_knowledge_chunk"));
+        when(chunkMapper.insert(any(KnowledgeChunkEntity.class))).thenAnswer(invocation -> {
+            insertChunk(invocation.getArgument(0)); return 1;
+        });
+        PersistentKnowledgeBaseStore store = new PersistentKnowledgeBaseStore(documentMapper,chunkMapper,dataSource);
+        assertThatThrownBy(() -> store.replaceAllChunks(List.of(chunk("new-chunk","document-1",List.of("STUDENT")),
+                chunk("new-chunk","document-1",List.of("STUDENT"))))).isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(count("ai_knowledge_document")).isEqualTo(1);
+        assertThat(count("ai_knowledge_chunk")).isEqualTo(1);
+        assertThat(count("ai_knowledge_chunk_metadata")).isEqualTo(1);
+        assertThat(rolesFor("ai_knowledge_chunk","chunk_id","old-chunk")).isEqualTo("STUDENT");
+        assertThat(jdbcTemplate.queryForObject("SELECT index_version FROM ai_knowledge_chunk_metadata WHERE chunk_id='old-chunk'",String.class)).isEqualTo("legacy");
     }
 
     @Test

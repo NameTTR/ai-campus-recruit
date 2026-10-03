@@ -1,6 +1,7 @@
 package com.aicampus.match.service.store;
 
 import com.aicampus.common.dto.MatchResult;
+
 import java.util.List;
 
 public interface MatchRecordStore {

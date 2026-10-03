@@ -1,7 +1,5 @@
 package com.aicampus.resume.service;
 
-import java.io.InputStream;
-import java.util.Locale;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.hwpf.HWPFDocument;
@@ -10,6 +8,9 @@ import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.io.InputStream;
+import java.util.Locale;
 
 @Service
 public class ResumeTextExtractionService {
@@ -26,12 +27,13 @@ public class ResumeTextExtractionService {
         }
 
         try (InputStream inputStream = file.getInputStream()) {
-            String text = switch (extension) {
-                case "pdf" -> extractPdf(inputStream);
-                case "docx" -> extractDocx(inputStream);
-                case "doc" -> extractDoc(inputStream);
-                default -> "";
-            };
+            String text =
+                    switch (extension) {
+                        case "pdf" -> extractPdf(inputStream);
+                        case "docx" -> extractDocx(inputStream);
+                        case "doc" -> extractDoc(inputStream);
+                        default -> "";
+                    };
             return normalize(text);
         } catch (Exception ignored) {
             return "";
@@ -78,11 +80,12 @@ public class ResumeTextExtractionService {
         if (text == null || text.isBlank()) {
             return "";
         }
-        String normalized = text.replace('\u0000', ' ')
-                .replaceAll("[\\t\\x0B\\f\\r]+", " ")
-                .replaceAll(" *\\n+ *", "\n")
-                .replaceAll(" {2,}", " ")
-                .trim();
+        String normalized =
+                text.replace('\u0000', ' ')
+                        .replaceAll("[\\t\\x0B\\f\\r]+", " ")
+                        .replaceAll(" *\\n+ *", "\n")
+                        .replaceAll(" {2,}", " ")
+                        .trim();
         return normalized.length() <= MAX_TEXT_LENGTH
                 ? normalized
                 : normalized.substring(0, MAX_TEXT_LENGTH);

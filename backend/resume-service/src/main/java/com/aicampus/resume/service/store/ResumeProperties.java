@@ -1,7 +1,8 @@
 package com.aicampus.resume.service.store;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 @ConfigurationProperties(prefix = "resume")
 public class ResumeProperties {

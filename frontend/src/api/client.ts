@@ -24,6 +24,81 @@ export interface UserProfile {
   targetPosition: string
 }
 
+export interface AnalysisMetadata {
+  inputFingerprint: string
+  algorithmVersion: string
+  model?: string
+  promptVersion?: string
+  source?: string
+  generatedAt?: string
+}
+
+export interface SkillEvidence {
+  skill: string
+  source: string
+  quote: string
+  sourceReference: string
+  supported: boolean
+  explanation: string
+}
+
+export interface ResumeProfileSnapshot {
+  education: string
+  skills: string[]
+  projects: string[]
+  resumeText?: string
+}
+
+export interface ResumeFinding {
+  category: string
+  originalQuote: string
+  issue: string
+  suggestedRewrite: string
+  basis: string
+  sourceReference: string
+  requiredSkill?: string
+}
+
+export interface StructuredResumeDiagnosis {
+  metadata: AnalysisMetadata
+  completenessScore: number
+  skillCoverage: number
+  evidenceCoverage: number
+  skillEvidence: SkillEvidence[]
+  findings: ResumeFinding[]
+  jobSnapshot?: JobSummary
+  profileSnapshot?: ResumeProfileSnapshot
+  stale: boolean
+}
+
+export interface MatchRequirement {
+  skill: string
+  declared: boolean
+  supported: boolean
+  status: string
+  evidence?: SkillEvidence
+  suggestion: string
+}
+
+export interface MatchCondition {
+  type: string
+  requirement: string
+  status: string
+  observed?: string
+  explanation: string
+}
+
+export interface MatchDetails {
+  skillsCoverage: number
+  evidenceCoverage: number
+  requirements: MatchRequirement[]
+  conditions: MatchCondition[]
+  metadata: AnalysisMetadata
+  jobSnapshot?: JobSummary
+  profileSnapshot?: ResumeProfileSnapshot
+  stale: boolean
+}
+
 export interface ResumeSummary {
   resumeId: string
   studentId: string
@@ -39,9 +114,11 @@ export interface ResumeSummary {
   sourceFormat: string
   parseStatus: string
   parsedTextLength: number
+  structuredDiagnosis?: StructuredResumeDiagnosis | null
 }
 
 export interface ResumeAnalyzeRequest {
+  jobId?: string
   targetJob?: string
 }
 
@@ -52,6 +129,7 @@ export interface ResumeProfileUpdateRequest {
 }
 
 export interface ResumeDiagnosis {
+  details?: StructuredResumeDiagnosis | null
   diagnosisId: string
   resumeId: string
   studentId: string
@@ -85,6 +163,7 @@ export interface JobSummary {
 }
 
 export interface MatchResult extends ResumeParseMetadata {
+  details?: MatchDetails | null
   matchId: string
   resumeId: string
   jobId: string
@@ -241,6 +320,7 @@ export interface AiSearchRequest {
 }
 
 export interface AiSearchResult {
+  citation?: KnowledgeCitation | null
   id: string
   type: string
   title: string
@@ -251,6 +331,11 @@ export interface AiSearchResult {
 }
 
 export interface AiSearchResponse {
+  retrievalMode?: string
+  algorithmVersion?: string
+  evidenceStatus?: string
+  permissionVersion?: string
+  metadata?: AnalysisMetadata
   query: string
   results: AiSearchResult[]
   generatedAt: string
@@ -315,7 +400,45 @@ export interface LearningPlanRequest {
   durationWeeks?: number
 }
 
+export interface LearningReference {
+  documentId: string
+  title: string
+  source: string
+  snippet: string
+}
+
+export interface InterviewEvidenceNote { quote: string; finding: string; type: string }
+export interface InterviewDimensionScore { dimension: string; label: string; score: number; explanation: string }
+export interface LearningEvidenceEvaluation {
+  score: number
+  conclusion: string
+  strengths: string[]
+  gaps: string[]
+  suggestions: string[]
+  evidence: InterviewEvidenceNote[]
+  mocked: boolean
+}
+export interface LearningEvidence {
+  evidenceId: string
+  planId: string
+  taskId: string
+  studentId: string
+  description: string
+  links: string[]
+  status: string
+  evaluation?: LearningEvidenceEvaluation | null
+  error?: string
+  analysisMetadata?: AnalysisMetadata
+  submittedAt: string
+  evaluatedAt?: string
+}
+export interface LearningEvidenceRequest { description: string; links: string[] }
+
 export interface LearningTask {
+  prerequisites?: string[] | null
+  references?: LearningReference[] | null
+  referenceStatus?: string
+  evidence?: LearningEvidence[] | null
   taskId: string
   week: number
   title: string
@@ -332,6 +455,9 @@ export interface LearningTask {
 }
 
 export interface LearningPlan {
+  rootPlanId?: string
+  revisionReason?: string
+  analysisMetadata?: AnalysisMetadata
   planId: string
   studentId: string
   resumeId?: string
@@ -356,6 +482,7 @@ export interface LearningTaskUpdateRequest {
 }
 
 export interface LearningPlanReplanRequest {
+  previewOnly?: boolean
   reason: string
   weeklyHours?: number
   durationWeeks?: number
@@ -385,6 +512,10 @@ export interface InterviewSessionQuestion {
 }
 
 export interface InterviewSessionAnswer {
+  answeredAt?: string
+  evaluationStatus?: string
+  evaluation?: InterviewQuestionFeedback | null
+  evaluationError?: string
   questionId: string
   answer: string
   updatedAt?: string
@@ -409,6 +540,12 @@ export interface InterviewSession {
 }
 
 export interface InterviewQuestionFeedback {
+  dimensions?: InterviewDimensionScore[] | null
+  evidence?: InterviewEvidenceNote[] | null
+  rubricVersion?: string
+  followUpQuestion?: string
+  analysisMetadata?: AnalysisMetadata
+  evaluatedAt?: string
   questionId: string
   mocked?: boolean
   score?: number
@@ -418,7 +555,20 @@ export interface InterviewQuestionFeedback {
   summary?: string
 }
 
+export interface InterviewEvaluationResponse {
+  sessionId: string
+  questionId: string
+  status: string
+  feedback?: InterviewQuestionFeedback | null
+  error?: string
+  followUpQuestion?: InterviewSessionQuestion | null
+}
+
 export interface InterviewSessionReport {
+  rubricVersion?: string
+  comparisonNote?: string
+  comparableSessionIds?: string[] | null
+  difficultyNote?: string
   sessionId: string
   overallScore: number
   strengths: string[]
@@ -705,6 +855,11 @@ export interface KnowledgeAnswerRequest extends KnowledgeSearchRequest {
 }
 
 export interface KnowledgeCitation {
+  chunkIndex?: number | null
+  startOffset?: number | null
+  endOffset?: number | null
+  heading?: string
+  roles?: string[] | null
   documentId: string
   chunkId: string
   title: string
@@ -713,7 +868,30 @@ export interface KnowledgeCitation {
   snippet: string
 }
 
+export interface KnowledgeAnswerClaim { text: string; citationIds: string[]; supportQuote: string }
+export interface KnowledgeIndexRebuildStatus {
+  jobId: string
+  status: string
+  completedDocuments: number
+  totalDocuments: number
+  indexedChunks: number
+  model: string
+  dimension: number
+  indexVersion: string
+  message: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface KnowledgeAnswerResponse {
+  retrievalMode?: string
+  generationMode?: string
+  evidenceStatus?: string
+  algorithmVersion?: string
+  permissionVersion?: string
+  claims?: KnowledgeAnswerClaim[] | null
+  inputFingerprint?: string
+  metadata?: AnalysisMetadata
   query: string
   answer: string
   citations: KnowledgeCitation[]
@@ -3628,6 +3806,10 @@ export function replanLearningPlan(planId: string, payload: LearningPlanReplanRe
     weeklyHours: payload.weeklyHours || current.weeklyHours,
     durationWeeks: payload.durationWeeks || current.durationWeeks
   }, current.version + 1, current.planId)
+  revised.revisionReason = payload.reason
+  revised.tasks = [...current.tasks.filter((task) => task.status === 'COMPLETED'),
+    ...revised.tasks.filter((task) => !current.tasks.some((old) => old.status === 'COMPLETED' && old.title === task.title))]
+  if (payload.previewOnly) revised.status = 'DRAFT'
   localLearningPlans.set(revised.planId, revised)
   return Promise.resolve(revised)
 }
@@ -3709,7 +3891,7 @@ export function saveInterviewSessionAnswer(sessionId: string, questionId: string
     return Promise.reject(new Error('模拟面试会话不存在'))
   }
   const now = new Date().toISOString()
-  const nextAnswer = { questionId, answer: answer.trim(), updatedAt: now }
+  const nextAnswer: InterviewSessionAnswer = { questionId, answer: answer.trim(), updatedAt: now, evaluationStatus: 'PENDING' }
   const answers = session.answers.some((item) => item.questionId === questionId)
     ? session.answers.map((item) => item.questionId === questionId ? nextAnswer : item)
     : [...session.answers, nextAnswer]
@@ -4579,4 +4761,70 @@ export function getDeploymentTopology() {
 
 export function getDeploymentGuide() {
   return request<DeploymentGuide>('/api/admin/system/deployment-guide', { method: 'GET' }, fallbackDeploymentGuide)
+}
+
+
+export function submitLearningEvidence(planId: string, taskId: string, payload: LearningEvidenceRequest) {
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/evidence`
+  if (shouldUseApi(path)) return authenticatedRequest<LearningEvidence>(path, { method: 'POST', body: JSON.stringify(payload) })
+  const plan = localLearningPlans.get(planId)
+  const task = plan?.tasks.find((item) => item.taskId === taskId)
+  if (!plan || !task) return Promise.reject(new Error('学习任务不存在'))
+  const identical = (task.evidence || []).find((item) => item.description === payload.description && JSON.stringify(item.links) === JSON.stringify(payload.links))
+  if (identical) return Promise.resolve(identical)
+  const result: LearningEvidence = {
+    evidenceId: localId('EVIDENCE'), planId, taskId, studentId: currentStudentId(), ...payload,
+    status: 'RECORDED', submittedAt: new Date().toISOString(),
+    error: '演示模式已记录成果；正式评价需要连接服务。'
+  }
+  task.evidence = [result, ...(task.evidence || [])]
+  return Promise.resolve(result)
+}
+
+export function confirmLearningPlan(planId: string, revisionId: string) {
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/confirm`
+  if (shouldUseApi(path)) return authenticatedRequest<LearningPlan>(path, { method: 'POST', body: JSON.stringify({ revisionId }) })
+  const current = localLearningPlans.get(planId)
+  const draft = localLearningPlans.get(revisionId)
+  if (!current || !draft || draft.status !== 'DRAFT' || draft.revisionOfPlanId !== planId) return Promise.reject(new Error('计划草案不存在'))
+  current.status = 'SUPERSEDED'
+  draft.status = 'ACTIVE'
+  return Promise.resolve(draft)
+}
+
+export function evaluateInterviewAnswer(sessionId: string, questionId: string): Promise<InterviewEvaluationResponse> {
+  const path = `/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(questionId)}/evaluate`
+  if (shouldUseApi(path)) return authenticatedRequest<InterviewEvaluationResponse>(path, { method: 'POST' })
+  const session = localInterviewSessions.get(sessionId)
+  const answer = session?.answers.find((item) => item.questionId === questionId)
+  if (!session || !answer) return Promise.reject(new Error('请先保存回答'))
+  if (answer.evaluationStatus === 'SUCCEEDED' && answer.evaluation) return Promise.resolve({ sessionId, questionId, status: 'SUCCEEDED', feedback: answer.evaluation })
+  const feedback: InterviewQuestionFeedback = {
+    questionId, score: 60, summary: '演示反馈：正式评价将核对回答原句与岗位要求。', mocked: true,
+    dimensions: [], evidence: [], strengths: [], gaps: ['需连接真实服务获得评价'], suggestions: []
+  }
+  answer.evaluationStatus = 'SUCCEEDED'
+  answer.evaluation = feedback
+  return Promise.resolve({ sessionId, questionId, status: 'SUCCEEDED', feedback })
+}
+
+export function rebuildKnowledgeIndex() {
+  const path = '/api/ai/knowledge/index/rebuild'
+  if (shouldUseApi(path)) return authenticatedRequest<KnowledgeIndexRebuildStatus>(path, { method: 'POST' })
+  return Promise.resolve(demoIndexStatus())
+}
+export function getKnowledgeIndexRebuild(jobId: string) {
+  const path = `/api/ai/knowledge/index/rebuild/${encodeURIComponent(jobId)}`
+  if (shouldUseApi(path)) return authenticatedRequest<KnowledgeIndexRebuildStatus>(path, { method: 'GET' })
+  return Promise.resolve(demoIndexStatus())
+}
+export function getKnowledgeIndexStatus() {
+  const path = '/api/ai/knowledge/index/status'
+  if (shouldUseApi(path)) return authenticatedRequest<KnowledgeIndexRebuildStatus>(path, { method: 'GET' })
+  return Promise.resolve(demoIndexStatus())
+}
+function demoIndexStatus(): KnowledgeIndexRebuildStatus {
+  return { jobId: 'DEMO', status: 'NOT_STARTED', completedDocuments: 0, totalDocuments: 0, indexedChunks: 0,
+    model: 'text-embedding-v4', dimension: 1024, indexVersion: 'demo', message: '演示模式；连接服务后可重建知识索引。',
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
 }

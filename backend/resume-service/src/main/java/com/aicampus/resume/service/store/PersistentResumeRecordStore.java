@@ -2,19 +2,20 @@ package com.aicampus.resume.service.store;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.lang.Nullable;
+
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.lang.Nullable;
 
 /**
  * MySQL is authoritative whenever resume persistence is enabled. Redis is only a best-effort cache.
  */
 public class PersistentResumeRecordStore implements ResumeRecordStore {
     private final ResumeRecordMapper mapper;
-    @Nullable
-    private final StringRedisTemplate redisTemplate;
+    @Nullable private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final Duration cacheTtl;
     private final String cacheKeyPrefix;
@@ -58,9 +59,11 @@ public class PersistentResumeRecordStore implements ResumeRecordStore {
 
     @Override
     public List<ResumeRecord> listAll() {
-        return mapper.selectList(Wrappers.<ResumeRecordEntity>lambdaQuery()
-                        .orderByDesc(ResumeRecordEntity::getUpdatedAt)
-                        .orderByAsc(ResumeRecordEntity::getResumeId))
+        return mapper
+                .selectList(
+                        Wrappers.<ResumeRecordEntity>lambdaQuery()
+                                .orderByDesc(ResumeRecordEntity::getUpdatedAt)
+                                .orderByAsc(ResumeRecordEntity::getResumeId))
                 .stream()
                 .map(entity -> entity.toRecord(objectMapper))
                 .toList();
@@ -94,10 +97,12 @@ public class PersistentResumeRecordStore implements ResumeRecordStore {
             return;
         }
         try {
-            redisTemplate.opsForValue().set(
-                    buildDetailCacheKey(record.summary().resumeId()),
-                    objectMapper.writeValueAsString(record),
-                    cacheTtl);
+            redisTemplate
+                    .opsForValue()
+                    .set(
+                            buildDetailCacheKey(record.summary().resumeId()),
+                            objectMapper.writeValueAsString(record),
+                            cacheTtl);
         } catch (Exception ignored) {
             // Cache is not the persistence source of truth.
         }
@@ -115,6 +120,8 @@ public class PersistentResumeRecordStore implements ResumeRecordStore {
     }
 
     private String buildDetailCacheKey(String resumeId) {
-        return cacheKeyPrefix + ":detail:" + (resumeId == null || resumeId.isBlank() ? "UNKNOWN" : resumeId.trim());
+        return cacheKeyPrefix
+                + ":detail:"
+                + (resumeId == null || resumeId.isBlank() ? "UNKNOWN" : resumeId.trim());
     }
 }

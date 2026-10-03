@@ -8,5 +8,24 @@ public record CareerPlanRequest(
         List<String> skills,
         List<String> interests,
         String resumeSummary,
-        Integer timeframeWeeks) {
+        Integer timeframeWeeks,
+        Integer weeklyHours,
+        List<String> requiredSkills) {
+    public CareerPlanRequest(
+            String studentId,
+            String targetRole,
+            List<String> skills,
+            List<String> interests,
+            String resumeSummary,
+            Integer timeframeWeeks) {
+        this(
+                studentId,
+                targetRole,
+                skills,
+                interests,
+                resumeSummary,
+                timeframeWeeks,
+                null,
+                List.of());
+    }
 }

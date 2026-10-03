@@ -3,6 +3,7 @@ package com.aicampus.ai.service.core;
 import com.aicampus.common.dto.InterviewSession;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -10,7 +11,8 @@ public class PersistentInterviewSessionStore implements InterviewSessionStore {
     private final InterviewSessionMapper mapper;
     private final ObjectMapper objectMapper;
 
-    public PersistentInterviewSessionStore(InterviewSessionMapper mapper, ObjectMapper objectMapper) {
+    public PersistentInterviewSessionStore(
+            InterviewSessionMapper mapper, ObjectMapper objectMapper) {
         this.mapper = mapper;
         this.objectMapper = objectMapper;
     }
@@ -18,7 +20,8 @@ public class PersistentInterviewSessionStore implements InterviewSessionStore {
     @Override
     public void save(InterviewSession session) {
         try {
-            InterviewSessionEntity entity = InterviewSessionEntity.fromSession(session, objectMapper);
+            InterviewSessionEntity entity =
+                    InterviewSessionEntity.fromSession(session, objectMapper);
             if (mapper.updateById(entity) == 0) {
                 mapper.insert(entity);
             }
@@ -28,11 +31,16 @@ public class PersistentInterviewSessionStore implements InterviewSessionStore {
     }
 
     @Override
-    public boolean replaceInProgress(InterviewSession expectedSession, InterviewSession updatedSession) {
+    public boolean replaceInProgress(
+            InterviewSession expectedSession, InterviewSession updatedSession) {
         try {
-            InterviewSessionEntity expectedEntity = InterviewSessionEntity.fromSession(expectedSession, objectMapper);
-            InterviewSessionEntity updatedEntity = InterviewSessionEntity.fromSession(updatedSession, objectMapper);
-            return mapper.updateIfCurrentInProgress(updatedEntity, expectedEntity.getSessionSnapshot()) == 1;
+            InterviewSessionEntity current = mapper.selectById(expectedSession.sessionId());
+            if (current == null || !current.toSession(objectMapper).equals(expectedSession))
+                return false;
+            InterviewSessionEntity updatedEntity =
+                    InterviewSessionEntity.fromSession(updatedSession, objectMapper);
+            return mapper.updateIfCurrentInProgress(updatedEntity, current.getSessionSnapshot())
+                    == 1;
         } catch (Exception ex) {
             throw new IllegalStateException("Unable to persist interview session", ex);
         }
@@ -51,10 +59,12 @@ public class PersistentInterviewSessionStore implements InterviewSessionStore {
     @Override
     public List<InterviewSession> listByStudent(String studentId, int limit) {
         try {
-            return mapper.selectList(Wrappers.<InterviewSessionEntity>lambdaQuery()
-                            .eq(InterviewSessionEntity::getStudentId, studentId)
-                            .orderByDesc(InterviewSessionEntity::getUpdatedAt)
-                            .last("LIMIT " + Math.max(1, Math.min(limit, 100))))
+            return mapper
+                    .selectList(
+                            Wrappers.<InterviewSessionEntity>lambdaQuery()
+                                    .eq(InterviewSessionEntity::getStudentId, studentId)
+                                    .orderByDesc(InterviewSessionEntity::getUpdatedAt)
+                                    .last("LIMIT " + Math.max(1, Math.min(limit, 100))))
                     .stream()
                     .map(this::toSession)
                     .toList();

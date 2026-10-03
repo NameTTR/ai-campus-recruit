@@ -1,9 +1,10 @@
 package com.aicampus.match.service.store;
 
 import com.aicampus.common.dto.MatchResult;
+
 import java.util.List;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentMap;
 
 public class InMemoryMatchRecordStore implements MatchRecordStore {
@@ -32,15 +33,10 @@ public class InMemoryMatchRecordStore implements MatchRecordStore {
 
     @Override
     public List<MatchResult> listByJob(String jobId) {
-        return orderedMatches().stream()
-                .filter(match -> match.jobId().equals(jobId))
-                .toList();
+        return orderedMatches().stream().filter(match -> match.jobId().equals(jobId)).toList();
     }
 
     private List<MatchResult> orderedMatches() {
-        return matchIds.stream()
-                .map(matches::get)
-                .filter(java.util.Objects::nonNull)
-                .toList();
+        return matchIds.stream().map(matches::get).filter(java.util.Objects::nonNull).toList();
     }
 }

@@ -77,6 +77,7 @@ public class AiController {
     private static final String X_USER_ROLE = "X-User-Role";
     private static final String ROLE_COMPANY = "COMPANY";
     private static final String ROLE_STUDENT = "STUDENT";
+    private static final String ROLE_ADMIN = "ADMIN";
 
     private final AiCoachService aiCoachService;
     private final AiCareerCoreService aiCareerCoreService;
@@ -282,8 +283,13 @@ public class AiController {
 
     @Operation(summary = "Search campus recruitment knowledge with local AI ranking")
     @PostMapping("/search")
-    public ApiResponse<AiSearchResponse> search(@RequestBody AiSearchRequest request) {
-        return ApiResponse.ok(aiCoachService.search(request));
+    public ApiResponse<AiSearchResponse> search(
+            @RequestBody AiSearchRequest request,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(aiCoachService.search(new AiSearchRequest(
+                request == null ? null : request.query(),
+                resolveKnowledgeRole(request == null ? null : request.role(), userRole),
+                request == null ? null : request.limit())));
     }
 
     @Operation(summary = "Create a RAG knowledge document")
@@ -381,25 +387,27 @@ public class AiController {
     @PostMapping("/knowledge/search")
     public ApiResponse<AiSearchResponse> searchKnowledge(
             @RequestBody KnowledgeSearchRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
             @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
         String role = resolveKnowledgeRole(request == null ? null : request.role(), userRole);
         return ApiResponse.ok(knowledgeBaseService.search(new KnowledgeSearchRequest(
                 request == null ? null : request.query(),
                 role,
-                request == null ? null : request.limit())));
+                request == null ? null : request.limit()), valueOr(userId, "anonymous")));
     }
 
     @Operation(summary = "Answer a RAG question with citations")
     @PostMapping("/knowledge/answer")
     public ApiResponse<KnowledgeAnswerResponse> answerKnowledge(
             @RequestBody KnowledgeAnswerRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
             @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
         String role = resolveKnowledgeRole(request == null ? null : request.role(), userRole);
         return ApiResponse.ok(knowledgeBaseService.answer(new KnowledgeAnswerRequest(
                 request == null ? null : request.query(),
                 role,
                 request == null ? null : request.limit(),
-                request == null ? null : request.useAi())));
+                request == null ? null : request.useAi()), valueOr(userId, "anonymous")));
     }
 
     @Operation(summary = "Generate AI career coach advice")
@@ -721,7 +729,7 @@ public class AiController {
     }
 
     private String resolveKnowledgeRole(String requestRole, String userRole) {
-        if (isRole(userRole, ROLE_STUDENT) || isRole(userRole, ROLE_COMPANY)) {
+        if (isRole(userRole, ROLE_STUDENT) || isRole(userRole, ROLE_COMPANY) || isRole(userRole, ROLE_ADMIN)) {
             return userRole.trim();
         }
         return requestRole;

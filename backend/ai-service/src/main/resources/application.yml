@@ -67,14 +67,26 @@ ai:
       access-key: ${MINIO_ACCESS_KEY:minioadmin}
       secret-key: ${MINIO_SECRET_KEY:minioadmin}
       bucket: ${AI_KNOWLEDGE_MINIO_BUCKET:knowledge}
+    semantic:
+      enabled: ${AI_KNOWLEDGE_SEMANTIC_ENABLED:true}
+      embedding-model: ${DASHSCOPE_EMBEDDING_MODEL:text-embedding-v4}
+      dimension: ${DASHSCOPE_EMBEDDING_DIMENSION:1024}
+      embedding-url: ${DASHSCOPE_EMBEDDING_URL:https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding}
+      rerank-model: ${DASHSCOPE_RERANK_MODEL:gte-rerank-v2}
+      rerank-url: ${DASHSCOPE_RERANK_URL:https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank}
+      rerank-enabled: ${AI_KNOWLEDGE_RERANK_ENABLED:true}
+      version: ${AI_KNOWLEDGE_INDEX_VERSION:semantic-rag-v2}
+      minimum-vector-similarity: ${AI_KNOWLEDGE_MIN_VECTOR_SIMILARITY:0.45}
+      minimum-rerank-score: ${AI_KNOWLEDGE_MIN_RERANK_SCORE:0.10}
+      cache-ttl-seconds: ${AI_KNOWLEDGE_CACHE_TTL_SECONDS:300}
     vector:
       enabled: ${AI_KNOWLEDGE_VECTOR_ENABLED:false}
       provider: ${AI_KNOWLEDGE_VECTOR_PROVIDER:milvus-rest}
       endpoint: ${MILVUS_ENDPOINT:http://localhost:19530}
       token: ${MILVUS_TOKEN:}
-      collection: ${MILVUS_COLLECTION:campus_knowledge_chunks}
+      collection: ${MILVUS_COLLECTION:campus_knowledge_semantic_v4_1024}
       vector-field: ${MILVUS_VECTOR_FIELD:embedding}
-      dimension: ${MILVUS_DIMENSION:96}
+      dimension: ${MILVUS_DIMENSION:1024}
     seed:
       enabled: ${AI_KNOWLEDGE_SEED_ENABLED:true}
       locations: ${AI_KNOWLEDGE_SEED_LOCATIONS:classpath*:/knowledge/*.json}

@@ -153,3 +153,28 @@ DASHSCOPE_CIRCUIT_OPEN_TIME=30s
 ```
 
 未配置 Key 时，`ai-service` 会返回可演示的 mock 结果。
+
+## Core deepening evaluation
+
+固定评估集位于 [`evaluation/`](evaluation/)，包含 90 组简历岗位配对、45 份面试回答和 60 个知识查询。样例均为匿名合成数据，标签由设计者依据材料拟定，当前状态为 `OWNER_REVIEW_PENDING`，未宣称已经过项目负责人人工复核。
+
+先完成后端构建，再运行不依赖服务的数量、分集和引用逻辑校验：
+
+```powershell
+node scripts/evaluate-core-deepening.cjs --mode validate
+```
+
+规则评估直接编译并调用生产 Java 类 `ResumeEvidenceRules`、`EvidenceMatchRules` 和 `AiCoachService.evaluateSavedAnswer`，不会复制一套评分算法：
+
+```powershell
+node scripts/evaluate-core-deepening.cjs --mode resume
+node scripts/evaluate-core-deepening.cjs --mode interview
+```
+
+启动 Gateway 和依赖服务、设置 `MVP_BASE_URL` 与 `MVP_ADMIN_PASSWORD` 后，执行真实知识文档导入、检索、引用位置和权限评估：
+
+```powershell
+node scripts/evaluate-core-deepening.cjs --mode rag --env-file .env
+```
+
+脚本只删除本次运行创建的文档，报告不包含密码、API Key、Token 或模型原始响应。知识有答案测试单独计算 Recall@5，首轮目标为 `>= 0.85`；无答案和权限测试不进入该分母。阈值只能由 calibration 子集提出建议，不会用 test 结果自动调参。报告写入被忽略的 `evaluation/reports/`。

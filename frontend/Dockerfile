@@ -13,5 +13,7 @@ FROM docker.m.daocloud.io/library/nginx:1.27-alpine
 
 ENV GATEWAY_UPSTREAM=http://gateway-service:8080
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY nginx/wait-for-gateway.sh /docker-entrypoint.d/40-wait-for-gateway.sh
+RUN chmod +x /docker-entrypoint.d/40-wait-for-gateway.sh
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80

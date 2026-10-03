@@ -1,5 +1,6 @@
 package com.aicampus.match.service.store;
 
+import com.aicampus.common.dto.MatchDetails;
 import com.aicampus.common.dto.MatchResult;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
@@ -8,13 +9,13 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
 @TableName("match_result_record")
 public class MatchRecordEntity {
-    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
-    };
+    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {};
 
     @TableId(value = "match_id", type = IdType.INPUT)
     private String matchId;
@@ -55,6 +56,9 @@ public class MatchRecordEntity {
     @TableField("required_skills_snapshot")
     private String requiredSkillsSnapshot;
 
+    @TableField("analysis_details")
+    private String details;
+
     @TableField("created_at")
     private LocalDateTime createdAt;
 
@@ -72,7 +76,9 @@ public class MatchRecordEntity {
         entity.setMissingSkills(writeStringList(match.missingSkills(), objectMapper));
         entity.setAnalysisSource(match.analysisSource());
         entity.setResumeSkillsSnapshot(writeStringList(match.resumeSkillsSnapshot(), objectMapper));
-        entity.setRequiredSkillsSnapshot(writeStringList(match.requiredSkillsSnapshot(), objectMapper));
+        entity.setRequiredSkillsSnapshot(
+                writeStringList(match.requiredSkillsSnapshot(), objectMapper));
+        entity.setDetails(writeDetails(match.details(), objectMapper));
         return entity;
     }
 
@@ -90,7 +96,8 @@ public class MatchRecordEntity {
                 readStringList(missingSkills, objectMapper),
                 analysisSource == null || analysisSource.isBlank() ? "LEGACY" : analysisSource,
                 readStringList(resumeSkillsSnapshot, objectMapper),
-                readStringList(requiredSkillsSnapshot, objectMapper));
+                readStringList(requiredSkillsSnapshot, objectMapper),
+                readDetails(details, objectMapper));
     }
 
     private static String writeStringList(List<String> values, ObjectMapper objectMapper) {
@@ -222,5 +229,31 @@ public class MatchRecordEntity {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    private static String writeDetails(MatchDetails value, ObjectMapper mapper) {
+        if (value == null) return null;
+        try {
+            return mapper.writeValueAsString(value);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Unable to persist evidence snapshot", ex);
+        }
+    }
+
+    private static MatchDetails readDetails(String payload, ObjectMapper mapper) {
+        if (payload == null || payload.isBlank()) return null;
+        try {
+            return mapper.readValue(payload, MatchDetails.class);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Stored evidence snapshot is invalid", ex);
+        }
+    }
+
+    public String getDetails() {
+        return details;
+    }
+
+    public void setDetails(String value) {
+        details = value;
     }
 }

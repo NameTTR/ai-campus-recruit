@@ -4,21 +4,22 @@ import com.aicampus.common.dto.MatchResult;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.lang.Nullable;
+
 import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.lang.Nullable;
 
 /** MySQL persists the rule inputs and result; Redis only accelerates read lists. */
 public class PersistentMatchRecordStore implements MatchRecordStore {
-    private static final TypeReference<List<MatchResult>> MATCH_LIST_TYPE = new TypeReference<>() {
-    };
+    private static final TypeReference<List<MatchResult>> MATCH_LIST_TYPE =
+            new TypeReference<>() {};
 
     private final MatchRecordMapper mapper;
-    @Nullable
-    private final StringRedisTemplate redisTemplate;
+    @Nullable private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final Duration cacheTtl;
     private final String cacheKeyPrefix;
@@ -51,11 +52,14 @@ public class PersistentMatchRecordStore implements MatchRecordStore {
         if (cached != null) {
             return cached;
         }
-        List<MatchResult> matches = mapper.selectList(Wrappers.<MatchRecordEntity>lambdaQuery()
-                        .orderByDesc(MatchRecordEntity::getCreatedAt))
-                .stream()
-                .map(entity -> entity.toMatch(objectMapper))
-                .toList();
+        List<MatchResult> matches =
+                mapper
+                        .selectList(
+                                Wrappers.<MatchRecordEntity>lambdaQuery()
+                                        .orderByDesc(MatchRecordEntity::getCreatedAt))
+                        .stream()
+                        .map(entity -> entity.toMatch(objectMapper))
+                        .toList();
         writeCache(cacheKey, matches);
         return matches;
     }
@@ -67,12 +71,15 @@ public class PersistentMatchRecordStore implements MatchRecordStore {
         if (cached != null) {
             return cached;
         }
-        List<MatchResult> matches = mapper.selectList(Wrappers.<MatchRecordEntity>lambdaQuery()
-                        .eq(MatchRecordEntity::getStudentId, studentId)
-                        .orderByDesc(MatchRecordEntity::getCreatedAt))
-                .stream()
-                .map(entity -> entity.toMatch(objectMapper))
-                .toList();
+        List<MatchResult> matches =
+                mapper
+                        .selectList(
+                                Wrappers.<MatchRecordEntity>lambdaQuery()
+                                        .eq(MatchRecordEntity::getStudentId, studentId)
+                                        .orderByDesc(MatchRecordEntity::getCreatedAt))
+                        .stream()
+                        .map(entity -> entity.toMatch(objectMapper))
+                        .toList();
         writeCache(cacheKey, matches);
         return matches;
     }
@@ -84,12 +91,15 @@ public class PersistentMatchRecordStore implements MatchRecordStore {
         if (cached != null) {
             return cached;
         }
-        List<MatchResult> matches = mapper.selectList(Wrappers.<MatchRecordEntity>lambdaQuery()
-                        .eq(MatchRecordEntity::getJobId, jobId)
-                        .orderByDesc(MatchRecordEntity::getCreatedAt))
-                .stream()
-                .map(entity -> entity.toMatch(objectMapper))
-                .toList();
+        List<MatchResult> matches =
+                mapper
+                        .selectList(
+                                Wrappers.<MatchRecordEntity>lambdaQuery()
+                                        .eq(MatchRecordEntity::getJobId, jobId)
+                                        .orderByDesc(MatchRecordEntity::getCreatedAt))
+                        .stream()
+                        .map(entity -> entity.toMatch(objectMapper))
+                        .toList();
         writeCache(cacheKey, matches);
         return matches;
     }
@@ -101,7 +111,9 @@ public class PersistentMatchRecordStore implements MatchRecordStore {
         }
         try {
             String payload = redisTemplate.opsForValue().get(cacheKey);
-            return payload == null || payload.isBlank() ? null : objectMapper.readValue(payload, MATCH_LIST_TYPE);
+            return payload == null || payload.isBlank()
+                    ? null
+                    : objectMapper.readValue(payload, MATCH_LIST_TYPE);
         } catch (Exception ignored) {
             return null;
         }
@@ -112,7 +124,9 @@ public class PersistentMatchRecordStore implements MatchRecordStore {
             return;
         }
         try {
-            redisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(matches), cacheTtl);
+            redisTemplate
+                    .opsForValue()
+                    .set(cacheKey, objectMapper.writeValueAsString(matches), cacheTtl);
         } catch (Exception ignored) {
             // Cache failure never creates an in-memory persistence substitute.
         }

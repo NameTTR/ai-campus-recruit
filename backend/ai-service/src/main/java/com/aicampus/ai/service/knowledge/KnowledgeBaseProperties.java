@@ -32,6 +32,47 @@ public class KnowledgeBaseProperties {
         return vector;
     }
 
+    private final Semantic semantic = new Semantic();
+
+    public Semantic getSemantic() { return semantic; }
+
+    public static class Semantic {
+        private boolean enabled = true;
+        private String embeddingModel = "text-embedding-v4";
+        private int dimension = 1024;
+        private String embeddingUrl = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding";
+        // Native gte and compatible qwen rerank formats can be switched for regional/account availability.
+        private String rerankModel = "gte-rerank-v2";
+        private String rerankUrl = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank";
+        private boolean rerankEnabled = true;
+        private String version = "semantic-rag-v2";
+        private double minimumVectorSimilarity = 0.45;
+        private double minimumRerankScore = 0.10;
+        private int cacheTtlSeconds = 300;
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { enabled = v; }
+        public String getEmbeddingModel() { return embeddingModel; }
+        public void setEmbeddingModel(String v) { embeddingModel = v; }
+        public int getDimension() { return dimension; }
+        public void setDimension(int v) { dimension = v; }
+        public String getEmbeddingUrl() { return embeddingUrl; }
+        public void setEmbeddingUrl(String v) { embeddingUrl = v; }
+        public String getRerankModel() { return rerankModel; }
+        public void setRerankModel(String v) { rerankModel = v; }
+        public String getRerankUrl() { return rerankUrl; }
+        public void setRerankUrl(String v) { rerankUrl = v; }
+        public boolean isRerankEnabled() { return rerankEnabled; }
+        public void setRerankEnabled(boolean v) { rerankEnabled = v; }
+        public String getVersion() { return version; }
+        public void setVersion(String v) { version = v; }
+        public double getMinimumVectorSimilarity() { return minimumVectorSimilarity; }
+        public void setMinimumVectorSimilarity(double v) { minimumVectorSimilarity = v; }
+        public double getMinimumRerankScore() { return minimumRerankScore; }
+        public void setMinimumRerankScore(double v) { minimumRerankScore = v; }
+        public int getCacheTtlSeconds() { return cacheTtlSeconds; }
+        public void setCacheTtlSeconds(int v) { cacheTtlSeconds = v; }
+    }
+
     public static class Persistence {
         private boolean enabled;
 
@@ -157,9 +198,9 @@ public class KnowledgeBaseProperties {
         private String provider = "milvus-rest";
         private String endpoint = "http://localhost:19530";
         private String token = "";
-        private String collection = "campus_knowledge_chunks";
+        private String collection = "campus_knowledge_semantic_v4_1024";
         private String vectorField = "embedding";
-        private int dimension = 96;
+        private int dimension = 1024;
 
         public boolean isEnabled() {
             return enabled;

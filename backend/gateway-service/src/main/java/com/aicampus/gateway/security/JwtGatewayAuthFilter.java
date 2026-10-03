@@ -280,7 +280,8 @@ public class JwtGatewayAuthFilter implements WebFilter, Ordered {
                 || path.startsWith("/api/ai/knowledge/stats")
                 || path.startsWith("/api/ai/knowledge/files")
                 || path.startsWith("/api/ai/knowledge/ingestions")
-                || path.startsWith("/api/ai/knowledge/vector/status")) {
+                || path.startsWith("/api/ai/knowledge/vector/status")
+                || path.startsWith("/api/ai/knowledge/index")) {
             return Permission.AI_OBSERVABILITY_READ;
         }
         if (path.startsWith("/api/ai/knowledge/search") || path.startsWith("/api/ai/knowledge/answer")) {

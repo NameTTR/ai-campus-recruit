@@ -905,3 +905,36 @@ docker logs recruit-vm3-rocketmq-broker --tail 100
 ```
 
 如果 broker 禁止自动创建 topic，需要在 RocketMQ 中预先创建 `delivery-events` topic。
+
+## Core deepening RAG and evaluation settings
+
+VM3 的 `ai-service` 建议追加以下变量。密钥只放在部署主机的环境文件，不提交到仓库：
+
+```dotenv
+AI_KNOWLEDGE_SEMANTIC_ENABLED=true
+DASHSCOPE_EMBEDDING_MODEL=text-embedding-v4
+DASHSCOPE_EMBEDDING_DIMENSION=1024
+DASHSCOPE_EMBEDDING_URL=https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding
+DASHSCOPE_RERANK_MODEL=gte-rerank-v2
+DASHSCOPE_RERANK_URL=https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
+AI_KNOWLEDGE_RERANK_ENABLED=true
+AI_KNOWLEDGE_INDEX_VERSION=semantic-rag-v2
+AI_KNOWLEDGE_MIN_VECTOR_SIMILARITY=0.45
+AI_KNOWLEDGE_MIN_RERANK_SCORE=0.10
+AI_KNOWLEDGE_CACHE_TTL_SECONDS=300
+MILVUS_COLLECTION=campus_knowledge_semantic_v4_1024
+```
+
+`DASHSCOPE_API_KEY` 继续通过已有的部署密钥注入。向量和排序端点共享 `DASHSCOPE_CONNECT_TIMEOUT`、`DASHSCOPE_READ_TIMEOUT`、`DASHSCOPE_MAX_CONCURRENCY` 和熔断参数。账户或地区需要改排序模型时，只改模型和 URL 配置，不改代码和密钥。
+
+升级已有 MySQL 时先备份，再执行只增 schema 初始化。新增表为 `ai_knowledge_chunk_metadata` 和 `ai_knowledge_index_rebuild`；旧知识表、旧 JSON 字段和旧 96 维索引不清空。执行管理员重建接口，确认 `SUCCEEDED` 后再切换流量。重建失败或服务重启会保留旧资料和检索能力。
+
+管理员重建接口必须经 Gateway 管理员权限访问。学生请求中的 `role=ADMIN` 会被可信 Gateway 角色覆盖，不能读取管理员文档。Milvus 不可用时可关闭 `AI_KNOWLEDGE_VECTOR_ENABLED`，关键词候选仍可用；DashScope 不可用时使用 `KEYWORD_ONLY` 和检索摘要。
+
+固定评估从可访问 Gateway 的机器运行，报告不包含凭据：
+
+```powershell
+node scripts/evaluate-core-deepening.cjs --mode rag --env-file deploy/three-vm.env
+```
+
+脚本完成后再把实际 Recall、权限泄漏、引用位置失败和重建结果填入验收记录。未执行的项目保持 `OWNER_REVIEW_PENDING`。

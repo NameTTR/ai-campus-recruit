@@ -3,10 +3,12 @@ package com.aicampus.ai.service.core;
 import com.aicampus.common.dto.LearningPlan;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.List;
-import java.util.Optional;
+
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import java.util.List;
+import java.util.Optional;
 
 public class PersistentLearningPlanStore implements LearningPlanStore {
     private final LearningPlanMapper mapper;
@@ -37,9 +39,11 @@ public class PersistentLearningPlanStore implements LearningPlanStore {
     @Override
     public boolean updateActive(LearningPlan expectedPlan, LearningPlan updatedPlan) {
         try {
-            LearningPlanEntity expectedEntity = LearningPlanEntity.fromPlan(expectedPlan, objectMapper);
-            LearningPlanEntity updatedEntity = LearningPlanEntity.fromPlan(updatedPlan, objectMapper);
-            return mapper.updateIfCurrentActive(updatedEntity, expectedEntity.getPlanSnapshot()) == 1;
+            LearningPlanEntity current = mapper.selectById(expectedPlan.planId());
+            if (current == null || !current.toPlan(objectMapper).equals(expectedPlan)) return false;
+            LearningPlanEntity updatedEntity =
+                    LearningPlanEntity.fromPlan(updatedPlan, objectMapper);
+            return mapper.updateIfCurrentActive(updatedEntity, current.getPlanSnapshot()) == 1;
         } catch (Exception ex) {
             throw new IllegalStateException("Unable to persist learning plan", ex);
         }
@@ -47,28 +51,53 @@ public class PersistentLearningPlanStore implements LearningPlanStore {
 
     @Override
     public boolean replaceActiveWithRevision(
-            LearningPlan activePlan,
-            LearningPlan supersededPlan,
-            LearningPlan revision) {
+            LearningPlan activePlan, LearningPlan supersededPlan, LearningPlan revision) {
         try {
-            return Boolean.TRUE.equals(transactionTemplate.execute(status -> {
-                try {
-                    LearningPlanEntity activeEntity = LearningPlanEntity.fromPlan(activePlan, objectMapper);
-                    LearningPlanEntity supersededEntity = LearningPlanEntity.fromPlan(supersededPlan, objectMapper);
-                    if (mapper.supersedeIfCurrentActive(
-                            supersededEntity, activePlan.version(), activeEntity.getPlanSnapshot()) != 1) {
-                        return false;
-                    }
-                    mapper.insert(LearningPlanEntity.fromPlan(revision, objectMapper));
-                    return true;
-                } catch (IllegalStateException ex) {
-                    status.setRollbackOnly();
-                    throw ex;
-                } catch (Exception ex) {
-                    status.setRollbackOnly();
-                    throw new IllegalStateException("Unable to persist learning plan revision", ex);
-                }
-            }));
+            return Boolean.TRUE.equals(
+                    transactionTemplate.execute(
+                            status -> {
+                                try {
+                                    LearningPlanEntity activeEntity =
+                                            mapper.selectById(activePlan.planId());
+                                    if (activeEntity == null
+                                            || !activeEntity
+                                                    .toPlan(objectMapper)
+                                                    .equals(activePlan)) return false;
+                                    LearningPlanEntity supersededEntity =
+                                            LearningPlanEntity.fromPlan(
+                                                    supersededPlan, objectMapper);
+                                    if (mapper.supersedeIfCurrentActive(
+                                                    supersededEntity,
+                                                    activePlan.version(),
+                                                    activeEntity.getPlanSnapshot())
+                                            != 1) {
+                                        return false;
+                                    }
+                                    LearningPlanEntity storedDraft =
+                                            mapper.selectById(revision.planId());
+                                    if (storedDraft == null)
+                                        mapper.insert(
+                                                LearningPlanEntity.fromPlan(
+                                                        revision, objectMapper));
+                                    else if (!"DRAFT".equals(storedDraft.getStatus())
+                                            || mapper.activateDraftIfCurrent(
+                                                            LearningPlanEntity.fromPlan(
+                                                                    revision, objectMapper),
+                                                            storedDraft.getPlanSnapshot())
+                                                    != 1)
+                                        throw new IllegalStateException(
+                                                "Learning plan draft has changed before"
+                                                    + " confirmation");
+                                    return true;
+                                } catch (IllegalStateException ex) {
+                                    status.setRollbackOnly();
+                                    throw ex;
+                                } catch (Exception ex) {
+                                    status.setRollbackOnly();
+                                    throw new IllegalStateException(
+                                            "Unable to persist learning plan revision", ex);
+                                }
+                            }));
         } catch (IllegalStateException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -89,10 +118,12 @@ public class PersistentLearningPlanStore implements LearningPlanStore {
     @Override
     public List<LearningPlan> listByStudent(String studentId, int limit) {
         try {
-            return mapper.selectList(Wrappers.<LearningPlanEntity>lambdaQuery()
-                            .eq(LearningPlanEntity::getStudentId, studentId)
-                            .orderByDesc(LearningPlanEntity::getUpdatedAt)
-                            .last("LIMIT " + normalizeLimit(limit)))
+            return mapper
+                    .selectList(
+                            Wrappers.<LearningPlanEntity>lambdaQuery()
+                                    .eq(LearningPlanEntity::getStudentId, studentId)
+                                    .orderByDesc(LearningPlanEntity::getUpdatedAt)
+                                    .last("LIMIT " + normalizeLimit(limit)))
                     .stream()
                     .map(this::toPlan)
                     .toList();
@@ -104,10 +135,12 @@ public class PersistentLearningPlanStore implements LearningPlanStore {
     @Override
     public List<LearningPlan> listVersions(String studentId, String rootPlanId) {
         try {
-            return mapper.selectList(Wrappers.<LearningPlanEntity>lambdaQuery()
-                            .eq(LearningPlanEntity::getStudentId, studentId)
-                            .eq(LearningPlanEntity::getRootPlanId, rootPlanId)
-                            .orderByAsc(LearningPlanEntity::getVersion))
+            return mapper
+                    .selectList(
+                            Wrappers.<LearningPlanEntity>lambdaQuery()
+                                    .eq(LearningPlanEntity::getStudentId, studentId)
+                                    .eq(LearningPlanEntity::getRootPlanId, rootPlanId)
+                                    .orderByAsc(LearningPlanEntity::getVersion))
                     .stream()
                     .map(this::toPlan)
                     .toList();

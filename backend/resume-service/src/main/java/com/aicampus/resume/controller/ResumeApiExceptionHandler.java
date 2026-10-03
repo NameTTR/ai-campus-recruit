@@ -1,6 +1,7 @@
 package com.aicampus.resume.controller;
 
 import com.aicampus.common.api.ApiResponse;
+
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -20,11 +21,11 @@ public class ResumeApiExceptionHandler {
     }
 
     @ExceptionHandler({
-            MissingServletRequestPartException.class,
-            MissingServletRequestParameterException.class,
-            MultipartException.class,
-            MaxUploadSizeExceededException.class,
-            IllegalArgumentException.class
+        MissingServletRequestPartException.class,
+        MissingServletRequestParameterException.class,
+        MultipartException.class,
+        MaxUploadSizeExceededException.class,
+        IllegalArgumentException.class
     })
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiResponse<Boolean> badRequest(Exception ex) {
@@ -32,6 +33,8 @@ public class ResumeApiExceptionHandler {
     }
 
     private static String messageOrDefault(Exception ex, String defaultMessage) {
-        return ex.getMessage() == null || ex.getMessage().isBlank() ? defaultMessage : ex.getMessage();
+        return ex.getMessage() == null || ex.getMessage().isBlank()
+                ? defaultMessage
+                : ex.getMessage();
     }
 }

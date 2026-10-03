@@ -34,6 +34,24 @@ class JwtGatewayAuthFilterTest {
         filter.filter(exchange, chain).block();
         assertThat(chain.exchange.getRequest().getHeaders().getFirst("X-User-Id")).isEqualTo("S001");
     }
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/ai/knowledge/index/rebuild", "/api/ai/knowledge/index/rebuild/JOB-001"})
+    void onlyAdministratorsCanAccessKnowledgeIndexOperations(String path) {
+        for (Role role : new Role[] {Role.STUDENT, Role.COMPANY}) {
+            var exchange = MockServerWebExchange.from(MockServerHttpRequest.post(path)
+                    .header("Authorization", "Bearer " + jwtTokenService.issue("U001", "User", role))
+                    .header("X-User-Role", "ADMIN").build());
+            filter.filter(exchange, passThrough()).block();
+            assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        }
+        var admin = MockServerWebExchange.from(MockServerHttpRequest.post(path)
+                .header("Authorization", "Bearer " + jwtTokenService.issue("A001", "Admin", Role.ADMIN)).build());
+        var chain = new CapturingChain();
+        filter.filter(admin, chain).block();
+        assertThat(admin.getResponse().getStatusCode()).isNull();
+        assertThat(chain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("ADMIN");
+    }
+
     private static final String SECRET = "gateway-test-secret-that-is-long-enough";
     private final JwtGatewayAuthFilter filter = new JwtGatewayAuthFilter(SECRET, "ai-campus-test", 86400, true);
     private final JwtTokenService jwtTokenService = new JwtTokenService(SECRET, "ai-campus-test", 86400);

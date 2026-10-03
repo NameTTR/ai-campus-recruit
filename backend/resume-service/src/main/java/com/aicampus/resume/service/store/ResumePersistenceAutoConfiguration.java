@@ -1,7 +1,7 @@
 package com.aicampus.resume.service.store;
 
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
-import javax.sql.DataSource;
+
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.mapper.MapperFactoryBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
@@ -12,16 +12,20 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.util.StringUtils;
 
+import javax.sql.DataSource;
+
 @Configuration
-@ConditionalOnExpression("'${resume.persistence.enabled:false}' == 'true' && '${spring.datasource.url:}' != ''")
+@ConditionalOnExpression(
+        "'${resume.persistence.enabled:false}' == 'true' && '${spring.datasource.url:}' != ''")
 public class ResumePersistenceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(DataSource.class)
     public DataSource resumeDataSource(Environment environment) {
-        DataSourceBuilder<?> builder = DataSourceBuilder.create()
-                .url(environment.getRequiredProperty("spring.datasource.url"))
-                .username(environment.getProperty("spring.datasource.username", "root"))
-                .password(environment.getProperty("spring.datasource.password", ""));
+        DataSourceBuilder<?> builder =
+                DataSourceBuilder.create()
+                        .url(environment.getRequiredProperty("spring.datasource.url"))
+                        .username(environment.getProperty("spring.datasource.username", "root"))
+                        .password(environment.getProperty("spring.datasource.password", ""));
         String driverClassName = environment.getProperty("spring.datasource.driver-class-name");
         if (StringUtils.hasText(driverClassName)) {
             builder.driverClassName(driverClassName);
@@ -41,7 +45,8 @@ public class ResumePersistenceAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(ResumeRecordMapper.class)
-    public MapperFactoryBean<ResumeRecordMapper> resumeRecordMapper(SqlSessionFactory sqlSessionFactory) {
+    public MapperFactoryBean<ResumeRecordMapper> resumeRecordMapper(
+            SqlSessionFactory sqlSessionFactory) {
         MapperFactoryBean<ResumeRecordMapper> factoryBean =
                 new MapperFactoryBean<>(ResumeRecordMapper.class);
         factoryBean.setSqlSessionFactory(sqlSessionFactory);

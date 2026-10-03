@@ -2,20 +2,19 @@ package com.aicampus.match.controller;
 
 import com.aicampus.common.api.ApiResponse;
 import com.aicampus.common.demo.DemoDataFactory;
+import com.aicampus.common.dto.*;
 import com.aicampus.common.dto.JobSummary;
 import com.aicampus.common.dto.MatchRequest;
 import com.aicampus.common.dto.MatchResult;
 import com.aicampus.common.dto.ResumeSummary;
+import com.aicampus.common.evidence.*;
 import com.aicampus.match.client.JobClient;
 import com.aicampus.match.client.ResumeClient;
+import com.aicampus.match.service.EvidenceMatchRules;
 import com.aicampus.match.service.store.MatchRecordStore;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.UUID;
+
+import io.swagger.v3.oas.annotations.Operation;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -28,6 +27,13 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+
 @CrossOrigin
 @RestController
 @RequestMapping("/api/matches")
@@ -36,6 +42,13 @@ public class MatchController {
     private final ResumeClient resumeClient;
     private final JobClient jobClient;
     private final boolean demoSeedEnabled;
+    private boolean evidenceEnabled = true;
+    private final Object[] matchLocks = java.util.stream.IntStream.range(0, 64).mapToObj(i -> new Object()).toArray();
+
+    @Value("${match.evidence.enabled:true}")
+    public void setEvidenceEnabled(boolean value) {
+        evidenceEnabled = value;
+    }
 
     public MatchController(
             MatchRecordStore matchStore,
@@ -53,27 +66,36 @@ public class MatchController {
         if (!demoSeedEnabled) {
             return;
         }
-        DemoDataFactory.matches().forEach(match -> {
-            if (matchStore.listAll().stream().noneMatch(existing -> existing.matchId().equals(match.matchId()))) {
-                matchStore.save(match);
-            }
-        });
+        DemoDataFactory.matches()
+                .forEach(
+                        match -> {
+                            if (matchStore.listAll().stream()
+                                    .noneMatch(
+                                            existing ->
+                                                    existing.matchId().equals(match.matchId()))) {
+                                matchStore.save(match);
+                            }
+                        });
     }
 
+    @Operation(summary = "使用声明技能和材料证据计算覆盖率；不调用模型，不解释为录用概率")
     @PostMapping("/resume-job")
     public ApiResponse<MatchResult> match(
             @RequestBody(required = false) MatchRequest request,
             @RequestHeader(value = "X-User-Id", required = false) String userId,
             @RequestHeader(value = "X-User-Role", required = false) String role) {
+        synchronized (matchLock(request == null ? "" : request.resumeId() + "|" + request.jobId())) {
         if (request == null || isBlank(request.resumeId()) || isBlank(request.jobId())) {
             return ApiResponse.fail("resumeId and jobId are required");
         }
         String studentId = requestedStudentId(request, userId, role);
         if (studentId == null) {
-            return ApiResponse.fail("Only an authenticated student or administrator can create a match");
+            return ApiResponse.fail(
+                    "Only an authenticated student or administrator can create a match");
         }
 
-        ResourceResult<ResumeSummary> resumeResult = fetchResume(request.resumeId().trim(), userId, role);
+        ResourceResult<ResumeSummary> resumeResult =
+                fetchResume(request.resumeId().trim(), userId, role);
         if (resumeResult.error() != null) {
             return ApiResponse.fail(resumeResult.error());
         }
@@ -91,11 +113,28 @@ public class MatchController {
             return ApiResponse.fail("The requested job is not open");
         }
 
+        String fingerprint = EvidenceFingerprint.match(resume, job);
+        MatchResult cached =
+                matchStore.listByStudent(studentId).stream()
+                        .filter(
+                                item ->
+                                        item.details() != null
+                                                && item.details().metadata() != null
+                                                && fingerprint.equals(
+                                                        item.details()
+                                                                .metadata()
+                                                                .inputFingerprint()))
+                        .findFirst()
+                        .orElse(null);
+        if (cached != null && evidenceEnabled)
+            return ApiResponse.ok(copyWithDetails(cached, cached.details().withStale(false)));
         MatchResult result = ruleMatch(resume, job, studentId);
+        if (!evidenceEnabled) result = copyWithDetails(result, null);
         matchStore.save(result);
         return ApiResponse.ok(result);
     }
 
+        }
     @GetMapping("/student/{studentId}")
     public ApiResponse<List<MatchResult>> byStudent(
             @PathVariable("studentId") String studentId,
@@ -105,12 +144,13 @@ public class MatchController {
             if (!studentId.equals(userId.trim())) {
                 return ApiResponse.fail("A student can only view their own matches");
             }
-            return ApiResponse.ok(matchStore.listByStudent(userId.trim()));
+            return ApiResponse.ok(refresh(matchStore.listByStudent(userId.trim()), userId, role));
         }
         if (isAdmin(role)) {
-            return ApiResponse.ok(matchStore.listByStudent(studentId));
+            return ApiResponse.ok(refresh(matchStore.listByStudent(studentId), userId, role));
         }
-        return ApiResponse.fail("Only the matching student or an administrator can view student matches");
+        return ApiResponse.fail(
+                "Only the matching student or an administrator can view student matches");
     }
 
     @GetMapping("/job/{jobId}")
@@ -128,7 +168,7 @@ public class MatchController {
         if (!isAdmin(role) && !jobResult.value().companyId().equals(userId)) {
             return ApiResponse.fail("You do not own this job");
         }
-        return ApiResponse.ok(matchStore.listByJob(jobId));
+        return ApiResponse.ok(redactForCompany(refresh(matchStore.listByJob(jobId), userId, role), role));
     }
 
     @GetMapping
@@ -136,19 +176,23 @@ public class MatchController {
             @RequestHeader(value = "X-User-Id", required = false) String userId,
             @RequestHeader(value = "X-User-Role", required = false) String role) {
         if (isAdmin(role)) {
-            return ApiResponse.ok(matchStore.listAll());
+            return ApiResponse.ok(refresh(matchStore.listAll(), userId, role));
         }
         if (isStudent(role) && !isBlank(userId)) {
-            return ApiResponse.ok(matchStore.listByStudent(userId.trim()));
+            return ApiResponse.ok(refresh(matchStore.listByStudent(userId.trim()), userId, role));
         }
         return ApiResponse.fail("Only an authenticated student or administrator can list matches");
     }
 
     private ResourceResult<ResumeSummary> fetchResume(String resumeId, String userId, String role) {
         try {
-            ApiResponse<ResumeSummary> response = resumeClient.detail(resumeId, requiredHeader(userId), requiredHeader(role));
+            ApiResponse<ResumeSummary> response =
+                    resumeClient.detail(resumeId, requiredHeader(userId), requiredHeader(role));
             if (response == null || response.data() == null) {
-                return ResourceResult.error(response == null ? "Resume service did not return a response" : response.message());
+                return ResourceResult.error(
+                        response == null
+                                ? "Resume service did not return a response"
+                                : response.message());
             }
             return ResourceResult.value(response.data());
         } catch (RuntimeException ex) {
@@ -158,9 +202,13 @@ public class MatchController {
 
     private ResourceResult<JobSummary> fetchJob(String jobId, String userId, String role) {
         try {
-            ApiResponse<JobSummary> response = jobClient.detail(jobId, headerOrEmpty(userId), headerOrEmpty(role));
+            ApiResponse<JobSummary> response =
+                    jobClient.detail(jobId, headerOrEmpty(userId), headerOrEmpty(role));
             if (response == null || response.data() == null) {
-                return ResourceResult.error(response == null ? "Job service did not return a response" : response.message());
+                return ResourceResult.error(
+                        response == null
+                                ? "Job service did not return a response"
+                                : response.message());
             }
             return ResourceResult.value(response.data());
         } catch (RuntimeException ex) {
@@ -168,9 +216,14 @@ public class MatchController {
         }
     }
 
+    private Object matchLock(String key) {
+        return matchLocks[Math.floorMod(String.valueOf(key).hashCode(), matchLocks.length)];
+    }
+
     private static MatchResult ruleMatch(ResumeSummary resume, JobSummary job, String studentId) {
         List<String> resumeSnapshot = normalizedList(resume.skills());
-        List<String> requiredSnapshot = normalizedList(job.requiredSkills());
+        List<String> requiredSnapshot =
+                List.copyOf(SkillOntology.index(job.requiredSkills()).values());
         if (requiredSnapshot.isEmpty()) {
             return new MatchResult(
                     "M" + UUID.randomUUID().toString().substring(0, 8),
@@ -185,7 +238,8 @@ public class MatchController {
                     List.of(),
                     "RULE_INSUFFICIENT_JOB_SKILLS",
                     resumeSnapshot,
-                    requiredSnapshot);
+                    requiredSnapshot,
+                    EvidenceMatchRules.details(resume, job));
         }
         Map<String, String> resumeSkills = indexSkills(resume.skills());
         List<String> matched = new ArrayList<>();
@@ -198,15 +252,14 @@ public class MatchController {
             }
         }
         int score = Math.round(matched.size() * 100.0f / requiredSnapshot.size());
-        List<String> strengths = matched.stream()
-                .map(skill -> "已匹配岗位要求技能：" + skill)
-                .toList();
-        List<String> gaps = missing.stream()
-                .map(skill -> "待补齐岗位要求技能：" + skill)
-                .toList();
-        List<String> suggestions = missing.isEmpty()
-                ? List.of("投递前请为已匹配技能补充量化的项目成果证据。")
-                : missing.stream().map(skill -> "请在项目或课程中补充“" + skill + "”的可验证证据。").toList();
+        List<String> strengths = matched.stream().map(skill -> "已匹配岗位要求技能：" + skill).toList();
+        List<String> gaps = missing.stream().map(skill -> "材料中尚未声明岗位要求技能：" + skill).toList();
+        List<String> suggestions =
+                missing.isEmpty()
+                        ? List.of("投递前请为已匹配技能补充量化的项目成果证据。")
+                        : missing.stream()
+                                .map(skill -> "请在项目或课程中补充“" + skill + "”的可验证证据。")
+                                .toList();
         return new MatchResult(
                 "M" + UUID.randomUUID().toString().substring(0, 8),
                 resume.resumeId(),
@@ -220,12 +273,14 @@ public class MatchController {
                 missing,
                 "RULE_SKILL_COVERAGE",
                 resumeSnapshot,
-                requiredSnapshot);
+                requiredSnapshot,
+                EvidenceMatchRules.details(resume, job));
     }
 
     private static String requestedStudentId(MatchRequest request, String userId, String role) {
         if (isStudent(role) && !isBlank(userId)) {
-            if (!isBlank(request.studentId()) && !userId.trim().equals(request.studentId().trim())) {
+            if (!isBlank(request.studentId())
+                    && !userId.trim().equals(request.studentId().trim())) {
                 return null;
             }
             return userId.trim();
@@ -237,38 +292,75 @@ public class MatchController {
     }
 
     private static Map<String, String> indexSkills(List<String> skills) {
-        Map<String, String> indexed = new LinkedHashMap<>();
-        for (String skill : normalizedList(skills)) {
-            indexed.putIfAbsent(normalizeSkill(skill), skill);
-        }
-        return indexed;
+        return SkillOntology.index(skills);
     }
 
     private static String normalizeSkill(String skill) {
-        String normalized = skill == null ? "" : skill.toLowerCase(Locale.ROOT)
-                .replaceAll("[\\s._-]", "")
-                .replace("javascript", "js")
-                .replace("typescript", "ts");
-        return switch (normalized) {
-            case "springboot" -> "springboot";
-            case "springcloud" -> "springcloud";
-            case "vuejs" -> "vue";
-            case "nodejs" -> "nodejs";
-            case "golang", "go语言" -> "go";
-            case "cplusplus", "cpp" -> "cpp";
-            case "k8s" -> "kubernetes";
-            default -> normalized;
-        };
+        return SkillOntology.normalize(skill);
+    }
+
+    private List<MatchResult> redactForCompany(List<MatchResult> matches, String role) {
+        if (!isCompany(role)) return matches;
+        return matches.stream().map(item -> {
+            if (item.details() == null || item.details().profileSnapshot() == null) return item;
+            ResumeProfileSnapshot p = item.details().profileSnapshot();
+            ResumeProfileSnapshot redacted = new ResumeProfileSnapshot(p.education(), p.skills(), p.projects(), "");
+            MatchDetails details = new MatchDetails(item.details().skillsCoverage(), item.details().evidenceCoverage(), item.details().requirements(), item.details().conditions(), item.details().metadata(), item.details().jobSnapshot(), redacted, item.details().stale());
+            return copyWithDetails(item, details);
+        }).toList();
+    }
+
+    private List<MatchResult> refresh(List<MatchResult> matches, String userId, String role) {
+        return matches.stream()
+                .map(
+                        match -> {
+                            if (match.details() == null) return match;
+                            boolean stale = match.details().stale();
+                            ResourceResult<JobSummary> job = fetchJob(match.jobId(), userId, role);
+                            if (job.error() != null
+                                    || !Objects.equals(match.details().jobSnapshot(), job.value()))
+                                stale = true;
+                            if (isStudent(role) || isAdmin(role)) {
+                                ResourceResult<ResumeSummary> resume =
+                                        fetchResume(match.resumeId(), userId, role);
+                                if (resume.error() != null
+                                        || !Objects.equals(
+                                                match.details().profileSnapshot(),
+                                                EvidenceMatchRules.profile(resume.value())))
+                                    stale = true;
+                            }
+                            return copyWithDetails(match, match.details().withStale(stale));
+                        })
+                .toList();
+    }
+
+    private static MatchResult copyWithDetails(MatchResult item, MatchDetails details) {
+        return new MatchResult(
+                item.matchId(),
+                item.resumeId(),
+                item.jobId(),
+                item.studentId(),
+                item.score(),
+                item.strengths(),
+                item.gaps(),
+                item.suggestions(),
+                item.matchedSkills(),
+                item.missingSkills(),
+                item.analysisSource(),
+                item.resumeSkillsSnapshot(),
+                item.requiredSkillsSnapshot(),
+                details);
     }
 
     private static List<String> normalizedList(List<String> values) {
         if (values == null) {
             return List.of();
         }
-        return new ArrayList<>(values.stream()
-                .filter(value -> !isBlank(value))
-                .map(String::trim)
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)));
+        return new ArrayList<>(
+                values.stream()
+                        .filter(value -> !isBlank(value))
+                        .map(String::trim)
+                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)));
     }
 
     private static boolean isStudent(String role) {
@@ -301,7 +393,8 @@ public class MatchController {
         }
 
         private static <T> ResourceResult<T> error(String error) {
-            return new ResourceResult<>(null, isBlank(error) ? "Referenced resource was unavailable" : error);
+            return new ResourceResult<>(
+                    null, isBlank(error) ? "Referenced resource was unavailable" : error);
         }
     }
 }

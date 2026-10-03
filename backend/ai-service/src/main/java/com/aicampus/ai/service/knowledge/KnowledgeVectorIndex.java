@@ -12,4 +12,6 @@ public interface KnowledgeVectorIndex {
     List<KnowledgeVectorMatch> search(List<Double> queryEmbedding, String role, int limit);
 
     KnowledgeVectorStatus status();
+
+    default boolean supports(String model, int dimension, String version) { return false; }
 }

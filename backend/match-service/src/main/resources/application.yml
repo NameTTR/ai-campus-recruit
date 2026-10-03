@@ -19,6 +19,8 @@ demo:
     enabled: ${DEMO_SEED_ENABLED:false}
 
 match:
+  evidence:
+    enabled: ${MATCH_EVIDENCE_ENABLED:true}
   persistence:
     enabled: ${MATCH_PERSISTENCE_ENABLED:false}
   cache:

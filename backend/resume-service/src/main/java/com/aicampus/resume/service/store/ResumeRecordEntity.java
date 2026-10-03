@@ -2,6 +2,7 @@ package com.aicampus.resume.service.store;
 
 import com.aicampus.common.dto.ResumeDiagnosis;
 import com.aicampus.common.dto.ResumeSummary;
+import com.aicampus.common.dto.StructuredResumeDiagnosis;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -9,15 +10,15 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
 @TableName("resume_summary_record")
 public class ResumeRecordEntity {
-    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
-    };
-    private static final TypeReference<List<ResumeDiagnosis>> DIAGNOSIS_LIST_TYPE = new TypeReference<>() {
-    };
+    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {};
+    private static final TypeReference<List<ResumeDiagnosis>> DIAGNOSIS_LIST_TYPE =
+            new TypeReference<>() {};
 
     @TableId(value = "resume_id", type = IdType.INPUT)
     private String resumeId;
@@ -67,6 +68,9 @@ public class ResumeRecordEntity {
     @TableField("diagnosis_history")
     private String diagnosisHistory;
 
+    @TableField("structured_diagnosis")
+    private String structuredDiagnosis;
+
     @TableField("created_at")
     private LocalDateTime createdAt;
 
@@ -92,26 +96,29 @@ public class ResumeRecordEntity {
         entity.setParsedTextLength(summary.parsedTextLength());
         entity.setParsedText(record.parsedText());
         entity.setDiagnosisHistory(writeDiagnoses(record.diagnoses(), objectMapper));
+        entity.setStructuredDiagnosis(writeDetails(summary.structuredDiagnosis(), objectMapper));
         entity.setUpdatedAt(LocalDateTime.now());
         return entity;
     }
 
     public ResumeRecord toRecord(ObjectMapper objectMapper) {
-        ResumeSummary summary = new ResumeSummary(
-                resumeId,
-                studentId,
-                fileName,
-                education,
-                readList(skills, objectMapper),
-                readList(projects, objectMapper),
-                diagnosis,
-                score,
-                objectKey,
-                storageProvider,
-                storageStatus,
-                sourceFormat,
-                parseStatus,
-                parsedTextLength);
+        ResumeSummary summary =
+                new ResumeSummary(
+                        resumeId,
+                        studentId,
+                        fileName,
+                        education,
+                        readList(skills, objectMapper),
+                        readList(projects, objectMapper),
+                        diagnosis,
+                        score,
+                        objectKey,
+                        storageProvider,
+                        storageStatus,
+                        sourceFormat,
+                        parseStatus,
+                        parsedTextLength,
+                        readDetails(structuredDiagnosis, objectMapper));
         return new ResumeRecord(summary, parsedText, readDiagnoses(diagnosisHistory, objectMapper));
     }
 
@@ -295,5 +302,31 @@ public class ResumeRecordEntity {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    private static String writeDetails(StructuredResumeDiagnosis value, ObjectMapper mapper) {
+        if (value == null) return null;
+        try {
+            return mapper.writeValueAsString(value);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Unable to persist evidence snapshot", ex);
+        }
+    }
+
+    private static StructuredResumeDiagnosis readDetails(String payload, ObjectMapper mapper) {
+        if (payload == null || payload.isBlank()) return null;
+        try {
+            return mapper.readValue(payload, StructuredResumeDiagnosis.class);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Stored evidence snapshot is invalid", ex);
+        }
+    }
+
+    public String getStructuredDiagnosis() {
+        return structuredDiagnosis;
+    }
+
+    public void setStructuredDiagnosis(String value) {
+        structuredDiagnosis = value;
     }
 }

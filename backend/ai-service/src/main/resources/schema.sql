@@ -134,3 +134,25 @@ CREATE TABLE IF NOT EXISTS ai_interview_session (
     KEY idx_ai_interview_session_student_updated (student_id, updated_at),
     KEY idx_ai_interview_session_student_status (student_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- New metadata is isolated from legacy hash vectors, without changing existing columns.
+CREATE TABLE IF NOT EXISTS ai_knowledge_chunk_metadata (
+    chunk_id VARCHAR(96) NOT NULL PRIMARY KEY,
+    document_id VARCHAR(64) NOT NULL,
+    embedding_model VARCHAR(128) NULL,
+    embedding_dimension INT NULL,
+    index_version VARCHAR(128) NOT NULL,
+    start_offset INT NULL,
+    end_offset INT NULL,
+    heading VARCHAR(768) NULL,
+    KEY idx_ai_knowledge_chunk_metadata_document (document_id),
+    KEY idx_ai_knowledge_chunk_metadata_version (embedding_model, embedding_dimension, index_version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_knowledge_index_rebuild (
+    job_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    status VARCHAR(32) NOT NULL,
+    job_snapshot MEDIUMTEXT NOT NULL,
+    updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    KEY idx_ai_knowledge_index_rebuild_status_updated (status, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

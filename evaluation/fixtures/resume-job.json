@@ -1,0 +1,3829 @@
+{
+  "metadata": {
+    "version": "core-deepening-eval-v1",
+    "createdAt": "2026-10-03",
+    "origin": "SYNTHETIC_ANONYMOUS",
+    "labelSource": "设计者依据材料语义拟定的预期标签；未调用被测规则反向生成标签",
+    "reviewStatus": "OWNER_REVIEW_PENDING",
+    "reviewedBy": null,
+    "usage": "固定回归与首轮校准；未获人工复核前不能作为已审核的模型质量基准"
+  },
+  "cases": [
+    {
+      "id": "RES-JAVA-001",
+      "track": "java",
+      "split": "calibration",
+      "scenario": "declared_only",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "projects": [],
+        "resumeText": "项目背景：校园图书预约。\n意向城市：杭州\n实习可到岗每周4天\n技能：Java、Spring Boot、MySQL"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "技能列表只表示声明"
+    },
+    {
+      "id": "RES-JAVA-002",
+      "track": "java",
+      "split": "calibration",
+      "scenario": "one_supported",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "projects": [
+          "在校园图书预约中使用 Java 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园图书预约。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "supportedSkills": [
+          "Java"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "仅首项有已发生的动作和材料"
+    },
+    {
+      "id": "RES-JAVA-003",
+      "track": "java",
+      "split": "calibration",
+      "scenario": "two_supported",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "Java",
+          "Spring Boot"
+        ],
+        "projects": [
+          "在校园图书预约中使用 Java 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园图书预约中使用 Spring Boot 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园图书预约。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Java",
+          "Spring Boot"
+        ],
+        "supportedSkills": [
+          "Java",
+          "Spring Boot"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "仅前两项有声明与实践"
+    },
+    {
+      "id": "RES-JAVA-004",
+      "track": "java",
+      "split": "calibration",
+      "scenario": "exact_aliases",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "java",
+          "springboot",
+          "mysql"
+        ],
+        "projects": [
+          "在校园图书预约中使用 java 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园图书预约中使用 springboot 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园图书预约中使用 mysql 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园图书预约。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "supportedSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "只接受精确同义名称"
+    },
+    {
+      "id": "RES-JAVA-005",
+      "track": "java",
+      "split": "calibration",
+      "scenario": "related_technology",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "JavaScript",
+          "Spring Boot"
+        ],
+        "projects": [
+          "在校园图书预约中使用 JavaScript 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园图书预约中使用 Spring Boot 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园图书预约。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Spring Boot"
+        ],
+        "supportedSkills": [
+          "Spring Boot"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "相近工具不是岗位要求的同一技能"
+    },
+    {
+      "id": "RES-JAVA-006",
+      "track": "java",
+      "split": "calibration",
+      "scenario": "negated_practice",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "projects": [
+          "未使用 Java。",
+          "没有实现 Spring Boot 的业务场景。",
+          "未测试 MySQL 的实际行为。"
+        ],
+        "resumeText": "项目背景：校园图书预约。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "否定实践不能作为已完成证据"
+    },
+    {
+      "id": "RES-JAVA-007",
+      "track": "java",
+      "split": "calibration",
+      "scenario": "planned_practice",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "projects": [
+          "计划使用 Java 实现下一个版本。",
+          "打算开发 Spring Boot 相关练习。",
+          "准备测试 MySQL 的边界情况。"
+        ],
+        "resumeText": "项目背景：校园图书预约。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "计划和准备不能作为已完成证据"
+    },
+    {
+      "id": "RES-JAVA-008",
+      "track": "java",
+      "split": "calibration",
+      "scenario": "mixed_material",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "projects": [
+          "在校园图书预约中使用 Java 实现关键流程，编写检查步骤并记录验证结果。",
+          "尚未使用 Spring Boot。",
+          "了解 MySQL 的名称，尚无实践材料。"
+        ],
+        "resumeText": "项目背景：校园图书预约。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "supportedSkills": [
+          "Java"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "逐项区分已发生实践与尚未提供材料"
+    },
+    {
+      "id": "RES-JAVA-009",
+      "track": "java",
+      "split": "calibration",
+      "scenario": "evidence_without_declaration",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [],
+        "projects": [
+          "在校园图书预约中使用 Java 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园图书预约中使用 Spring Boot 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园图书预约中使用 MySQL 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园图书预约。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "材料证据不依赖技能列表声明"
+    },
+    {
+      "id": "RES-JAVA-010",
+      "track": "java",
+      "split": "calibration",
+      "scenario": "missing_material",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [],
+        "projects": [],
+        "resumeText": "经历摘要：参与校园图书预约讨论，但未提交具体技能与项目材料。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Java",
+          "Spring Boot",
+          "MySQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "材料缺失保持未知"
+    },
+    {
+      "id": "RES-JAVA-011",
+      "track": "java",
+      "split": "test",
+      "scenario": "declared_only",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "projects": [],
+        "resumeText": "项目背景：实验室设备借用。\n意向城市：苏州\n实习可到岗每周2天\n技能：Redis、Docker、RocketMQ"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "技能列表只表示声明"
+    },
+    {
+      "id": "RES-JAVA-012",
+      "track": "java",
+      "split": "test",
+      "scenario": "one_supported",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "projects": [
+          "在实验室设备借用中使用 Redis 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：实验室设备借用。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "supportedSkills": [
+          "Redis"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "仅首项有已发生的动作和材料"
+    },
+    {
+      "id": "RES-JAVA-013",
+      "track": "java",
+      "split": "test",
+      "scenario": "two_supported",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "Redis",
+          "Docker"
+        ],
+        "projects": [
+          "在实验室设备借用中使用 Redis 实现关键流程，编写检查步骤并记录验证结果。",
+          "在实验室设备借用中使用 Docker 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：实验室设备借用。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Redis",
+          "Docker"
+        ],
+        "supportedSkills": [
+          "Redis",
+          "Docker"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "仅前两项有声明与实践"
+    },
+    {
+      "id": "RES-JAVA-014",
+      "track": "java",
+      "split": "test",
+      "scenario": "exact_aliases",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "redis",
+          "docker",
+          "rocketmq"
+        ],
+        "projects": [
+          "在实验室设备借用中使用 redis 实现关键流程，编写检查步骤并记录验证结果。",
+          "在实验室设备借用中使用 docker 实现关键流程，编写检查步骤并记录验证结果。",
+          "在实验室设备借用中使用 rocketmq 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：实验室设备借用。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "supportedSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "只接受精确同义名称"
+    },
+    {
+      "id": "RES-JAVA-015",
+      "track": "java",
+      "split": "test",
+      "scenario": "related_technology",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "Memcached",
+          "Docker"
+        ],
+        "projects": [
+          "在实验室设备借用中使用 Memcached 实现关键流程，编写检查步骤并记录验证结果。",
+          "在实验室设备借用中使用 Docker 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：实验室设备借用。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Docker"
+        ],
+        "supportedSkills": [
+          "Docker"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "相近工具不是岗位要求的同一技能"
+    },
+    {
+      "id": "RES-JAVA-016",
+      "track": "java",
+      "split": "test",
+      "scenario": "negated_practice",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "projects": [
+          "未使用 Redis。",
+          "没有实现 Docker 的业务场景。",
+          "未测试 RocketMQ 的实际行为。"
+        ],
+        "resumeText": "项目背景：实验室设备借用。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "否定实践不能作为已完成证据"
+    },
+    {
+      "id": "RES-JAVA-017",
+      "track": "java",
+      "split": "test",
+      "scenario": "planned_practice",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "projects": [
+          "计划使用 Redis 实现下一个版本。",
+          "打算开发 Docker 相关练习。",
+          "准备测试 RocketMQ 的边界情况。"
+        ],
+        "resumeText": "项目背景：实验室设备借用。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "计划和准备不能作为已完成证据"
+    },
+    {
+      "id": "RES-JAVA-018",
+      "track": "java",
+      "split": "test",
+      "scenario": "mixed_material",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "projects": [
+          "在实验室设备借用中使用 Redis 实现关键流程，编写检查步骤并记录验证结果。",
+          "尚未使用 Docker。",
+          "了解 RocketMQ 的名称，尚无实践材料。"
+        ],
+        "resumeText": "项目背景：实验室设备借用。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "supportedSkills": [
+          "Redis"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "逐项区分已发生实践与尚未提供材料"
+    },
+    {
+      "id": "RES-JAVA-019",
+      "track": "java",
+      "split": "test",
+      "scenario": "evidence_without_declaration",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [],
+        "projects": [
+          "在实验室设备借用中使用 Redis 实现关键流程，编写检查步骤并记录验证结果。",
+          "在实验室设备借用中使用 Docker 实现关键流程，编写检查步骤并记录验证结果。",
+          "在实验室设备借用中使用 RocketMQ 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：实验室设备借用。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "材料证据不依赖技能列表声明"
+    },
+    {
+      "id": "RES-JAVA-020",
+      "track": "java",
+      "split": "test",
+      "scenario": "missing_material",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [],
+        "projects": [],
+        "resumeText": "经历摘要：参与实验室设备借用讨论，但未提交具体技能与项目材料。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Redis",
+          "Docker",
+          "RocketMQ"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "材料缺失保持未知"
+    },
+    {
+      "id": "RES-JAVA-021",
+      "track": "java",
+      "split": "test",
+      "scenario": "declared_only",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "projects": [],
+        "resumeText": "项目背景：社团活动报名。\n\n技能：Spring Cloud、Kafka、PostgreSQL"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "技能列表只表示声明"
+    },
+    {
+      "id": "RES-JAVA-022",
+      "track": "java",
+      "split": "test",
+      "scenario": "one_supported",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "projects": [
+          "在社团活动报名中使用 Spring Cloud 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：社团活动报名。\n"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "supportedSkills": [
+          "Spring Cloud"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "仅首项有已发生的动作和材料"
+    },
+    {
+      "id": "RES-JAVA-023",
+      "track": "java",
+      "split": "test",
+      "scenario": "two_supported",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Spring Cloud",
+          "Kafka"
+        ],
+        "projects": [
+          "在社团活动报名中使用 Spring Cloud 实现关键流程，编写检查步骤并记录验证结果。",
+          "在社团活动报名中使用 Kafka 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：社团活动报名。\n"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Spring Cloud",
+          "Kafka"
+        ],
+        "supportedSkills": [
+          "Spring Cloud",
+          "Kafka"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "仅前两项有声明与实践"
+    },
+    {
+      "id": "RES-JAVA-024",
+      "track": "java",
+      "split": "test",
+      "scenario": "exact_aliases",
+      "profile": {
+        "education": "",
+        "skills": [
+          "springcloud",
+          "kafka",
+          "postgres"
+        ],
+        "projects": [
+          "在社团活动报名中使用 springcloud 实现关键流程，编写检查步骤并记录验证结果。",
+          "在社团活动报名中使用 kafka 实现关键流程，编写检查步骤并记录验证结果。",
+          "在社团活动报名中使用 postgres 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：社团活动报名。\n"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "supportedSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "只接受精确同义名称"
+    },
+    {
+      "id": "RES-JAVA-025",
+      "track": "java",
+      "split": "test",
+      "scenario": "related_technology",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Spring Boot",
+          "Kafka"
+        ],
+        "projects": [
+          "在社团活动报名中使用 Spring Boot 实现关键流程，编写检查步骤并记录验证结果。",
+          "在社团活动报名中使用 Kafka 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：社团活动报名。\n"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Kafka"
+        ],
+        "supportedSkills": [
+          "Kafka"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "相近工具不是岗位要求的同一技能"
+    },
+    {
+      "id": "RES-JAVA-026",
+      "track": "java",
+      "split": "test",
+      "scenario": "negated_practice",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "projects": [
+          "未使用 Spring Cloud。",
+          "没有实现 Kafka 的业务场景。",
+          "未测试 PostgreSQL 的实际行为。"
+        ],
+        "resumeText": "项目背景：社团活动报名。\n"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "否定实践不能作为已完成证据"
+    },
+    {
+      "id": "RES-JAVA-027",
+      "track": "java",
+      "split": "test",
+      "scenario": "planned_practice",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "projects": [
+          "计划使用 Spring Cloud 实现下一个版本。",
+          "打算开发 Kafka 相关练习。",
+          "准备测试 PostgreSQL 的边界情况。"
+        ],
+        "resumeText": "项目背景：社团活动报名。\n"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "计划和准备不能作为已完成证据"
+    },
+    {
+      "id": "RES-JAVA-028",
+      "track": "java",
+      "split": "test",
+      "scenario": "mixed_material",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "projects": [
+          "在社团活动报名中使用 Spring Cloud 实现关键流程，编写检查步骤并记录验证结果。",
+          "尚未使用 Kafka。",
+          "了解 PostgreSQL 的名称，尚无实践材料。"
+        ],
+        "resumeText": "项目背景：社团活动报名。\n"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "supportedSkills": [
+          "Spring Cloud"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "逐项区分已发生实践与尚未提供材料"
+    },
+    {
+      "id": "RES-JAVA-029",
+      "track": "java",
+      "split": "test",
+      "scenario": "evidence_without_declaration",
+      "profile": {
+        "education": "",
+        "skills": [],
+        "projects": [
+          "在社团活动报名中使用 Spring Cloud 实现关键流程，编写检查步骤并记录验证结果。",
+          "在社团活动报名中使用 Kafka 实现关键流程，编写检查步骤并记录验证结果。",
+          "在社团活动报名中使用 PostgreSQL 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：社团活动报名。\n"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "材料证据不依赖技能列表声明"
+    },
+    {
+      "id": "RES-JAVA-030",
+      "track": "java",
+      "split": "test",
+      "scenario": "missing_material",
+      "profile": {
+        "education": "",
+        "skills": [],
+        "projects": [],
+        "resumeText": "经历摘要：参与社团活动报名讨论，但未提交具体技能与项目材料。\n"
+      },
+      "job": {
+        "title": "Java 后端实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Spring Cloud",
+          "Kafka",
+          "PostgreSQL"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "材料缺失保持未知"
+    },
+    {
+      "id": "RES-FRONTEND-001",
+      "track": "frontend",
+      "split": "calibration",
+      "scenario": "declared_only",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "projects": [],
+        "resumeText": "项目背景：校园课程检索页面。\n意向城市：杭州\n实习可到岗每周4天\n技能：JavaScript、HTML、CSS"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "技能列表只表示声明"
+    },
+    {
+      "id": "RES-FRONTEND-002",
+      "track": "frontend",
+      "split": "calibration",
+      "scenario": "one_supported",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "projects": [
+          "在校园课程检索页面中使用 JavaScript 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园课程检索页面。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "supportedSkills": [
+          "JavaScript"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "仅首项有已发生的动作和材料"
+    },
+    {
+      "id": "RES-FRONTEND-003",
+      "track": "frontend",
+      "split": "calibration",
+      "scenario": "two_supported",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "JavaScript",
+          "HTML"
+        ],
+        "projects": [
+          "在校园课程检索页面中使用 JavaScript 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园课程检索页面中使用 HTML 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园课程检索页面。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "HTML"
+        ],
+        "supportedSkills": [
+          "JavaScript",
+          "HTML"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "仅前两项有声明与实践"
+    },
+    {
+      "id": "RES-FRONTEND-004",
+      "track": "frontend",
+      "split": "calibration",
+      "scenario": "exact_aliases",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "JS",
+          "HTML5",
+          "CSS3"
+        ],
+        "projects": [
+          "在校园课程检索页面中使用 JS 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园课程检索页面中使用 HTML5 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园课程检索页面中使用 CSS3 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园课程检索页面。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "supportedSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "只接受精确同义名称"
+    },
+    {
+      "id": "RES-FRONTEND-005",
+      "track": "frontend",
+      "split": "calibration",
+      "scenario": "related_technology",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "Java",
+          "HTML"
+        ],
+        "projects": [
+          "在校园课程检索页面中使用 Java 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园课程检索页面中使用 HTML 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园课程检索页面。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "HTML"
+        ],
+        "supportedSkills": [
+          "HTML"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "相近工具不是岗位要求的同一技能"
+    },
+    {
+      "id": "RES-FRONTEND-006",
+      "track": "frontend",
+      "split": "calibration",
+      "scenario": "negated_practice",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "projects": [
+          "未使用 JavaScript。",
+          "没有实现 HTML 的业务场景。",
+          "未测试 CSS 的实际行为。"
+        ],
+        "resumeText": "项目背景：校园课程检索页面。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "否定实践不能作为已完成证据"
+    },
+    {
+      "id": "RES-FRONTEND-007",
+      "track": "frontend",
+      "split": "calibration",
+      "scenario": "planned_practice",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "projects": [
+          "计划使用 JavaScript 实现下一个版本。",
+          "打算开发 HTML 相关练习。",
+          "准备测试 CSS 的边界情况。"
+        ],
+        "resumeText": "项目背景：校园课程检索页面。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "计划和准备不能作为已完成证据"
+    },
+    {
+      "id": "RES-FRONTEND-008",
+      "track": "frontend",
+      "split": "calibration",
+      "scenario": "mixed_material",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "projects": [
+          "在校园课程检索页面中使用 JavaScript 实现关键流程，编写检查步骤并记录验证结果。",
+          "尚未使用 HTML。",
+          "了解 CSS 的名称，尚无实践材料。"
+        ],
+        "resumeText": "项目背景：校园课程检索页面。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "supportedSkills": [
+          "JavaScript"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "逐项区分已发生实践与尚未提供材料"
+    },
+    {
+      "id": "RES-FRONTEND-009",
+      "track": "frontend",
+      "split": "calibration",
+      "scenario": "evidence_without_declaration",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [],
+        "projects": [
+          "在校园课程检索页面中使用 JavaScript 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园课程检索页面中使用 HTML 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园课程检索页面中使用 CSS 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园课程检索页面。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "材料证据不依赖技能列表声明"
+    },
+    {
+      "id": "RES-FRONTEND-010",
+      "track": "frontend",
+      "split": "calibration",
+      "scenario": "missing_material",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [],
+        "projects": [],
+        "resumeText": "经历摘要：参与校园课程检索页面讨论，但未提交具体技能与项目材料。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "HTML",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "材料缺失保持未知"
+    },
+    {
+      "id": "RES-FRONTEND-011",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "declared_only",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "projects": [],
+        "resumeText": "项目背景：社团报名小程序。\n意向城市：苏州\n实习可到岗每周2天\n技能：TypeScript、Vue、React"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "技能列表只表示声明"
+    },
+    {
+      "id": "RES-FRONTEND-012",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "one_supported",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "projects": [
+          "在社团报名小程序中使用 TypeScript 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：社团报名小程序。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "supportedSkills": [
+          "TypeScript"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "仅首项有已发生的动作和材料"
+    },
+    {
+      "id": "RES-FRONTEND-013",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "two_supported",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "TypeScript",
+          "Vue"
+        ],
+        "projects": [
+          "在社团报名小程序中使用 TypeScript 实现关键流程，编写检查步骤并记录验证结果。",
+          "在社团报名小程序中使用 Vue 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：社团报名小程序。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "TypeScript",
+          "Vue"
+        ],
+        "supportedSkills": [
+          "TypeScript",
+          "Vue"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "仅前两项有声明与实践"
+    },
+    {
+      "id": "RES-FRONTEND-014",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "exact_aliases",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "TS",
+          "Vue3",
+          "React.js"
+        ],
+        "projects": [
+          "在社团报名小程序中使用 TS 实现关键流程，编写检查步骤并记录验证结果。",
+          "在社团报名小程序中使用 Vue3 实现关键流程，编写检查步骤并记录验证结果。",
+          "在社团报名小程序中使用 React.js 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：社团报名小程序。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "supportedSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "只接受精确同义名称"
+    },
+    {
+      "id": "RES-FRONTEND-015",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "related_technology",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "JavaScript",
+          "Vue"
+        ],
+        "projects": [
+          "在社团报名小程序中使用 JavaScript 实现关键流程，编写检查步骤并记录验证结果。",
+          "在社团报名小程序中使用 Vue 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：社团报名小程序。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Vue"
+        ],
+        "supportedSkills": [
+          "Vue"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "相近工具不是岗位要求的同一技能"
+    },
+    {
+      "id": "RES-FRONTEND-016",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "negated_practice",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "projects": [
+          "未使用 TypeScript。",
+          "没有实现 Vue 的业务场景。",
+          "未测试 React 的实际行为。"
+        ],
+        "resumeText": "项目背景：社团报名小程序。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "否定实践不能作为已完成证据"
+    },
+    {
+      "id": "RES-FRONTEND-017",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "planned_practice",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "projects": [
+          "计划使用 TypeScript 实现下一个版本。",
+          "打算开发 Vue 相关练习。",
+          "准备测试 React 的边界情况。"
+        ],
+        "resumeText": "项目背景：社团报名小程序。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "计划和准备不能作为已完成证据"
+    },
+    {
+      "id": "RES-FRONTEND-018",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "mixed_material",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "projects": [
+          "在社团报名小程序中使用 TypeScript 实现关键流程，编写检查步骤并记录验证结果。",
+          "尚未使用 Vue。",
+          "了解 React 的名称，尚无实践材料。"
+        ],
+        "resumeText": "项目背景：社团报名小程序。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "supportedSkills": [
+          "TypeScript"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "逐项区分已发生实践与尚未提供材料"
+    },
+    {
+      "id": "RES-FRONTEND-019",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "evidence_without_declaration",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [],
+        "projects": [
+          "在社团报名小程序中使用 TypeScript 实现关键流程，编写检查步骤并记录验证结果。",
+          "在社团报名小程序中使用 Vue 实现关键流程，编写检查步骤并记录验证结果。",
+          "在社团报名小程序中使用 React 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：社团报名小程序。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "材料证据不依赖技能列表声明"
+    },
+    {
+      "id": "RES-FRONTEND-020",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "missing_material",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [],
+        "projects": [],
+        "resumeText": "经历摘要：参与社团报名小程序讨论，但未提交具体技能与项目材料。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "TypeScript",
+          "Vue",
+          "React"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "材料缺失保持未知"
+    },
+    {
+      "id": "RES-FRONTEND-021",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "declared_only",
+      "profile": {
+        "education": "",
+        "skills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "projects": [],
+        "resumeText": "项目背景：实验室排班看板。\n\n技能：JavaScript、Node.js、CSS"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "技能列表只表示声明"
+    },
+    {
+      "id": "RES-FRONTEND-022",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "one_supported",
+      "profile": {
+        "education": "",
+        "skills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "projects": [
+          "在实验室排班看板中使用 JavaScript 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：实验室排班看板。\n"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "supportedSkills": [
+          "JavaScript"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "仅首项有已发生的动作和材料"
+    },
+    {
+      "id": "RES-FRONTEND-023",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "two_supported",
+      "profile": {
+        "education": "",
+        "skills": [
+          "JavaScript",
+          "TypeScript"
+        ],
+        "projects": [
+          "在实验室排班看板中使用 JavaScript 实现关键流程，编写检查步骤并记录验证结果。",
+          "在实验室排班看板中使用 TypeScript 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：实验室排班看板。\n"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "TypeScript"
+        ],
+        "supportedSkills": [
+          "JavaScript",
+          "TypeScript"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "仅前两项有声明与实践"
+    },
+    {
+      "id": "RES-FRONTEND-024",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "exact_aliases",
+      "profile": {
+        "education": "",
+        "skills": [
+          "JS",
+          "TS",
+          "CSS3"
+        ],
+        "projects": [
+          "在实验室排班看板中使用 JS 实现关键流程，编写检查步骤并记录验证结果。",
+          "在实验室排班看板中使用 TS 实现关键流程，编写检查步骤并记录验证结果。",
+          "在实验室排班看板中使用 CSS3 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：实验室排班看板。\n"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "supportedSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "只接受精确同义名称"
+    },
+    {
+      "id": "RES-FRONTEND-025",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "related_technology",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Java",
+          "TypeScript"
+        ],
+        "projects": [
+          "在实验室排班看板中使用 Java 实现关键流程，编写检查步骤并记录验证结果。",
+          "在实验室排班看板中使用 TypeScript 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：实验室排班看板。\n"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "TypeScript"
+        ],
+        "supportedSkills": [
+          "TypeScript"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "相近工具不是岗位要求的同一技能"
+    },
+    {
+      "id": "RES-FRONTEND-026",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "negated_practice",
+      "profile": {
+        "education": "",
+        "skills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "projects": [
+          "未使用 JavaScript。",
+          "没有实现 TypeScript 的业务场景。",
+          "未测试 CSS 的实际行为。"
+        ],
+        "resumeText": "项目背景：实验室排班看板。\n"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "否定实践不能作为已完成证据"
+    },
+    {
+      "id": "RES-FRONTEND-027",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "planned_practice",
+      "profile": {
+        "education": "",
+        "skills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "projects": [
+          "计划使用 JavaScript 实现下一个版本。",
+          "打算开发 TypeScript 相关练习。",
+          "准备测试 CSS 的边界情况。"
+        ],
+        "resumeText": "项目背景：实验室排班看板。\n"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "计划和准备不能作为已完成证据"
+    },
+    {
+      "id": "RES-FRONTEND-028",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "mixed_material",
+      "profile": {
+        "education": "",
+        "skills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "projects": [
+          "在实验室排班看板中使用 JavaScript 实现关键流程，编写检查步骤并记录验证结果。",
+          "尚未使用 TypeScript。",
+          "了解 CSS 的名称，尚无实践材料。"
+        ],
+        "resumeText": "项目背景：实验室排班看板。\n"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "supportedSkills": [
+          "JavaScript"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "逐项区分已发生实践与尚未提供材料"
+    },
+    {
+      "id": "RES-FRONTEND-029",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "evidence_without_declaration",
+      "profile": {
+        "education": "",
+        "skills": [],
+        "projects": [
+          "在实验室排班看板中使用 JavaScript 实现关键流程，编写检查步骤并记录验证结果。",
+          "在实验室排班看板中使用 TypeScript 实现关键流程，编写检查步骤并记录验证结果。",
+          "在实验室排班看板中使用 CSS 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：实验室排班看板。\n"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "材料证据不依赖技能列表声明"
+    },
+    {
+      "id": "RES-FRONTEND-030",
+      "track": "frontend",
+      "split": "test",
+      "scenario": "missing_material",
+      "profile": {
+        "education": "",
+        "skills": [],
+        "projects": [],
+        "resumeText": "经历摘要：参与实验室排班看板讨论，但未提交具体技能与项目材料。\n"
+      },
+      "job": {
+        "title": "前端开发实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "JavaScript",
+          "TypeScript",
+          "CSS"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "材料缺失保持未知"
+    },
+    {
+      "id": "RES-OPERATIONS-001",
+      "track": "operations",
+      "split": "calibration",
+      "scenario": "declared_only",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "projects": [],
+        "resumeText": "项目背景：校园公益招募。\n意向城市：杭州\n实习可到岗每周4天\n技能：数据分析、内容运营、用户运营"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "技能列表只表示声明"
+    },
+    {
+      "id": "RES-OPERATIONS-002",
+      "track": "operations",
+      "split": "calibration",
+      "scenario": "one_supported",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "projects": [
+          "在校园公益招募中使用 数据分析 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园公益招募。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "supportedSkills": [
+          "数据分析"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "仅首项有已发生的动作和材料"
+    },
+    {
+      "id": "RES-OPERATIONS-003",
+      "track": "operations",
+      "split": "calibration",
+      "scenario": "two_supported",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "数据分析",
+          "内容运营"
+        ],
+        "projects": [
+          "在校园公益招募中使用 数据分析 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园公益招募中使用 内容运营 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园公益招募。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "数据分析",
+          "内容运营"
+        ],
+        "supportedSkills": [
+          "数据分析",
+          "内容运营"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "仅前两项有声明与实践"
+    },
+    {
+      "id": "RES-OPERATIONS-004",
+      "track": "operations",
+      "split": "calibration",
+      "scenario": "exact_aliases",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "data analysis",
+          "content operations",
+          "user operations"
+        ],
+        "projects": [
+          "在校园公益招募中使用 data analysis 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园公益招募中使用 content operations 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园公益招募中使用 user operations 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园公益招募。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "supportedSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "只接受精确同义名称"
+    },
+    {
+      "id": "RES-OPERATIONS-005",
+      "track": "operations",
+      "split": "calibration",
+      "scenario": "related_technology",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "数据录入",
+          "内容运营"
+        ],
+        "projects": [
+          "在校园公益招募中使用 数据录入 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园公益招募中使用 内容运营 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园公益招募。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "内容运营"
+        ],
+        "supportedSkills": [
+          "内容运营"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "相近工具不是岗位要求的同一技能"
+    },
+    {
+      "id": "RES-OPERATIONS-006",
+      "track": "operations",
+      "split": "calibration",
+      "scenario": "negated_practice",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "projects": [
+          "未使用 数据分析。",
+          "没有实现 内容运营 的业务场景。",
+          "未测试 用户运营 的实际行为。"
+        ],
+        "resumeText": "项目背景：校园公益招募。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "否定实践不能作为已完成证据"
+    },
+    {
+      "id": "RES-OPERATIONS-007",
+      "track": "operations",
+      "split": "calibration",
+      "scenario": "planned_practice",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "projects": [
+          "计划使用 数据分析 实现下一个版本。",
+          "打算开发 内容运营 相关练习。",
+          "准备测试 用户运营 的边界情况。"
+        ],
+        "resumeText": "项目背景：校园公益招募。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "计划和准备不能作为已完成证据"
+    },
+    {
+      "id": "RES-OPERATIONS-008",
+      "track": "operations",
+      "split": "calibration",
+      "scenario": "mixed_material",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "projects": [
+          "在校园公益招募中使用 数据分析 实现关键流程，编写检查步骤并记录验证结果。",
+          "尚未使用 内容运营。",
+          "了解 用户运营 的名称，尚无实践材料。"
+        ],
+        "resumeText": "项目背景：校园公益招募。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "supportedSkills": [
+          "数据分析"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "逐项区分已发生实践与尚未提供材料"
+    },
+    {
+      "id": "RES-OPERATIONS-009",
+      "track": "operations",
+      "split": "calibration",
+      "scenario": "evidence_without_declaration",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [],
+        "projects": [
+          "在校园公益招募中使用 数据分析 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园公益招募中使用 内容运营 实现关键流程，编写检查步骤并记录验证结果。",
+          "在校园公益招募中使用 用户运营 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：校园公益招募。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "材料证据不依赖技能列表声明"
+    },
+    {
+      "id": "RES-OPERATIONS-010",
+      "track": "operations",
+      "split": "calibration",
+      "scenario": "missing_material",
+      "profile": {
+        "education": "匿名大学本科在读",
+        "skills": [],
+        "projects": [],
+        "resumeText": "经历摘要：参与校园公益招募讨论，但未提交具体技能与项目材料。\n意向城市：杭州\n实习可到岗每周4天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "数据分析",
+          "内容运营",
+          "用户运营"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "SATISFIED",
+          "LOCATION": "SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "SATISFIED"
+        }
+      },
+      "labelRationale": "材料缺失保持未知"
+    },
+    {
+      "id": "RES-OPERATIONS-011",
+      "track": "operations",
+      "split": "test",
+      "scenario": "declared_only",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "projects": [],
+        "resumeText": "项目背景：新生社群维护。\n意向城市：苏州\n实习可到岗每周2天\n技能：活动运营、A/B测试、用户增长"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "技能列表只表示声明"
+    },
+    {
+      "id": "RES-OPERATIONS-012",
+      "track": "operations",
+      "split": "test",
+      "scenario": "one_supported",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "projects": [
+          "在新生社群维护中使用 活动运营 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：新生社群维护。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "supportedSkills": [
+          "活动运营"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "仅首项有已发生的动作和材料"
+    },
+    {
+      "id": "RES-OPERATIONS-013",
+      "track": "operations",
+      "split": "test",
+      "scenario": "two_supported",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "活动运营",
+          "A/B测试"
+        ],
+        "projects": [
+          "在新生社群维护中使用 活动运营 实现关键流程，编写检查步骤并记录验证结果。",
+          "在新生社群维护中使用 A/B测试 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：新生社群维护。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "活动运营",
+          "A/B测试"
+        ],
+        "supportedSkills": [
+          "活动运营",
+          "A/B测试"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "仅前两项有声明与实践"
+    },
+    {
+      "id": "RES-OPERATIONS-014",
+      "track": "operations",
+      "split": "test",
+      "scenario": "exact_aliases",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "event operations",
+          "AB testing",
+          "growth operations"
+        ],
+        "projects": [
+          "在新生社群维护中使用 event operations 实现关键流程，编写检查步骤并记录验证结果。",
+          "在新生社群维护中使用 AB testing 实现关键流程，编写检查步骤并记录验证结果。",
+          "在新生社群维护中使用 growth operations 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：新生社群维护。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "supportedSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "只接受精确同义名称"
+    },
+    {
+      "id": "RES-OPERATIONS-015",
+      "track": "operations",
+      "split": "test",
+      "scenario": "related_technology",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "内容运营",
+          "A/B测试"
+        ],
+        "projects": [
+          "在新生社群维护中使用 内容运营 实现关键流程，编写检查步骤并记录验证结果。",
+          "在新生社群维护中使用 A/B测试 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：新生社群维护。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "A/B测试"
+        ],
+        "supportedSkills": [
+          "A/B测试"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "相近工具不是岗位要求的同一技能"
+    },
+    {
+      "id": "RES-OPERATIONS-016",
+      "track": "operations",
+      "split": "test",
+      "scenario": "negated_practice",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "projects": [
+          "未使用 活动运营。",
+          "没有实现 A/B测试 的业务场景。",
+          "未测试 用户增长 的实际行为。"
+        ],
+        "resumeText": "项目背景：新生社群维护。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "否定实践不能作为已完成证据"
+    },
+    {
+      "id": "RES-OPERATIONS-017",
+      "track": "operations",
+      "split": "test",
+      "scenario": "planned_practice",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "projects": [
+          "计划使用 活动运营 实现下一个版本。",
+          "打算开发 A/B测试 相关练习。",
+          "准备测试 用户增长 的边界情况。"
+        ],
+        "resumeText": "项目背景：新生社群维护。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "计划和准备不能作为已完成证据"
+    },
+    {
+      "id": "RES-OPERATIONS-018",
+      "track": "operations",
+      "split": "test",
+      "scenario": "mixed_material",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "projects": [
+          "在新生社群维护中使用 活动运营 实现关键流程，编写检查步骤并记录验证结果。",
+          "尚未使用 A/B测试。",
+          "了解 用户增长 的名称，尚无实践材料。"
+        ],
+        "resumeText": "项目背景：新生社群维护。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "supportedSkills": [
+          "活动运营"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "逐项区分已发生实践与尚未提供材料"
+    },
+    {
+      "id": "RES-OPERATIONS-019",
+      "track": "operations",
+      "split": "test",
+      "scenario": "evidence_without_declaration",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [],
+        "projects": [
+          "在新生社群维护中使用 活动运营 实现关键流程，编写检查步骤并记录验证结果。",
+          "在新生社群维护中使用 A/B测试 实现关键流程，编写检查步骤并记录验证结果。",
+          "在新生社群维护中使用 用户增长 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：新生社群维护。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "材料证据不依赖技能列表声明"
+    },
+    {
+      "id": "RES-OPERATIONS-020",
+      "track": "operations",
+      "split": "test",
+      "scenario": "missing_material",
+      "profile": {
+        "education": "匿名学院专科在读",
+        "skills": [],
+        "projects": [],
+        "resumeText": "经历摘要：参与新生社群维护讨论，但未提交具体技能与项目材料。\n意向城市：苏州\n实习可到岗每周2天"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "活动运营",
+          "A/B测试",
+          "用户增长"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "NOT_SATISFIED",
+          "LOCATION": "NOT_SATISFIED",
+          "INTERNSHIP_AVAILABILITY": "NOT_SATISFIED"
+        }
+      },
+      "labelRationale": "材料缺失保持未知"
+    },
+    {
+      "id": "RES-OPERATIONS-021",
+      "track": "operations",
+      "split": "test",
+      "scenario": "declared_only",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "projects": [],
+        "resumeText": "项目背景：学术活动推广。\n\n技能：Excel、SEO、文案写作"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "技能列表只表示声明"
+    },
+    {
+      "id": "RES-OPERATIONS-022",
+      "track": "operations",
+      "split": "test",
+      "scenario": "one_supported",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "projects": [
+          "在学术活动推广中使用 Excel 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：学术活动推广。\n"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "supportedSkills": [
+          "Excel"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "仅首项有已发生的动作和材料"
+    },
+    {
+      "id": "RES-OPERATIONS-023",
+      "track": "operations",
+      "split": "test",
+      "scenario": "two_supported",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Excel",
+          "SEO"
+        ],
+        "projects": [
+          "在学术活动推广中使用 Excel 实现关键流程，编写检查步骤并记录验证结果。",
+          "在学术活动推广中使用 SEO 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：学术活动推广。\n"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Excel",
+          "SEO"
+        ],
+        "supportedSkills": [
+          "Excel",
+          "SEO"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "仅前两项有声明与实践"
+    },
+    {
+      "id": "RES-OPERATIONS-024",
+      "track": "operations",
+      "split": "test",
+      "scenario": "exact_aliases",
+      "profile": {
+        "education": "",
+        "skills": [
+          "excel",
+          "搜索引擎优化",
+          "copywriting"
+        ],
+        "projects": [
+          "在学术活动推广中使用 excel 实现关键流程，编写检查步骤并记录验证结果。",
+          "在学术活动推广中使用 搜索引擎优化 实现关键流程，编写检查步骤并记录验证结果。",
+          "在学术活动推广中使用 copywriting 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：学术活动推广。\n"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "supportedSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "只接受精确同义名称"
+    },
+    {
+      "id": "RES-OPERATIONS-025",
+      "track": "operations",
+      "split": "test",
+      "scenario": "related_technology",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Google Sheets",
+          "SEO"
+        ],
+        "projects": [
+          "在学术活动推广中使用 Google Sheets 实现关键流程，编写检查步骤并记录验证结果。",
+          "在学术活动推广中使用 SEO 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：学术活动推广。\n"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "SEO"
+        ],
+        "supportedSkills": [
+          "SEO"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "相近工具不是岗位要求的同一技能"
+    },
+    {
+      "id": "RES-OPERATIONS-026",
+      "track": "operations",
+      "split": "test",
+      "scenario": "negated_practice",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "projects": [
+          "未使用 Excel。",
+          "没有实现 SEO 的业务场景。",
+          "未测试 文案写作 的实际行为。"
+        ],
+        "resumeText": "项目背景：学术活动推广。\n"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "否定实践不能作为已完成证据"
+    },
+    {
+      "id": "RES-OPERATIONS-027",
+      "track": "operations",
+      "split": "test",
+      "scenario": "planned_practice",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "projects": [
+          "计划使用 Excel 实现下一个版本。",
+          "打算开发 SEO 相关练习。",
+          "准备测试 文案写作 的边界情况。"
+        ],
+        "resumeText": "项目背景：学术活动推广。\n"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "计划和准备不能作为已完成证据"
+    },
+    {
+      "id": "RES-OPERATIONS-028",
+      "track": "operations",
+      "split": "test",
+      "scenario": "mixed_material",
+      "profile": {
+        "education": "",
+        "skills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "projects": [
+          "在学术活动推广中使用 Excel 实现关键流程，编写检查步骤并记录验证结果。",
+          "尚未使用 SEO。",
+          "了解 文案写作 的名称，尚无实践材料。"
+        ],
+        "resumeText": "项目背景：学术活动推广。\n"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "supportedSkills": [
+          "Excel"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "逐项区分已发生实践与尚未提供材料"
+    },
+    {
+      "id": "RES-OPERATIONS-029",
+      "track": "operations",
+      "split": "test",
+      "scenario": "evidence_without_declaration",
+      "profile": {
+        "education": "",
+        "skills": [],
+        "projects": [
+          "在学术活动推广中使用 Excel 实现关键流程，编写检查步骤并记录验证结果。",
+          "在学术活动推广中使用 SEO 实现关键流程，编写检查步骤并记录验证结果。",
+          "在学术活动推广中使用 文案写作 实现关键流程，编写检查步骤并记录验证结果。"
+        ],
+        "resumeText": "项目背景：学术活动推广。\n"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "材料证据不依赖技能列表声明"
+    },
+    {
+      "id": "RES-OPERATIONS-030",
+      "track": "operations",
+      "split": "test",
+      "scenario": "missing_material",
+      "profile": {
+        "education": "",
+        "skills": [],
+        "projects": [],
+        "resumeText": "经历摘要：参与学术活动推广讨论，但未提交具体技能与项目材料。\n"
+      },
+      "job": {
+        "title": "新媒体运营实习生",
+        "city": "杭州",
+        "requiredSkills": [
+          "Excel",
+          "SEO",
+          "文案写作"
+        ],
+        "description": "本科及以上；实习每周至少3天。请提供职责、实践与验证材料。"
+      },
+      "expected": {
+        "declaredSkills": [],
+        "supportedSkills": [],
+        "conditions": {
+          "EDUCATION": "UNKNOWN",
+          "LOCATION": "UNKNOWN",
+          "INTERNSHIP_AVAILABILITY": "UNKNOWN"
+        }
+      },
+      "labelRationale": "材料缺失保持未知"
+    }
+  ]
+}

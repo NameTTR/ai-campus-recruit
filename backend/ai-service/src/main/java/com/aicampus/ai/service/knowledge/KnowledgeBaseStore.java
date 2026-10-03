@@ -13,4 +13,9 @@ public interface KnowledgeBaseStore {
     List<KnowledgeDocument> listDocuments();
 
     List<KnowledgeChunkRecord> listChunks();
+
+    /** Atomically swaps the chunk snapshot; documents and their permissions are retained. */
+    default void replaceAllChunks(List<KnowledgeChunkRecord> chunks) {
+        throw new UnsupportedOperationException("Atomic index rebuilding is unsupported by this store");
+    }
 }

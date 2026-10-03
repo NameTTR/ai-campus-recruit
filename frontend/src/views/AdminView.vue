@@ -24,6 +24,8 @@ import {
   type Role
 } from '../api/client'
 
+import KnowledgeIndexPanel from '../features/student/KnowledgeIndexPanel.vue'
+
 const route = useRoute()
 const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'ai')
 const accounts = ref<AccountSummary[]>([])
@@ -331,6 +333,7 @@ watch(activeModule, loadModule)
     </template>
 
     <template v-else>
+      <KnowledgeIndexPanel />
       <section class="metric-grid" aria-label="知识库数据概览">
         <article class="metric-card metric-mint"><span class="metric-icon"><Library :size="18" /></span><div><span>知识文档</span><strong>{{ knowledgeStats?.documentCount || 0 }}</strong><small>知识库统计文档数</small></div></article>
         <article class="metric-card metric-lavender"><span class="metric-icon"><Library :size="18" /></span><div><span>检索分块</span><strong>{{ knowledgeStats?.chunkCount || 0 }}</strong><small>知识库统计知识块数</small></div></article>

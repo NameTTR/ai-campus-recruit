@@ -1,0 +1,1183 @@
+{
+  "metadata": {
+    "version": "core-deepening-eval-v1",
+    "createdAt": "2026-10-03",
+    "origin": "SYNTHETIC_ANONYMOUS",
+    "labelSource": "设计者依据材料语义拟定的预期标签；未调用被测规则反向生成标签",
+    "reviewStatus": "OWNER_REVIEW_PENDING",
+    "reviewedBy": null,
+    "usage": "固定回归与首轮校准；未获人工复核前不能作为已审核的模型质量基准"
+  },
+  "cases": [
+    {
+      "id": "INT-JAVA-001",
+      "track": "java",
+      "split": "calibration",
+      "targetRole": "Java 后端实习生",
+      "topic": "Redis 缓存更新",
+      "question": "请说明预约系统更新数据库后如何处理 Redis 缓存，以及怎样验证一致性。",
+      "referencePoints": [
+        "数据库与缓存更新顺序",
+        "失效与失败处理",
+        "验证读写结果"
+      ],
+      "answer": "我先更新数据库，再使相关缓存失效，并设置 TTL。删除失败进入重试记录；通过并发读写测试、日志和最终数据核对验证一致性，不能宣称两次操作天然原子。",
+      "scenario": "concise_sufficient",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-002",
+      "track": "java",
+      "split": "calibration",
+      "targetRole": "Java 后端实习生",
+      "topic": "Redis 缓存更新",
+      "question": "请说明预约系统更新数据库后如何处理 Redis 缓存，以及怎样验证一致性。",
+      "referencePoints": [
+        "数据库与缓存更新顺序",
+        "失效与失败处理",
+        "验证读写结果"
+      ],
+      "answer": "我在校园图书预约里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园图书预约里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园图书预约里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园图书预约里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园图书预约里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园图书预约里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园图书预约里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园图书预约里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园图书预约里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。对于Redis 缓存更新，现在尚未提供具体方法、取舍和验证结果。",
+      "scenario": "long_missing",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-003",
+      "track": "java",
+      "split": "calibration",
+      "targetRole": "Java 后端实习生",
+      "topic": "Redis 缓存更新",
+      "question": "请说明预约系统更新数据库后如何处理 Redis 缓存，以及怎样验证一致性。",
+      "referencePoints": [
+        "数据库与缓存更新顺序",
+        "失效与失败处理",
+        "验证读写结果"
+      ],
+      "answer": "只要先删除缓存再更新数据库，所有并发场景都绝对不会读到旧值。这是我当前的判断，但没有提供验证材料。",
+      "scenario": "incorrect",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INCORRECT",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-004",
+      "track": "java",
+      "split": "calibration",
+      "targetRole": "Java 后端实习生",
+      "topic": "Redis 缓存更新",
+      "question": "请说明预约系统更新数据库后如何处理 Redis 缓存，以及怎样验证一致性。",
+      "referencePoints": [
+        "数据库与缓存更新顺序",
+        "失效与失败处理",
+        "验证读写结果"
+      ],
+      "answer": "我参与了Redis 缓存更新相关讨论，目前只能说明目标，没有提交分析步骤、取舍或验证记录。",
+      "scenario": "evidence_insufficient",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-005",
+      "track": "java",
+      "split": "calibration",
+      "targetRole": "Java 后端实习生",
+      "topic": "Redis 缓存更新",
+      "question": "请说明预约系统更新数据库后如何处理 Redis 缓存，以及怎样验证一致性。",
+      "referencePoints": [
+        "数据库与缓存更新顺序",
+        "失效与失败处理",
+        "验证读写结果"
+      ],
+      "answer": "我的职责是负责校园图书预约中的Redis 缓存更新。我先更新数据库，再使相关缓存失效，并设置 TTL。删除失败进入重试记录；通过并发读写测试、日志和最终数据核对验证一致性，不能宣称两次操作天然原子。我已编写检查清单，提交时需要附上实际记录；这里不声明未经提供的业务增长数字。",
+      "scenario": "sufficient_case",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-006",
+      "track": "java",
+      "split": "test",
+      "targetRole": "Java 后端实习生",
+      "topic": "MySQL 联合索引",
+      "question": "预约查询同时按状态过滤并按创建时间排序，你如何设计和验证 MySQL 联合索引？",
+      "referencePoints": [
+        "查询条件与索引顺序",
+        "执行计划",
+        "测试方法与取舍"
+      ],
+      "answer": "先查看实际 WHERE、排序和返回列，再比较状态与创建时间的联合索引。通过 EXPLAIN 核对扫描方式与行数，使用同一数据集测试延迟，并检查新增索引对写入成本的影响。",
+      "scenario": "concise_sufficient",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-007",
+      "track": "java",
+      "split": "test",
+      "targetRole": "Java 后端实习生",
+      "topic": "MySQL 联合索引",
+      "question": "预约查询同时按状态过滤并按创建时间排序，你如何设计和验证 MySQL 联合索引？",
+      "referencePoints": [
+        "查询条件与索引顺序",
+        "执行计划",
+        "测试方法与取舍"
+      ],
+      "answer": "我在实验室设备借用里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室设备借用里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室设备借用里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室设备借用里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室设备借用里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室设备借用里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室设备借用里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室设备借用里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室设备借用里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。对于MySQL 联合索引，现在尚未提供具体方法、取舍和验证结果。",
+      "scenario": "long_missing",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-008",
+      "track": "java",
+      "split": "test",
+      "targetRole": "Java 后端实习生",
+      "topic": "MySQL 联合索引",
+      "question": "预约查询同时按状态过滤并按创建时间排序，你如何设计和验证 MySQL 联合索引？",
+      "referencePoints": [
+        "查询条件与索引顺序",
+        "执行计划",
+        "测试方法与取舍"
+      ],
+      "answer": "联合索引中列的顺序永远无关，建得越多查询与写入就必然越快。这是我当前的判断，但没有提供验证材料。",
+      "scenario": "incorrect",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INCORRECT",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-009",
+      "track": "java",
+      "split": "test",
+      "targetRole": "Java 后端实习生",
+      "topic": "MySQL 联合索引",
+      "question": "预约查询同时按状态过滤并按创建时间排序，你如何设计和验证 MySQL 联合索引？",
+      "referencePoints": [
+        "查询条件与索引顺序",
+        "执行计划",
+        "测试方法与取舍"
+      ],
+      "answer": "我参与了MySQL 联合索引相关讨论，目前只能说明目标，没有提交分析步骤、取舍或验证记录。",
+      "scenario": "evidence_insufficient",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-010",
+      "track": "java",
+      "split": "test",
+      "targetRole": "Java 后端实习生",
+      "topic": "MySQL 联合索引",
+      "question": "预约查询同时按状态过滤并按创建时间排序，你如何设计和验证 MySQL 联合索引？",
+      "referencePoints": [
+        "查询条件与索引顺序",
+        "执行计划",
+        "测试方法与取舍"
+      ],
+      "answer": "我的职责是负责实验室设备借用中的MySQL 联合索引。先查看实际 WHERE、排序和返回列，再比较状态与创建时间的联合索引。通过 EXPLAIN 核对扫描方式与行数，使用同一数据集测试延迟，并检查新增索引对写入成本的影响。我已编写检查清单，提交时需要附上实际记录；这里不声明未经提供的业务增长数字。",
+      "scenario": "sufficient_case",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-011",
+      "track": "java",
+      "split": "test",
+      "targetRole": "Java 后端实习生",
+      "topic": "Spring 事务",
+      "question": "请结合借用登记说明 Spring 事务的边界、异常回滚与验证方式。",
+      "referencePoints": [
+        "事务范围",
+        "异常与回滚条件",
+        "验证数据状态"
+      ],
+      "answer": "把一次借用登记涉及的数据库更新放在明确的服务事务边界，检查异常类型和回滚配置。测试正常提交、更新失败与异常退出后的状态，并注意跨进程调用不能自动共享本地事务。",
+      "scenario": "concise_sufficient",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-012",
+      "track": "java",
+      "split": "test",
+      "targetRole": "Java 后端实习生",
+      "topic": "Spring 事务",
+      "question": "请结合借用登记说明 Spring 事务的边界、异常回滚与验证方式。",
+      "referencePoints": [
+        "事务范围",
+        "异常与回滚条件",
+        "验证数据状态"
+      ],
+      "answer": "我在社团活动报名里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团活动报名里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团活动报名里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团活动报名里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团活动报名里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团活动报名里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团活动报名里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团活动报名里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团活动报名里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。对于Spring 事务，现在尚未提供具体方法、取舍和验证结果。",
+      "scenario": "long_missing",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-013",
+      "track": "java",
+      "split": "test",
+      "targetRole": "Java 后端实习生",
+      "topic": "Spring 事务",
+      "question": "请结合借用登记说明 Spring 事务的边界、异常回滚与验证方式。",
+      "referencePoints": [
+        "事务范围",
+        "异常与回滚条件",
+        "验证数据状态"
+      ],
+      "answer": "每个 HTTP 请求默认就是全局事务，任何外部服务失败都会自动回滚已经发送的消息。这是我当前的判断，但没有提供验证材料。",
+      "scenario": "incorrect",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INCORRECT",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-014",
+      "track": "java",
+      "split": "test",
+      "targetRole": "Java 后端实习生",
+      "topic": "Spring 事务",
+      "question": "请结合借用登记说明 Spring 事务的边界、异常回滚与验证方式。",
+      "referencePoints": [
+        "事务范围",
+        "异常与回滚条件",
+        "验证数据状态"
+      ],
+      "answer": "我参与了Spring 事务相关讨论，目前只能说明目标，没有提交分析步骤、取舍或验证记录。",
+      "scenario": "evidence_insufficient",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-JAVA-015",
+      "track": "java",
+      "split": "test",
+      "targetRole": "Java 后端实习生",
+      "topic": "Spring 事务",
+      "question": "请结合借用登记说明 Spring 事务的边界、异常回滚与验证方式。",
+      "referencePoints": [
+        "事务范围",
+        "异常与回滚条件",
+        "验证数据状态"
+      ],
+      "answer": "我的职责是负责社团活动报名中的Spring 事务。把一次借用登记涉及的数据库更新放在明确的服务事务边界，检查异常类型和回滚配置。测试正常提交、更新失败与异常退出后的状态，并注意跨进程调用不能自动共享本地事务。我已编写检查清单，提交时需要附上实际记录；这里不声明未经提供的业务增长数字。",
+      "scenario": "sufficient_case",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-001",
+      "track": "frontend",
+      "split": "calibration",
+      "targetRole": "前端开发实习生",
+      "topic": "组件状态",
+      "question": "请说明 Vue 报名组件如何区分输入状态和派生展示，并怎样验证交互。",
+      "referencePoints": [
+        "状态归属",
+        "组件通信",
+        "交互验证"
+      ],
+      "answer": "表单输入保留为局部状态，派生展示用计算属性，父组件通过属性和事件控制共享数据。覆盖空输入、错误格式、重复点击和异步失败，记录状态与展示是否一致。",
+      "scenario": "concise_sufficient",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-002",
+      "track": "frontend",
+      "split": "calibration",
+      "targetRole": "前端开发实习生",
+      "topic": "组件状态",
+      "question": "请说明 Vue 报名组件如何区分输入状态和派生展示，并怎样验证交互。",
+      "referencePoints": [
+        "状态归属",
+        "组件通信",
+        "交互验证"
+      ],
+      "answer": "我在校园课程检索页面里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园课程检索页面里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园课程检索页面里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园课程检索页面里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园课程检索页面里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园课程检索页面里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园课程检索页面里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园课程检索页面里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园课程检索页面里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。对于组件状态，现在尚未提供具体方法、取舍和验证结果。",
+      "scenario": "long_missing",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-003",
+      "track": "frontend",
+      "split": "calibration",
+      "targetRole": "前端开发实习生",
+      "topic": "组件状态",
+      "question": "请说明 Vue 报名组件如何区分输入状态和派生展示，并怎样验证交互。",
+      "referencePoints": [
+        "状态归属",
+        "组件通信",
+        "交互验证"
+      ],
+      "answer": "直接修改任何父组件传入的属性都不会影响其他组件，所以不需要定义事件或测试。这是我当前的判断，但没有提供验证材料。",
+      "scenario": "incorrect",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INCORRECT",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-004",
+      "track": "frontend",
+      "split": "calibration",
+      "targetRole": "前端开发实习生",
+      "topic": "组件状态",
+      "question": "请说明 Vue 报名组件如何区分输入状态和派生展示，并怎样验证交互。",
+      "referencePoints": [
+        "状态归属",
+        "组件通信",
+        "交互验证"
+      ],
+      "answer": "我参与了组件状态相关讨论，目前只能说明目标，没有提交分析步骤、取舍或验证记录。",
+      "scenario": "evidence_insufficient",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-005",
+      "track": "frontend",
+      "split": "calibration",
+      "targetRole": "前端开发实习生",
+      "topic": "组件状态",
+      "question": "请说明 Vue 报名组件如何区分输入状态和派生展示，并怎样验证交互。",
+      "referencePoints": [
+        "状态归属",
+        "组件通信",
+        "交互验证"
+      ],
+      "answer": "我的职责是负责校园课程检索页面中的组件状态。表单输入保留为局部状态，派生展示用计算属性，父组件通过属性和事件控制共享数据。覆盖空输入、错误格式、重复点击和异步失败，记录状态与展示是否一致。我已编写检查清单，提交时需要附上实际记录；这里不声明未经提供的业务增长数字。",
+      "scenario": "sufficient_case",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-006",
+      "track": "frontend",
+      "split": "test",
+      "targetRole": "前端开发实习生",
+      "topic": "异步请求竞态",
+      "question": "课程搜索框连续输入时，如何避免旧请求覆盖新结果？",
+      "referencePoints": [
+        "请求顺序",
+        "取消或版本标识",
+        "错误与验证"
+      ],
+      "answer": "为每次搜索记录序号，响应到达后只提交仍对应当前查询的结果，必要时取消旧请求。分开处理加载、异常与取消，通过故意打乱返回顺序验证旧结果不会覆盖新结果。",
+      "scenario": "concise_sufficient",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-007",
+      "track": "frontend",
+      "split": "test",
+      "targetRole": "前端开发实习生",
+      "topic": "异步请求竞态",
+      "question": "课程搜索框连续输入时，如何避免旧请求覆盖新结果？",
+      "referencePoints": [
+        "请求顺序",
+        "取消或版本标识",
+        "错误与验证"
+      ],
+      "answer": "我在社团报名小程序里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团报名小程序里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团报名小程序里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团报名小程序里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团报名小程序里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团报名小程序里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团报名小程序里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团报名小程序里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在社团报名小程序里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。对于异步请求竞态，现在尚未提供具体方法、取舍和验证结果。",
+      "scenario": "long_missing",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-008",
+      "track": "frontend",
+      "split": "test",
+      "targetRole": "前端开发实习生",
+      "topic": "异步请求竞态",
+      "question": "课程搜索框连续输入时，如何避免旧请求覆盖新结果？",
+      "referencePoints": [
+        "请求顺序",
+        "取消或版本标识",
+        "错误与验证"
+      ],
+      "answer": "浏览器永远按发送顺序返回 HTTP 响应，因此只要使用异步函数就不可能出现竞态。这是我当前的判断，但没有提供验证材料。",
+      "scenario": "incorrect",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INCORRECT",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-009",
+      "track": "frontend",
+      "split": "test",
+      "targetRole": "前端开发实习生",
+      "topic": "异步请求竞态",
+      "question": "课程搜索框连续输入时，如何避免旧请求覆盖新结果？",
+      "referencePoints": [
+        "请求顺序",
+        "取消或版本标识",
+        "错误与验证"
+      ],
+      "answer": "我参与了异步请求竞态相关讨论，目前只能说明目标，没有提交分析步骤、取舍或验证记录。",
+      "scenario": "evidence_insufficient",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-010",
+      "track": "frontend",
+      "split": "test",
+      "targetRole": "前端开发实习生",
+      "topic": "异步请求竞态",
+      "question": "课程搜索框连续输入时，如何避免旧请求覆盖新结果？",
+      "referencePoints": [
+        "请求顺序",
+        "取消或版本标识",
+        "错误与验证"
+      ],
+      "answer": "我的职责是负责社团报名小程序中的异步请求竞态。为每次搜索记录序号，响应到达后只提交仍对应当前查询的结果，必要时取消旧请求。分开处理加载、异常与取消，通过故意打乱返回顺序验证旧结果不会覆盖新结果。我已编写检查清单，提交时需要附上实际记录；这里不声明未经提供的业务增长数字。",
+      "scenario": "sufficient_case",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-011",
+      "track": "frontend",
+      "split": "test",
+      "targetRole": "前端开发实习生",
+      "topic": "React effect",
+      "question": "怎样设计 React 数据订阅 effect 的依赖与清理，并验证重复订阅问题？",
+      "referencePoints": [
+        "依赖",
+        "清理",
+        "重复订阅与验证"
+      ],
+      "answer": "根据订阅实际使用的值确定依赖，effect 返回取消订阅的清理函数。验证依赖改变、重新渲染与卸载时的订阅数量，避免把多次渲染误认为多次合法订阅。",
+      "scenario": "concise_sufficient",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-012",
+      "track": "frontend",
+      "split": "test",
+      "targetRole": "前端开发实习生",
+      "topic": "React effect",
+      "question": "怎样设计 React 数据订阅 effect 的依赖与清理，并验证重复订阅问题？",
+      "referencePoints": [
+        "依赖",
+        "清理",
+        "重复订阅与验证"
+      ],
+      "answer": "我在实验室排班看板里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室排班看板里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室排班看板里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室排班看板里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室排班看板里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室排班看板里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室排班看板里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室排班看板里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在实验室排班看板里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。对于React effect，现在尚未提供具体方法、取舍和验证结果。",
+      "scenario": "long_missing",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-013",
+      "track": "frontend",
+      "split": "test",
+      "targetRole": "前端开发实习生",
+      "topic": "React effect",
+      "question": "怎样设计 React 数据订阅 effect 的依赖与清理，并验证重复订阅问题？",
+      "referencePoints": [
+        "依赖",
+        "清理",
+        "重复订阅与验证"
+      ],
+      "answer": "effect 的清理函数只在页面关闭后调用，依赖变化时不必取消原来的订阅。这是我当前的判断，但没有提供验证材料。",
+      "scenario": "incorrect",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INCORRECT",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-014",
+      "track": "frontend",
+      "split": "test",
+      "targetRole": "前端开发实习生",
+      "topic": "React effect",
+      "question": "怎样设计 React 数据订阅 effect 的依赖与清理，并验证重复订阅问题？",
+      "referencePoints": [
+        "依赖",
+        "清理",
+        "重复订阅与验证"
+      ],
+      "answer": "我参与了React effect相关讨论，目前只能说明目标，没有提交分析步骤、取舍或验证记录。",
+      "scenario": "evidence_insufficient",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-FRONTEND-015",
+      "track": "frontend",
+      "split": "test",
+      "targetRole": "前端开发实习生",
+      "topic": "React effect",
+      "question": "怎样设计 React 数据订阅 effect 的依赖与清理，并验证重复订阅问题？",
+      "referencePoints": [
+        "依赖",
+        "清理",
+        "重复订阅与验证"
+      ],
+      "answer": "我的职责是负责实验室排班看板中的React effect。根据订阅实际使用的值确定依赖，effect 返回取消订阅的清理函数。验证依赖改变、重新渲染与卸载时的订阅数量，避免把多次渲染误认为多次合法订阅。我已编写检查清单，提交时需要附上实际记录；这里不声明未经提供的业务增长数字。",
+      "scenario": "sufficient_case",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-001",
+      "track": "operations",
+      "split": "calibration",
+      "targetRole": "新媒体运营实习生",
+      "topic": "转化漏斗",
+      "question": "招募活动曝光很多但报名少，你如何拆解漏斗、找问题并验证改进？",
+      "referencePoints": [
+        "目标与口径",
+        "分步转化",
+        "对照验证"
+      ],
+      "answer": "先统一曝光、点击、访问和报名的去重口径与时间窗口，按渠道看每一步转化。检查入口与落地页，再用可比较的对照验证改动，记录样本量；尚未提供实际提升比例。",
+      "scenario": "concise_sufficient",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-002",
+      "track": "operations",
+      "split": "calibration",
+      "targetRole": "新媒体运营实习生",
+      "topic": "转化漏斗",
+      "question": "招募活动曝光很多但报名少，你如何拆解漏斗、找问题并验证改进？",
+      "referencePoints": [
+        "目标与口径",
+        "分步转化",
+        "对照验证"
+      ],
+      "answer": "我在校园公益招募里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园公益招募里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园公益招募里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园公益招募里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园公益招募里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园公益招募里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园公益招募里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园公益招募里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在校园公益招募里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。对于转化漏斗，现在尚未提供具体方法、取舍和验证结果。",
+      "scenario": "long_missing",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-003",
+      "track": "operations",
+      "split": "calibration",
+      "targetRole": "新媒体运营实习生",
+      "topic": "转化漏斗",
+      "question": "招募活动曝光很多但报名少，你如何拆解漏斗、找问题并验证改进？",
+      "referencePoints": [
+        "目标与口径",
+        "分步转化",
+        "对照验证"
+      ],
+      "answer": "曝光总数上升就能证明报名转化率一定上升，不必检查渠道或实际报名人数。这是我当前的判断，但没有提供验证材料。",
+      "scenario": "incorrect",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INCORRECT",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-004",
+      "track": "operations",
+      "split": "calibration",
+      "targetRole": "新媒体运营实习生",
+      "topic": "转化漏斗",
+      "question": "招募活动曝光很多但报名少，你如何拆解漏斗、找问题并验证改进？",
+      "referencePoints": [
+        "目标与口径",
+        "分步转化",
+        "对照验证"
+      ],
+      "answer": "我参与了转化漏斗相关讨论，目前只能说明目标，没有提交分析步骤、取舍或验证记录。",
+      "scenario": "evidence_insufficient",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-005",
+      "track": "operations",
+      "split": "calibration",
+      "targetRole": "新媒体运营实习生",
+      "topic": "转化漏斗",
+      "question": "招募活动曝光很多但报名少，你如何拆解漏斗、找问题并验证改进？",
+      "referencePoints": [
+        "目标与口径",
+        "分步转化",
+        "对照验证"
+      ],
+      "answer": "我的职责是负责校园公益招募中的转化漏斗。先统一曝光、点击、访问和报名的去重口径与时间窗口，按渠道看每一步转化。检查入口与落地页，再用可比较的对照验证改动，记录样本量；尚未提供实际提升比例。我已编写检查清单，提交时需要附上实际记录；这里不声明未经提供的业务增长数字。",
+      "scenario": "sufficient_case",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-006",
+      "track": "operations",
+      "split": "test",
+      "targetRole": "新媒体运营实习生",
+      "topic": "A/B 测试",
+      "question": "你怎样设计活动页面 A/B 测试，并处理样本不足和结果波动？",
+      "referencePoints": [
+        "实验变量",
+        "分组与窗口",
+        "不确定性"
+      ],
+      "answer": "先确定单一主要变量和目标指标，尽量随机分组并保持统计窗口一致。预先约定观察周期，检查样本与分组差异；样本不足时说明不确定性，不能把一天的波动当作稳定改善。",
+      "scenario": "concise_sufficient",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-007",
+      "track": "operations",
+      "split": "test",
+      "targetRole": "新媒体运营实习生",
+      "topic": "A/B 测试",
+      "question": "你怎样设计活动页面 A/B 测试，并处理样本不足和结果波动？",
+      "referencePoints": [
+        "实验变量",
+        "分组与窗口",
+        "不确定性"
+      ],
+      "answer": "我在新生社群维护里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在新生社群维护里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在新生社群维护里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在新生社群维护里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在新生社群维护里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在新生社群维护里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在新生社群维护里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在新生社群维护里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在新生社群维护里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。对于A/B 测试，现在尚未提供具体方法、取舍和验证结果。",
+      "scenario": "long_missing",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-008",
+      "track": "operations",
+      "split": "test",
+      "targetRole": "新媒体运营实习生",
+      "topic": "A/B 测试",
+      "question": "你怎样设计活动页面 A/B 测试，并处理样本不足和结果波动？",
+      "referencePoints": [
+        "实验变量",
+        "分组与窗口",
+        "不确定性"
+      ],
+      "answer": "只要某一天实验组点击更高就已证明永久有效，样本量和分组方式不影响结论。这是我当前的判断，但没有提供验证材料。",
+      "scenario": "incorrect",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INCORRECT",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-009",
+      "track": "operations",
+      "split": "test",
+      "targetRole": "新媒体运营实习生",
+      "topic": "A/B 测试",
+      "question": "你怎样设计活动页面 A/B 测试，并处理样本不足和结果波动？",
+      "referencePoints": [
+        "实验变量",
+        "分组与窗口",
+        "不确定性"
+      ],
+      "answer": "我参与了A/B 测试相关讨论，目前只能说明目标，没有提交分析步骤、取舍或验证记录。",
+      "scenario": "evidence_insufficient",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-010",
+      "track": "operations",
+      "split": "test",
+      "targetRole": "新媒体运营实习生",
+      "topic": "A/B 测试",
+      "question": "你怎样设计活动页面 A/B 测试，并处理样本不足和结果波动？",
+      "referencePoints": [
+        "实验变量",
+        "分组与窗口",
+        "不确定性"
+      ],
+      "answer": "我的职责是负责新生社群维护中的A/B 测试。先确定单一主要变量和目标指标，尽量随机分组并保持统计窗口一致。预先约定观察周期，检查样本与分组差异；样本不足时说明不确定性，不能把一天的波动当作稳定改善。我已编写检查清单，提交时需要附上实际记录；这里不声明未经提供的业务增长数字。",
+      "scenario": "sufficient_case",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-011",
+      "track": "operations",
+      "split": "test",
+      "targetRole": "新媒体运营实习生",
+      "topic": "用户留存",
+      "question": "新生社群活跃下降时，你如何定义留存、了解原因并判断干预效果？",
+      "referencePoints": [
+        "用户群与留存定义",
+        "原因证据",
+        "前后可比验证"
+      ],
+      "answer": "先固定新加入用户群与留存时间窗口，区分一次访问和有效互动，再结合访谈与行为记录查原因。干预后使用同一口径比较不同批次，记录其他活动带来的干扰，不伪造留存提升。",
+      "scenario": "concise_sufficient",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-012",
+      "track": "operations",
+      "split": "test",
+      "targetRole": "新媒体运营实习生",
+      "topic": "用户留存",
+      "question": "新生社群活跃下降时，你如何定义留存、了解原因并判断干预效果？",
+      "referencePoints": [
+        "用户群与留存定义",
+        "原因证据",
+        "前后可比验证"
+      ],
+      "answer": "我在学术活动推广里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在学术活动推广里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在学术活动推广里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在学术活动推广里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在学术活动推广里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在学术活动推广里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在学术活动推广里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在学术活动推广里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。我在学术活动推广里参加过很多例会，也记录了各成员的讨论，活动期间经常沟通需求和排期。对于用户留存，现在尚未提供具体方法、取舍和验证结果。",
+      "scenario": "long_missing",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-013",
+      "track": "operations",
+      "split": "test",
+      "targetRole": "新媒体运营实习生",
+      "topic": "用户留存",
+      "question": "新生社群活跃下降时，你如何定义留存、了解原因并判断干预效果？",
+      "referencePoints": [
+        "用户群与留存定义",
+        "原因证据",
+        "前后可比验证"
+      ],
+      "answer": "群成员总数就是留存率，人数没有下降就能证明所有用户仍持续活跃。这是我当前的判断，但没有提供验证材料。",
+      "scenario": "incorrect",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INCORRECT",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-014",
+      "track": "operations",
+      "split": "test",
+      "targetRole": "新媒体运营实习生",
+      "topic": "用户留存",
+      "question": "新生社群活跃下降时，你如何定义留存、了解原因并判断干预效果？",
+      "referencePoints": [
+        "用户群与留存定义",
+        "原因证据",
+        "前后可比验证"
+      ],
+      "answer": "我参与了用户留存相关讨论，目前只能说明目标，没有提交分析步骤、取舍或验证记录。",
+      "scenario": "evidence_insufficient",
+      "expected": {
+        "shouldFollowUp": true,
+        "requiredEvidenceType": "INSUFFICIENT_EVIDENCE",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    },
+    {
+      "id": "INT-OPERATIONS-015",
+      "track": "operations",
+      "split": "test",
+      "targetRole": "新媒体运营实习生",
+      "topic": "用户留存",
+      "question": "新生社群活跃下降时，你如何定义留存、了解原因并判断干预效果？",
+      "referencePoints": [
+        "用户群与留存定义",
+        "原因证据",
+        "前后可比验证"
+      ],
+      "answer": "我的职责是负责学术活动推广中的用户留存。先固定新加入用户群与留存时间窗口，区分一次访问和有效互动，再结合访谈与行为记录查原因。干预后使用同一口径比较不同批次，记录其他活动带来的干扰，不伪造留存提升。我已编写检查清单，提交时需要附上实际记录；这里不声明未经提供的业务增长数字。",
+      "scenario": "sufficient_case",
+      "expected": {
+        "shouldFollowUp": false,
+        "requiredEvidenceType": "SUPPORTED",
+        "dimensions": [
+          "ACCURACY",
+          "ANALYSIS",
+          "EVIDENCE",
+          "STRUCTURE"
+        ]
+      },
+      "labelRationale": "比较固定题目与回答的关键内容和证据，不按回答长度决定追问；标签待负责人复核"
+    }
+  ]
+}

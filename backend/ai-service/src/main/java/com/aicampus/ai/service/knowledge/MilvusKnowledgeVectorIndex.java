@@ -22,13 +22,23 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
 
     private final KnowledgeBaseProperties.Vector properties;
     private final RestClient restClient;
+    private final String model;
+    private final String indexVersion;
+    private final String collection;
     private final AtomicBoolean collectionChecked = new AtomicBoolean(false);
     private final Map<String, Boolean> indexedChunks = new ConcurrentHashMap<>();
     private volatile boolean available;
     private volatile String fallbackReason = "Milvus collection has not been checked yet";
 
     public MilvusKnowledgeVectorIndex(KnowledgeBaseProperties.Vector properties) {
+        this(properties, "text-embedding-v4", "semantic-rag-v2");
+    }
+
+    public MilvusKnowledgeVectorIndex(KnowledgeBaseProperties.Vector properties, String model, String indexVersion) {
         this.properties = properties;
+        this.model = model;
+        this.indexVersion = indexVersion;
+        this.collection = properties.getCollection() + "_" + com.aicampus.ai.service.KnowledgeBaseService.fingerprint(model + "|" + indexVersion + "|" + properties.getDimension()).substring(0, 16);
         RestClient.Builder builder = RestClient.builder()
                 .baseUrl(properties.getEndpoint())
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
@@ -50,7 +60,9 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
 
         List<Map<String, Object>> data = new ArrayList<>();
         for (KnowledgeChunkRecord chunk : chunks) {
-            if (chunk.embedding() == null || chunk.embedding().isEmpty()) {
+            if (!model.equals(chunk.embeddingModel()) || !indexVersion.equals(chunk.indexVersion())
+                    || !Integer.valueOf(properties.getDimension()).equals(chunk.embeddingDimension())
+                    || chunk.embedding() == null || chunk.embedding().size() != properties.getDimension()) {
                 continue;
             }
             Map<String, Object> row = new LinkedHashMap<>();
@@ -60,7 +72,7 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
             row.put("title", truncate(chunk.title(), 240));
             row.put("category", truncate(chunk.category(), 120));
             row.put("source", truncate(chunk.source(), 240));
-            row.put("roles", String.join(",", chunk.roles() == null ? List.of() : chunk.roles()));
+            row.put("roles", "," + String.join(",", chunk.roles() == null ? List.of() : chunk.roles()) + ",");
             data.add(row);
         }
         if (data.isEmpty()) {
@@ -69,7 +81,7 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
 
         try {
             JsonNode response = post("/v2/vectordb/entities/upsert", Map.of(
-                    "collectionName", properties.getCollection(),
+                    "collectionName", collection,
                     "data", data));
             if (success(response)) {
                 data.stream()
@@ -107,7 +119,7 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
                     .map(id -> "\"" + escapeFilterValue(id) + "\"")
                     .collect(java.util.stream.Collectors.joining(",")) + "]";
             JsonNode response = post("/v2/vectordb/entities/delete", Map.of(
-                    "collectionName", properties.getCollection(),
+                    "collectionName", collection,
                     "filter", filter));
             if (!success(response)) {
                 markUnavailable("Milvus delete failed: " + responseSummary(response));
@@ -119,19 +131,26 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
 
     @Override
     public List<KnowledgeVectorMatch> search(List<Double> queryEmbedding, String role, int limit) {
-        if (queryEmbedding == null || queryEmbedding.isEmpty() || limit <= 0) {
+        if (queryEmbedding == null || queryEmbedding.size() != properties.getDimension() || limit <= 0) {
             return List.of();
         }
         if (!ensureCollection()) {
             return List.of();
         }
         try {
-            JsonNode response = post("/v2/vectordb/entities/search", Map.of(
-                    "collectionName", properties.getCollection(),
-                    "data", List.of(queryEmbedding),
-                    "annsField", properties.getVectorField(),
-                    "limit", Math.max(1, Math.min(100, limit)),
-                    "outputFields", List.of("chunk_id", "roles")));
+            Map<String, Object> query = new LinkedHashMap<>();
+            query.put("collectionName", collection);
+            query.put("data", List.of(queryEmbedding));
+            query.put("annsField", properties.getVectorField());
+            query.put("limit", Math.max(1, Math.min(100, limit)));
+            query.put("outputFields", List.of("chunk_id", "roles"));
+            String normalizedRole = role == null ? "" : role.trim().toUpperCase(Locale.ROOT);
+            if (!"ADMIN".equals(normalizedRole)) {
+                String filter = "roles like \"%,ALL,%\"";
+                if (normalizedRole.matches("[A-Z_]+")) filter += " or roles like \"%," + normalizedRole + ",%\"";
+                query.put("filter", filter);
+            }
+            JsonNode response = post("/v2/vectordb/entities/search", query);
             if (!success(response)) {
                 markUnavailable("Milvus search failed: " + responseSummary(response));
                 return List.of();
@@ -146,6 +165,11 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
     }
 
     @Override
+    public boolean supports(String embeddingModel, int dimension, String version) {
+        return model.equals(embeddingModel) && properties.getDimension() == dimension && indexVersion.equals(version);
+    }
+
+    @Override
     public KnowledgeVectorStatus status() {
         ensureCollection();
         return new KnowledgeVectorStatus(
@@ -153,7 +177,7 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
                 true,
                 available,
                 properties.getEndpoint(),
-                properties.getCollection(),
+                collection,
                 properties.getDimension(),
                 indexedChunks.size(),
                 fallbackReason,
@@ -166,7 +190,7 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
         }
         try {
             JsonNode hasResponse = post("/v2/vectordb/collections/has", Map.of(
-                    "collectionName", properties.getCollection()));
+                    "collectionName", collection));
             if (!success(hasResponse)) {
                 markUnavailable("Milvus collection check failed: " + responseSummary(hasResponse));
                 collectionChecked.set(true);
@@ -191,7 +215,7 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
 
     private boolean createCollection() {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("collectionName", properties.getCollection());
+        body.put("collectionName", collection);
         body.put("dimension", properties.getDimension());
         body.put("metricType", "COSINE");
         body.put("idType", "VarChar");
@@ -210,7 +234,7 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
     private void loadCollection() {
         try {
             JsonNode response = post("/v2/vectordb/collections/load", Map.of(
-                    "collectionName", properties.getCollection()));
+                    "collectionName", collection));
             if (!success(response)) {
                 log.warn("Milvus collection load returned non-success response: {}", responseSummary(response));
             }
@@ -247,10 +271,8 @@ public class MilvusKnowledgeVectorIndex implements KnowledgeVectorIndex {
     }
 
     private boolean canRead(String roles, String role) {
-        if (!hasText(role)) {
-            return true;
-        }
-        String normalizedRole = role.trim().toUpperCase(Locale.ROOT);
+        String normalizedRole = role == null ? "" : role.trim().toUpperCase(Locale.ROOT);
+        if ("ADMIN".equals(normalizedRole)) return true;
         return List.of(roles.split(",")).stream()
                 .map(value -> value.trim().toUpperCase(Locale.ROOT))
                 .anyMatch(value -> "ALL".equals(value) || normalizedRole.equals(value));

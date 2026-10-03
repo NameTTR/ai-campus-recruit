@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS match_result_record (
     analysis_source VARCHAR(64) NOT NULL,
     resume_skills_snapshot TEXT NOT NULL,
     required_skills_snapshot TEXT NOT NULL,
+    analysis_details LONGTEXT NULL,
     created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     KEY idx_match_result_record_student_created (student_id, created_at),
     KEY idx_match_result_record_job_created (job_id, created_at),

@@ -144,6 +144,16 @@ class AiControllerTest {
     }
 
     @Test
+    void adminHeaderIsUsedWhenListingKnowledgeDocumentsWithoutAnExplicitRole() throws Exception {
+        mockMvc.perform(get("/api/ai/knowledge/documents")
+                        .header("X-User-Role", "ADMIN")
+                        .param("limit", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.length()").value(1));
+    }
+
+    @Test
     void interviewQuestionsCanUseRagAndCustomQuestionCount() throws Exception {
         mockMvc.perform(post("/api/ai/interview/questions")
                         .header("X-User-Id", "S001")
@@ -566,7 +576,8 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data.mocked").value(true))
                 .andExpect(jsonPath("$.data.answer").value(org.hamcrest.Matchers.containsString("## 结论")))
                 .andExpect(jsonPath("$.data.answer").value(org.hamcrest.Matchers.containsString("## 关键知识点")))
-                .andExpect(jsonPath("$.data.answer").value(org.hamcrest.Matchers.containsString("```java")))
+                .andExpect(jsonPath("$.data.generationMode").value("RETRIEVAL_ONLY"))
+                .andExpect(jsonPath("$.data.answer").value(org.hamcrest.Matchers.containsString("IntegerCache")))
                 .andExpect(jsonPath("$.data.answer").value(org.hamcrest.Matchers.containsString("[1]")))
                 .andExpect(jsonPath("$.data.citations.length()").value(greaterThanOrEqualTo(1)));
     }
@@ -756,8 +767,8 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.data.provider").value("milvus-rest"))
                 .andExpect(jsonPath("$.data.enabled").value(false))
                 .andExpect(jsonPath("$.data.available").value(false))
-                .andExpect(jsonPath("$.data.collection").value("campus_knowledge_chunks"))
-                .andExpect(jsonPath("$.data.dimension").value(96))
+                .andExpect(jsonPath("$.data.collection").value("campus_knowledge_semantic_v4_1024"))
+                .andExpect(jsonPath("$.data.dimension").value(1024))
                 .andExpect(jsonPath("$.data.fallbackReason").value(org.hamcrest.Matchers.containsString("disabled")));
     }
 

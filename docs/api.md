@@ -548,3 +548,93 @@ RAG 沿用 `/api/ai/knowledge/*` 接口。检索和回答使用认证角色，�
 
 - Gateway permissions:
   - Upload, ingestion list, vector status, document create/list, and stats require `admin:ai-observability:read` capability through the current admin role policy.
+
+## v3.12 Core deepening APIs
+
+本节是当前实现的补充约定，优先于前面的历史 RAG 说明。所有响应仍使用 `ApiResponse<T>`，时间字段使用 ISO-8601。
+
+### 可信身份
+
+Gateway 验证 Bearer Token 后清理外部身份头，再注入 `X-User-Id` 和 `X-User-Role`。知识检索、问答和学习、面试记录均按该身份隔离。客户端请求体中的 `role`、`studentId` 不能提升权限或改变资源归属。直接调用 `ai-service` 进行联调时，也必须设置可信身份头；生产环境只允许 Gateway 访问业务接口。
+
+### 岗位匹配证据
+
+`POST /api/matches/resume-job` 使用规则服务计算技能声明覆盖率和材料证据覆盖率，不调用模型。`MatchDetails` 追加 `metadata`、`jobSnapshot`、`profileSnapshot` 和 `stale`；每个 `MatchRequirement` 包含 `declared`、`supported`、`status`、`evidence` 和建议。
+
+- `declared` 表示学生资料中的技能声明。
+- `supported` 只有在简历正文或学生确认项目中找到具体已发生动作时才为真。
+- “未使用”“计划学习”“准备实现”等否定或计划描述不能成为实践证据。
+- 技能别名按 `SkillOntology` 的精确别名表归一化；相近技术不会自动视为目标技能。
+- `conditions` 单独返回学历、地点和实习时间，状态是 `SATISFIED`、`NOT_SATISFIED` 或 `UNKNOWN`。
+
+### 学习路径成果与确认
+
+- `POST /api/ai/learning/plans/{planId}/tasks/{taskId}/evidence`：保存成果说明和作品链接。请求为 `{ "description": "...", "links": ["https://..."] }`。链接只作为引用，不能单独证明能力；成果评价失败不删除已保存成果。
+- `POST /api/ai/learning/plans/{planId}/replan`：传 `previewOnly: true` 时生成 `DRAFT` 修订预览，原计划仍保持 `ACTIVE`。预览应保存 `revisionId`，前端展示调整原因后再确认。
+- `POST /api/ai/learning/plans/{originalPlanId}/confirm`：请求 `{ "revisionId": "..." }`，只允许本人确认属于原计划根版本的草稿；成功后原计划变为 `SUPERSEDED`，确认的修订变为 `ACTIVE`。重复确认返回已保存的当前结果。
+
+学习完成状态不会自动提升岗位匹配证据。下一次匹配会继续要求正文、项目或成果中存在可核对材料。
+
+### 模拟面试保存与评价
+
+- `PUT /api/ai/interview/sessions/{sessionId}/questions/{questionId}/answer`：先保存答案，返回的 `evaluationStatus` 初始为 `PENDING`。重复提交相同答案幂等，修改已保存答案被拒绝。
+- `POST /api/ai/interview/sessions/{sessionId}/questions/{questionId}/evaluate`：独立评价已保存答案。成功后返回四个固定维度 `ACCURACY`、`ANALYSIS`、`EVIDENCE`、`STRUCTURE` 及逐字引用的证据项；答案不丢失，失败可以重试；成功结果按答案指纹复用。
+- 每道主问题最多追加一次追问，追问依据遗漏要点、矛盾和项目证据，不按回答长度机械触发。
+- `POST /api/ai/interview/sessions/{sessionId}/finish`：复用逐题评价生成报告；报告只比较相同目标岗位和 rubric 版本的历史结果，已完成会话幂等且只读。
+
+### RAG 检索与引用
+
+当前 RAG 版本为 `semantic-rag-v2`。
+
+- 文档按标题、段落和句子边界切分，保存 `startOffset`、`endOffset`、`heading` 和 `chunkIndex`。偏移是原始正文的左闭右开字符范围。
+- 关键词和真实向量各自召回前 20 条，合并去重后使用 RRF，固定 `k=60`；融合前 20 条再执行排序，默认返回 5 条。
+- 默认向量为 DashScope `text-embedding-v4`、1024 维；默认排序为 `gte-rerank-v2`。模型、路径和维度由环境变量配置，不写入密钥。
+- `AiSearchResult.id` 是 `chunkId`，`AiSearchResult.citation.documentId` 可用于文档级 Recall@5。`KnowledgeCitation` 包含 `chunkId`、文档 ID、原文偏移、标题、角色和片段。
+- `AiSearchResponse` 新增 `retrievalMode`、`algorithmVersion`、`evidenceStatus`、`permissionVersion` 和 `metadata`。常见模式为 `HYBRID_RRF_RERANK`、`HYBRID_RRF`、`KEYWORD_RERANK`、`KEYWORD_ONLY`。
+- `KnowledgeAnswerResponse` 新增 `generationMode`、`evidenceStatus`、`claims`、`inputFingerprint` 和 `metadata`。AI 回答必须返回可核对的结构化事实；无法核对时保留检索摘要并标记 `INSUFFICIENT`。
+- 知识片段被当作数据传入模型，片段中的系统指令、角色要求或命令不会改变问答系统提示。
+- 候选检索、模型上下文和缓存都执行角色权限检查。文档删除、角色变更、正文变化或权限版本变化会清理相关缓存。
+
+### RAG 索引管理
+
+以下接口位于独立的 `KnowledgeIndexController`，必须提供 `X-User-Role: ADMIN`：
+
+- `POST /api/ai/knowledge/index/rebuild`：启动新版本索引，返回 `KnowledgeIndexRebuildStatus`。
+- `GET /api/ai/knowledge/index/rebuild/{jobId}`：读取重建进度。
+- `GET /api/ai/knowledge/index/status`：读取最近一次重建状态。
+
+重建先对完整资料集生成新向量，成功后原子切换；失败、服务重启或资料版本变化不会破坏旧资料和旧索引。进度写入 `ai_knowledge_index_rebuild`。新增偏移及向量元数据写入 `ai_knowledge_chunk_metadata`，旧知识表字段和旧构造器继续可读。
+
+### RAG 响应示例
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "query": "Redis 缓存怎么验证",
+    "retrievalMode": "HYBRID_RRF_RERANK",
+    "evidenceStatus": "RETRIEVED",
+    "results": [{
+      "id": "KB-001-CH-001",
+      "score": 92,
+      "citation": {
+        "documentId": "KB-001",
+        "chunkId": "KB-001-CH-001",
+        "chunkIndex": 1,
+        "startOffset": 0,
+        "endOffset": 42,
+        "heading": "缓存验证",
+        "roles": ["STUDENT"]
+      }
+    }]
+  }
+}
+```
+
+### 错误、降级与重试
+
+- 读取不到模型密钥、向量或排序请求失败时仍可使用关键词检索；响应的 `retrievalMode` 会说明降级状态。
+- `useAi: false` 不调用模型，直接返回带引用的检索摘要。
+- 外部模型失败不会把异常、URL、Bearer Token 或密钥写入学生响应；客户端可重新发起同一请求。
+- 管理员重建失败返回失败状态而不是清空旧索引。新模型维度必须使用独立 collection/version，不能与旧 hash 向量混用。

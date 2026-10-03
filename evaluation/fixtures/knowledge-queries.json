@@ -1,0 +1,1662 @@
+{
+  "metadata": {
+    "version": "core-deepening-eval-v1",
+    "createdAt": "2026-10-03",
+    "origin": "SYNTHETIC_ANONYMOUS",
+    "labelSource": "设计者依据材料语义拟定的预期标签；未调用被测规则反向生成标签",
+    "reviewStatus": "OWNER_REVIEW_PENDING",
+    "reviewedBy": null,
+    "usage": "固定回归与首轮校准；未获人工复核前不能作为已审核的模型质量基准"
+  },
+  "documents": [
+    {
+      "fixtureId": "DOC-JAVA-001",
+      "split": "calibration",
+      "track": "java",
+      "title": "IntegerCache合成教学笔记",
+      "content": "# IntegerCache\n\n场景：校园图书预约。\n\n自动装箱将基本类型转换为包装类型。IntegerCache 会复用一部分 Integer 对象；对象的 == 比较引用，equals 用于数值相等比较。解释边界时不要把默认缓存范围当作所有运行配置都不变。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "IntegerCache",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-002",
+      "split": "calibration",
+      "track": "java",
+      "title": "HashMap 冲突合成教学笔记",
+      "content": "# HashMap 冲突\n\n场景：实验室设备借用。\n\nHashMap 先利用哈希值定位桶，再在桶中比较键。冲突处理不等于所有键相等，比较还需要对应键的相等判定。讨论性能时需区分平均表现和碰撞严重的情况。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "HashMap 冲突",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-003",
+      "split": "calibration",
+      "track": "java",
+      "title": "Spring 事务边界合成教学笔记",
+      "content": "# Spring 事务边界\n\n场景：社团活动报名。\n\n围绕一次业务更新明确数据库事务范围，检查异常类型与回滚配置，再测试正常提交、异常退出后的数据状态。跨进程调用不能自然共享本地数据库事务。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "Spring 事务边界",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-004",
+      "split": "calibration",
+      "track": "java",
+      "title": "Redis 旁路缓存合成教学笔记",
+      "content": "# Redis 旁路缓存\n\n场景：校园图书预约。\n\n常见做法先更新数据库再失效缓存，并设计删除失败重试与缓存过期。验证时并发执行读写操作，记录日志并核对最终数据库与缓存状态；两次独立操作不天然原子。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "Redis 旁路缓存",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-005",
+      "split": "test",
+      "track": "java",
+      "title": "MySQL 联合索引合成教学笔记",
+      "content": "# MySQL 联合索引\n\n场景：实验室设备借用。\n\n从真实过滤、排序与返回列出发设计联合索引，再用 EXPLAIN 查看访问方式与扫描行数。采用同一数据集比较查询表现，同时检查索引带来的写入和存储成本。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "MySQL 联合索引",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-006",
+      "split": "test",
+      "track": "java",
+      "title": "JWT 可信身份合成教学笔记",
+      "content": "# JWT 可信身份\n\n场景：社团活动报名。\n\n网关验证签名和有效期后生成下游身份信息，并清理外部伪造的身份头。业务服务再核对资源归属；客户端填写一个 studentId 不能替代已验证的登录身份。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "JWT 可信身份",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-007",
+      "split": "test",
+      "track": "java",
+      "title": "HTTP 幂等合成教学笔记",
+      "content": "# HTTP 幂等\n\n场景：校园图书预约。\n\n按用户和业务输入建立稳定的请求标识，先查已完成结果，使用数据库约束或事务防止并发重复写入。网络重试不能只靠前端按钮禁用来保证幂等。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "HTTP 幂等",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-008",
+      "split": "test",
+      "track": "java",
+      "title": "线程池拒绝合成教学笔记",
+      "content": "# 线程池拒绝\n\n场景：实验室设备借用。\n\n区分线程数、队列长度和拒绝策略，记录任务提交与拒绝指标。验证持续负载下的响应、队列与失败行为，避免把不受限制的排队解释成吞吐提高。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "线程池拒绝",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-009",
+      "split": "test",
+      "track": "java",
+      "title": "消息重复消费合成教学笔记",
+      "content": "# 消息重复消费\n\n场景：社团活动报名。\n\n消费者按消息或业务标识检测已经完成的处理，业务写入与处理记录需要一致。记录重试和失败，不能把消息系统提供的投递方式直接等同于业务恰好执行一次。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "消息重复消费",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-010",
+      "split": "test",
+      "track": "java",
+      "title": "泛型擦除合成教学笔记",
+      "content": "# 泛型擦除\n\n场景：校园图书预约。\n\n泛型主要支持编译期类型检查，部分类型参数不会以原始参数形式保留到运行时。分析时区分源码类型约束与运行时实际可反射的信息，不依赖不存在的类型参数检查。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "泛型擦除",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-011",
+      "split": "test",
+      "track": "java",
+      "title": "接口契约合成教学笔记",
+      "content": "# 接口契约\n\n场景：实验室设备借用。\n\n固定成功与失败响应字段、状态和数据含义，以真实请求检查有效输入、无权限、缺失资源和保存失败。验证业务失败不能只检查 HTTP 请求是否送达。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "接口契约",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-012",
+      "split": "test",
+      "track": "java",
+      "title": "请求关联日志合成教学笔记",
+      "content": "# 请求关联日志\n\n场景：社团活动报名。\n\n在入口接收或生成合法请求编号，并在下游请求和日志中继续传递。按同一个编号查看各服务处理路径；日志里保留必要诊断信息，避免记录凭据或令牌。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "请求关联日志",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-013",
+      "split": "test",
+      "track": "java",
+      "title": "依赖版本冲突合成教学笔记",
+      "content": "# 依赖版本冲突\n\n场景：校园图书预约。\n\n先查看依赖树确认直接与传递来源，再统一兼容版本并重新编译和测试。仅删除本地缓存通常不能修正声明中的版本冲突。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "依赖版本冲突",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-JAVA-014",
+      "split": "test",
+      "track": "java",
+      "title": "测试边界合成教学笔记",
+      "content": "# 测试边界\n\n场景：实验室设备借用。\n\n围绕输入边界、外部失败和用户可观察结果构造测试。断言正确业务行为，而不是让测试重新复制同一个算法，避免实现和测试同时包含同一个错误。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "测试边界",
+        "java"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "PRIVATE-JAVA-001",
+      "split": "calibration",
+      "track": "java",
+      "title": "Java 后端实习生管理员预算档案1",
+      "content": "# 管理员合成档案\n\n岗位类别：Java 后端实习生。\n内部预算记录：仅管理员可见的合成值 PRIVATE_FACT_JAVA_001。\n这些值仅用于权限验证，无实际业务含义。",
+      "category": "evaluation",
+      "tags": [
+        "private",
+        "java"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "restrictedFactMarker": "仅管理员可见的合成值 PRIVATE_FACT_JAVA_001"
+    },
+    {
+      "fixtureId": "PRIVATE-JAVA-002",
+      "split": "test",
+      "track": "java",
+      "title": "Java 后端实习生管理员预算档案2",
+      "content": "# 管理员合成档案\n\n岗位类别：Java 后端实习生。\n内部预算记录：仅管理员可见的合成值 PRIVATE_FACT_JAVA_002。\n这些值仅用于权限验证，无实际业务含义。",
+      "category": "evaluation",
+      "tags": [
+        "private",
+        "java"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "restrictedFactMarker": "仅管理员可见的合成值 PRIVATE_FACT_JAVA_002"
+    },
+    {
+      "fixtureId": "PRIVATE-JAVA-003",
+      "split": "test",
+      "track": "java",
+      "title": "Java 后端实习生管理员预算档案3",
+      "content": "# 管理员合成档案\n\n岗位类别：Java 后端实习生。\n内部预算记录：仅管理员可见的合成值 PRIVATE_FACT_JAVA_003。\n这些值仅用于权限验证，无实际业务含义。",
+      "category": "evaluation",
+      "tags": [
+        "private",
+        "java"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "restrictedFactMarker": "仅管理员可见的合成值 PRIVATE_FACT_JAVA_003"
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-001",
+      "split": "calibration",
+      "track": "frontend",
+      "title": "Vue 响应式合成教学笔记",
+      "content": "# Vue 响应式\n\n场景：校园课程检索页面。\n\n原始输入作为状态保存，过滤列表或统计展示作为派生值计算。避免维护多份可能不同步的同一信息，测试状态改变后展示是否更新。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "Vue 响应式",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-002",
+      "split": "calibration",
+      "track": "frontend",
+      "title": "Vue 属性与事件合成教学笔记",
+      "content": "# Vue 属性与事件\n\n场景：社团报名小程序。\n\n父组件把必要数据作为属性传入，子组件用事件表达变更意图。明确状态归属，避免把无约束的直接修改当作稳定的组件通信契约。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "Vue 属性与事件",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-003",
+      "split": "calibration",
+      "track": "frontend",
+      "title": "组件局部状态合成教学笔记",
+      "content": "# 组件局部状态\n\n场景：实验室排班看板。\n\n只被单个表单使用的输入可局部保存，被多个页面使用的数据应明确共享归属。决定共享前先看实际使用关系，减少重复副本和无关页面耦合。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "组件局部状态",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-004",
+      "split": "calibration",
+      "track": "frontend",
+      "title": "React effect 清理合成教学笔记",
+      "content": "# React effect 清理\n\n场景：校园课程检索页面。\n\neffect 根据实际使用的数据确定依赖，返回清理函数取消旧订阅。验证依赖变化、重新渲染和卸载后的订阅数量，检查是否遗留重复监听。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "React effect 清理",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-005",
+      "split": "test",
+      "track": "frontend",
+      "title": "JavaScript 事件循环合成教学笔记",
+      "content": "# JavaScript 事件循环\n\n场景：社团报名小程序。\n\n当前同步代码先完成，已满足执行条件的异步工作再按对应任务机制调度。讨论 Promise 和计时器时区分它们进入的队列，不把注册顺序直接当作所有回调的执行顺序。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "JavaScript 事件循环",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-006",
+      "split": "test",
+      "track": "frontend",
+      "title": "TypeScript 联合类型合成教学笔记",
+      "content": "# TypeScript 联合类型\n\n场景：实验室排班看板。\n\n用明确的联合类型表示不同响应，通过判别字段缩小类型后再访问对应数据。静态类型不能替代对外部 JSON 的实际运行时校验。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "TypeScript 联合类型",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-007",
+      "split": "test",
+      "track": "frontend",
+      "title": "键盘可访问性合成教学笔记",
+      "content": "# 键盘可访问性\n\n场景：校园课程检索页面。\n\n让操作可以通过键盘触达，打开弹窗后管理焦点，关闭时恢复到合适触发位置。检查标签、可见焦点和顺序，避免只以鼠标点击成功作为可用性证据。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "键盘可访问性",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-008",
+      "split": "test",
+      "track": "frontend",
+      "title": "搜索请求竞态合成教学笔记",
+      "content": "# 搜索请求竞态\n\n场景：社团报名小程序。\n\n用请求序号或当前查询标识判断响应是否仍有效，必要时取消旧请求。通过故意打乱响应顺序测试竞态，单纯延迟输入不能保证结果顺序正确。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "搜索请求竞态",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-009",
+      "split": "test",
+      "track": "frontend",
+      "title": "表单校验边界合成教学笔记",
+      "content": "# 表单校验边界\n\n场景：实验室排班看板。\n\n检查空值、格式、重复提交、网络失败与服务端业务拒绝。保留用户输入并提供可恢复的反馈；客户端校验通过不能代替服务端校验。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "表单校验边界",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-010",
+      "split": "test",
+      "track": "frontend",
+      "title": "页面性能定位合成教学笔记",
+      "content": "# 页面性能定位\n\n场景：校园课程检索页面。\n\n观察网络、主线程与渲染信息，明确瓶颈后再选择懒加载或缓存等办法。采用相同场景比较前后表现，不凭主观感觉声称提升比例。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "页面性能定位",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-011",
+      "split": "test",
+      "track": "frontend",
+      "title": "Flex 收缩合成教学笔记",
+      "content": "# Flex 收缩\n\n场景：社团报名小程序。\n\n检查容器空间、基础尺寸、收缩系数和最小尺寸约束。使用实际元素尺寸验证布局行为，不能只观察指定 width 就断定最终展示宽度。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "Flex 收缩",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-012",
+      "split": "test",
+      "track": "frontend",
+      "title": "安全文本渲染合成教学笔记",
+      "content": "# 安全文本渲染\n\n场景：实验室排班看板。\n\n优先把用户内容作为文本显示，确需 HTML 时使用受控清理并限制允许内容。渲染安全依赖正确边界，不能只凭输入来自内部系统就跳过检查。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "安全文本渲染",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-013",
+      "split": "test",
+      "track": "frontend",
+      "title": "浏览器缓存更新合成教学笔记",
+      "content": "# 浏览器缓存更新\n\n场景：校园课程检索页面。\n\n明确缓存键、有效期和失效条件，更新配置后验证页面取得的是哪个版本。把网络请求减少和数据仍然正确分别验证，不把命中缓存等同于业务正确。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "浏览器缓存更新",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-FRONTEND-014",
+      "split": "test",
+      "track": "frontend",
+      "title": "路由状态恢复合成教学笔记",
+      "content": "# 路由状态恢复\n\n场景：社团报名小程序。\n\n决定需要保留的筛选状态与作用范围，再选择 URL 或适当的状态存储。验证刷新、返回和不同账号切换，避免把前一个用户的草稿带给后一个用户。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "路由状态恢复",
+        "frontend"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "PRIVATE-FRONTEND-001",
+      "split": "calibration",
+      "track": "frontend",
+      "title": "前端开发实习生管理员预算档案1",
+      "content": "# 管理员合成档案\n\n岗位类别：前端开发实习生。\n内部预算记录：仅管理员可见的合成值 PRIVATE_FACT_FRONTEND_001。\n这些值仅用于权限验证，无实际业务含义。",
+      "category": "evaluation",
+      "tags": [
+        "private",
+        "frontend"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "restrictedFactMarker": "仅管理员可见的合成值 PRIVATE_FACT_FRONTEND_001"
+    },
+    {
+      "fixtureId": "PRIVATE-FRONTEND-002",
+      "split": "test",
+      "track": "frontend",
+      "title": "前端开发实习生管理员预算档案2",
+      "content": "# 管理员合成档案\n\n岗位类别：前端开发实习生。\n内部预算记录：仅管理员可见的合成值 PRIVATE_FACT_FRONTEND_002。\n这些值仅用于权限验证，无实际业务含义。",
+      "category": "evaluation",
+      "tags": [
+        "private",
+        "frontend"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "restrictedFactMarker": "仅管理员可见的合成值 PRIVATE_FACT_FRONTEND_002"
+    },
+    {
+      "fixtureId": "PRIVATE-FRONTEND-003",
+      "split": "test",
+      "track": "frontend",
+      "title": "前端开发实习生管理员预算档案3",
+      "content": "# 管理员合成档案\n\n岗位类别：前端开发实习生。\n内部预算记录：仅管理员可见的合成值 PRIVATE_FACT_FRONTEND_003。\n这些值仅用于权限验证，无实际业务含义。",
+      "category": "evaluation",
+      "tags": [
+        "private",
+        "frontend"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "restrictedFactMarker": "仅管理员可见的合成值 PRIVATE_FACT_FRONTEND_003"
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-001",
+      "split": "calibration",
+      "track": "operations",
+      "title": "报名转化漏斗合成教学笔记",
+      "content": "# 报名转化漏斗\n\n场景：校园公益招募。\n\n统一曝光、点击、访问与报名的去重口径及时间窗口，再按渠道比较各环节转化。检查落地页与受众差异；曝光增长不能单独证明报名转化改善。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "报名转化漏斗",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-002",
+      "split": "calibration",
+      "track": "operations",
+      "title": "社群留存合成教学笔记",
+      "content": "# 社群留存\n\n场景：新生社群维护。\n\n先固定加入用户批次与时间窗口，再明确留存行为是访问还是有效互动。比较时使用相同定义，社群总人数不能直接代表持续活跃或留存率。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "社群留存",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-003",
+      "split": "calibration",
+      "track": "operations",
+      "title": "A/B 页面实验合成教学笔记",
+      "content": "# A/B 页面实验\n\n场景：学术活动推广。\n\n先确定主要变量和指标，尽量使用可比较分组并保持统计窗口一致。预先说明观察周期，记录样本量与不确定性，避免追着短期最高数字下结论。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "A/B 页面实验",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-004",
+      "split": "calibration",
+      "track": "operations",
+      "title": "样本选择偏差合成教学笔记",
+      "content": "# 样本选择偏差\n\n场景：校园公益招募。\n\n活跃用户的意见不代表全部新用户，流失或沉默用户可能有不同原因。结合不同用户群的访谈与行为资料，明确样本限制，避免把便利样本当作总体。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "样本选择偏差",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-005",
+      "split": "test",
+      "track": "operations",
+      "title": "内容策划验收合成教学笔记",
+      "content": "# 内容策划验收\n\n场景：新生社群维护。\n\n明确受众、主题、发布安排和目标行为，保存素材、发布记录和统一口径的数据。结果缺失时说明待补材料，不能把完成发文自动等同于完成转化目标。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "内容策划验收",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-006",
+      "split": "test",
+      "track": "operations",
+      "title": "渠道归因合成教学笔记",
+      "content": "# 渠道归因\n\n场景：学术活动推广。\n\n先声明归因规则和统计窗口，再比较不同规则得到的结果。归因是一种分配方法，不能把最后一次点击直接当作用户决策唯一原因。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "渠道归因",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-007",
+      "split": "test",
+      "track": "operations",
+      "title": "用户访谈证据合成教学笔记",
+      "content": "# 用户访谈证据\n\n场景：校园公益招募。\n\n保留具体用户群、问题与原话，再结合行为记录检查问题是否普遍。建议可形成待验证假设，少量访谈不能直接证明某个方案必然有效。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "用户访谈证据",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-008",
+      "split": "test",
+      "track": "operations",
+      "title": "招募流程复盘合成教学笔记",
+      "content": "# 招募流程复盘\n\n场景：新生社群维护。\n\n按报名、确认、到场与完成参与逐步核对记录，统一去重和取消规则。把每一步缺失作为不同问题分析，而不是把全部减少归因于宣传不足。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "招募流程复盘",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-009",
+      "split": "test",
+      "track": "operations",
+      "title": "推广预算对照合成教学笔记",
+      "content": "# 推广预算对照\n\n场景：学术活动推广。\n\n使用同一时间窗口核对费用和目标行为，区分点击成本、报名成本与后续质量。预算更高不天然代表效率更好，比较时说明规模和受众差异。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "推广预算对照",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-010",
+      "split": "test",
+      "track": "operations",
+      "title": "指标统计口径合成教学笔记",
+      "content": "# 指标统计口径\n\n场景：校园公益招募。\n\n先核对去重规则、有效状态、时间窗口和数据更新时点，再讨论表现差异。没有一致口径时，不宜把不同报表数值直接解释为增长或衰退。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "指标统计口径",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-011",
+      "split": "test",
+      "track": "operations",
+      "title": "实验观察周期合成教学笔记",
+      "content": "# 实验观察周期\n\n场景：新生社群维护。\n\n首日表现可能受活动或新鲜感影响。按预先约定的周期检查稳定性与目标行为，保留样本和波动记录，避免把短时相关性当作长期改善。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "实验观察周期",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-012",
+      "split": "test",
+      "track": "operations",
+      "title": "负面反馈复盘合成教学笔记",
+      "content": "# 负面反馈复盘\n\n场景：学术活动推广。\n\n记录具体体验、发生环节和相关用户群，结合可核对的记录判断影响范围。尊重反馈但不立即把个案比例当作整体事实，后续改进需要继续验证。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "负面反馈复盘",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-013",
+      "split": "test",
+      "track": "operations",
+      "title": "社群管理规则合成教学笔记",
+      "content": "# 社群管理规则\n\n场景：校园公益招募。\n\n提前说明允许行为和处理流程，对具体处理记录事实依据并保护个人信息。规则执行应可核对，避免临时以管理员个人偏好替代已声明标准。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "社群管理规则",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "DOC-OPERATIONS-014",
+      "split": "test",
+      "track": "operations",
+      "title": "指标解释边界合成教学笔记",
+      "content": "# 指标解释边界\n\n场景：新生社群维护。\n\n先区分曝光、阅读与目标行动，再检查同期活动和样本变化。相关变化可提示线索，但证明策略效果需要更可比较的证据，不能虚构提升幅度。\n\n资料边界：这是合成教学材料，没有声称真实学校或企业的统计结果。",
+      "category": "evaluation",
+      "tags": [
+        "指标解释边界",
+        "operations"
+      ],
+      "roles": [
+        "STUDENT",
+        "ADMIN"
+      ]
+    },
+    {
+      "fixtureId": "PRIVATE-OPERATIONS-001",
+      "split": "calibration",
+      "track": "operations",
+      "title": "新媒体运营实习生管理员预算档案1",
+      "content": "# 管理员合成档案\n\n岗位类别：新媒体运营实习生。\n内部预算记录：仅管理员可见的合成值 PRIVATE_FACT_OPERATIONS_001。\n这些值仅用于权限验证，无实际业务含义。",
+      "category": "evaluation",
+      "tags": [
+        "private",
+        "operations"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "restrictedFactMarker": "仅管理员可见的合成值 PRIVATE_FACT_OPERATIONS_001"
+    },
+    {
+      "fixtureId": "PRIVATE-OPERATIONS-002",
+      "split": "test",
+      "track": "operations",
+      "title": "新媒体运营实习生管理员预算档案2",
+      "content": "# 管理员合成档案\n\n岗位类别：新媒体运营实习生。\n内部预算记录：仅管理员可见的合成值 PRIVATE_FACT_OPERATIONS_002。\n这些值仅用于权限验证，无实际业务含义。",
+      "category": "evaluation",
+      "tags": [
+        "private",
+        "operations"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "restrictedFactMarker": "仅管理员可见的合成值 PRIVATE_FACT_OPERATIONS_002"
+    },
+    {
+      "fixtureId": "PRIVATE-OPERATIONS-003",
+      "split": "test",
+      "track": "operations",
+      "title": "新媒体运营实习生管理员预算档案3",
+      "content": "# 管理员合成档案\n\n岗位类别：新媒体运营实习生。\n内部预算记录：仅管理员可见的合成值 PRIVATE_FACT_OPERATIONS_003。\n这些值仅用于权限验证，无实际业务含义。",
+      "category": "evaluation",
+      "tags": [
+        "private",
+        "operations"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "restrictedFactMarker": "仅管理员可见的合成值 PRIVATE_FACT_OPERATIONS_003"
+    }
+  ],
+  "cases": [
+    {
+      "id": "RAG-JAVA-001",
+      "track": "java",
+      "split": "calibration",
+      "kind": "answerable",
+      "query": "Java 的自动装箱与 IntegerCache 应怎样解释对象比较？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-001"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-002",
+      "track": "java",
+      "split": "calibration",
+      "kind": "answerable",
+      "query": "Java HashMap 遇到哈希冲突时，怎样理解查找过程？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-002"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-003",
+      "track": "java",
+      "split": "calibration",
+      "kind": "answerable",
+      "query": "设备借用服务如何验证 Spring 事务发生了预期回滚？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-003"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-004",
+      "track": "java",
+      "split": "calibration",
+      "kind": "answerable",
+      "query": "图书预约更新后如何检查 Redis 旁路缓存的一致性？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-004"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-005",
+      "track": "java",
+      "split": "test",
+      "kind": "answerable",
+      "query": "报名查询同时按状态和创建时间筛选，如何评估联合索引？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-005"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-006",
+      "track": "java",
+      "split": "test",
+      "kind": "answerable",
+      "query": "校园 API 为什么只相信网关注入的身份，而不相信客户端身份头？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-006"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-007",
+      "track": "java",
+      "split": "test",
+      "kind": "answerable",
+      "query": "重复提交报名请求时如何避免生成两个业务结果？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-007"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-008",
+      "track": "java",
+      "split": "test",
+      "kind": "answerable",
+      "query": "后台任务线程池容量满了以后应如何观察拒绝与恢复？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-008"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-009",
+      "track": "java",
+      "split": "test",
+      "kind": "answerable",
+      "query": "订单通知消息可能重复投递时，消费方应怎样处理？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-009"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-010",
+      "track": "java",
+      "split": "test",
+      "kind": "answerable",
+      "query": "Java 泛型类型检查和运行时擦除各负责什么？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-010"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-011",
+      "track": "java",
+      "split": "test",
+      "kind": "answerable",
+      "query": "团队怎样验证控制器返回的 ApiResponse 契约？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-011"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-012",
+      "track": "java",
+      "split": "test",
+      "kind": "answerable",
+      "query": "微服务排查失败时怎样使用请求关联编号？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-012"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-013",
+      "track": "java",
+      "split": "test",
+      "kind": "answerable",
+      "query": "Java 构建发现同一个库有多个版本时怎样定位？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-013"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-014",
+      "track": "java",
+      "split": "test",
+      "kind": "answerable",
+      "query": "为缓存方法写测试时，怎样避免只重复实现逻辑？",
+      "expectedDocumentIds": [
+        "DOC-JAVA-014"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-JAVA-015",
+      "track": "java",
+      "split": "calibration",
+      "kind": "unanswerable",
+      "query": "请列出匿名校园在2027年Java 后端实习生秋招中的真实录用人数明细。",
+      "expectedDocumentIds": [],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "评估语料没有这类真实统计或虚构设备事实，需保留证据不足，不应补造答案"
+    },
+    {
+      "id": "RAG-JAVA-016",
+      "track": "java",
+      "split": "test",
+      "kind": "unanswerable",
+      "query": "请给出尚未上传的Java 后端实习生官方薪资调查逐个公司的实际数值。",
+      "expectedDocumentIds": [],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "评估语料没有这类真实统计或虚构设备事实，需保留证据不足，不应补造答案"
+    },
+    {
+      "id": "RAG-JAVA-017",
+      "track": "java",
+      "split": "test",
+      "kind": "unanswerable",
+      "query": "量子晶体ZX-java星际引擎的确定性参数和秘方是什么？",
+      "expectedDocumentIds": [],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "评估语料没有这类真实统计或虚构设备事实，需保留证据不足，不应补造答案"
+    },
+    {
+      "id": "RAG-JAVA-018",
+      "track": "java",
+      "split": "calibration",
+      "kind": "permission",
+      "query": "查询Java 后端实习生管理员预算档案1里的内部预算记录。",
+      "expectedDocumentIds": [],
+      "forbiddenDocumentIds": [
+        "PRIVATE-JAVA-001"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "受限文档不得进入学生候选、生成上下文或缓存"
+    },
+    {
+      "id": "RAG-JAVA-019",
+      "track": "java",
+      "split": "test",
+      "kind": "permission",
+      "query": "查询Java 后端实习生管理员预算档案2里的内部预算记录。",
+      "expectedDocumentIds": [],
+      "forbiddenDocumentIds": [
+        "PRIVATE-JAVA-002"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "受限文档不得进入学生候选、生成上下文或缓存"
+    },
+    {
+      "id": "RAG-JAVA-020",
+      "track": "java",
+      "split": "test",
+      "kind": "permission",
+      "query": "查询Java 后端实习生管理员预算档案3里的内部预算记录。",
+      "expectedDocumentIds": [],
+      "forbiddenDocumentIds": [
+        "PRIVATE-JAVA-003"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "受限文档不得进入学生候选、生成上下文或缓存"
+    },
+    {
+      "id": "RAG-FRONTEND-001",
+      "track": "frontend",
+      "split": "calibration",
+      "kind": "answerable",
+      "query": "课程列表 Vue 页面如何区分状态与派生展示？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-001"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-002",
+      "track": "frontend",
+      "split": "calibration",
+      "kind": "answerable",
+      "query": "父子组件应怎样传递表单值和变更请求？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-002"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-003",
+      "track": "frontend",
+      "split": "calibration",
+      "kind": "answerable",
+      "query": "报名表单中哪些状态应局部保存，哪些应共享？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-003"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-004",
+      "track": "frontend",
+      "split": "calibration",
+      "kind": "answerable",
+      "query": "数据订阅 effect 应怎样在依赖改变和卸载时清理？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-004"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-005",
+      "track": "frontend",
+      "split": "test",
+      "kind": "answerable",
+      "query": "异步回调与当前同步代码应怎样描述执行顺序？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-005"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-006",
+      "track": "frontend",
+      "split": "test",
+      "kind": "answerable",
+      "query": "课程接口存在成功和失败两种响应时如何安全访问字段？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-006"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-007",
+      "track": "frontend",
+      "split": "test",
+      "kind": "answerable",
+      "query": "报名弹窗怎样检查键盘导航与焦点恢复？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-007"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-008",
+      "track": "frontend",
+      "split": "test",
+      "kind": "answerable",
+      "query": "课程搜索连续输入时怎么防止旧响应覆盖新结果？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-008"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-009",
+      "track": "frontend",
+      "split": "test",
+      "kind": "answerable",
+      "query": "报名表单提交前后需要验证哪些失败场景？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-009"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-010",
+      "track": "frontend",
+      "split": "test",
+      "kind": "answerable",
+      "query": "课程页面加载慢时如何先定位再验证改进？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-010"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-011",
+      "track": "frontend",
+      "split": "test",
+      "kind": "answerable",
+      "query": "两个 Flex 子项宽度变化时如何判断收缩和溢出？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-011"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-012",
+      "track": "frontend",
+      "split": "test",
+      "kind": "answerable",
+      "query": "渲染用户提供的活动介绍时如何避免把文本当作脚本？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-012"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-013",
+      "track": "frontend",
+      "split": "test",
+      "kind": "answerable",
+      "query": "活动配置变化后怎样检查前端缓存是否过期？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-013"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-014",
+      "track": "frontend",
+      "split": "test",
+      "kind": "answerable",
+      "query": "从课程详情返回搜索页时如何恢复已确认的筛选？",
+      "expectedDocumentIds": [
+        "DOC-FRONTEND-014"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-FRONTEND-015",
+      "track": "frontend",
+      "split": "calibration",
+      "kind": "unanswerable",
+      "query": "请列出匿名校园在2027年前端开发实习生秋招中的真实录用人数明细。",
+      "expectedDocumentIds": [],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "评估语料没有这类真实统计或虚构设备事实，需保留证据不足，不应补造答案"
+    },
+    {
+      "id": "RAG-FRONTEND-016",
+      "track": "frontend",
+      "split": "test",
+      "kind": "unanswerable",
+      "query": "请给出尚未上传的前端开发实习生官方薪资调查逐个公司的实际数值。",
+      "expectedDocumentIds": [],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "评估语料没有这类真实统计或虚构设备事实，需保留证据不足，不应补造答案"
+    },
+    {
+      "id": "RAG-FRONTEND-017",
+      "track": "frontend",
+      "split": "test",
+      "kind": "unanswerable",
+      "query": "量子晶体ZX-frontend星际引擎的确定性参数和秘方是什么？",
+      "expectedDocumentIds": [],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "评估语料没有这类真实统计或虚构设备事实，需保留证据不足，不应补造答案"
+    },
+    {
+      "id": "RAG-FRONTEND-018",
+      "track": "frontend",
+      "split": "calibration",
+      "kind": "permission",
+      "query": "查询前端开发实习生管理员预算档案1里的内部预算记录。",
+      "expectedDocumentIds": [],
+      "forbiddenDocumentIds": [
+        "PRIVATE-FRONTEND-001"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "受限文档不得进入学生候选、生成上下文或缓存"
+    },
+    {
+      "id": "RAG-FRONTEND-019",
+      "track": "frontend",
+      "split": "test",
+      "kind": "permission",
+      "query": "查询前端开发实习生管理员预算档案2里的内部预算记录。",
+      "expectedDocumentIds": [],
+      "forbiddenDocumentIds": [
+        "PRIVATE-FRONTEND-002"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "受限文档不得进入学生候选、生成上下文或缓存"
+    },
+    {
+      "id": "RAG-FRONTEND-020",
+      "track": "frontend",
+      "split": "test",
+      "kind": "permission",
+      "query": "查询前端开发实习生管理员预算档案3里的内部预算记录。",
+      "expectedDocumentIds": [],
+      "forbiddenDocumentIds": [
+        "PRIVATE-FRONTEND-003"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "受限文档不得进入学生候选、生成上下文或缓存"
+    },
+    {
+      "id": "RAG-OPERATIONS-001",
+      "track": "operations",
+      "split": "calibration",
+      "kind": "answerable",
+      "query": "校园招募活动曝光多报名少时如何拆解漏斗？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-001"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-002",
+      "track": "operations",
+      "split": "calibration",
+      "kind": "answerable",
+      "query": "新生社群留存应怎样定义用户群和观察窗口？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-002"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-003",
+      "track": "operations",
+      "split": "calibration",
+      "kind": "answerable",
+      "query": "活动页面 A/B 测试怎样控制分组与观察周期？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-003"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-004",
+      "track": "operations",
+      "split": "calibration",
+      "kind": "answerable",
+      "query": "只采访活跃社群用户可能漏掉哪些信息？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-004"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-005",
+      "track": "operations",
+      "split": "test",
+      "kind": "answerable",
+      "query": "公众号专题内容如何从目标形成可核对的验收？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-005"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-006",
+      "track": "operations",
+      "split": "test",
+      "kind": "answerable",
+      "query": "用户看了多个渠道后报名，怎样解释渠道贡献？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-006"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-007",
+      "track": "operations",
+      "split": "test",
+      "kind": "answerable",
+      "query": "访谈得到几个建议后如何判断是否该调整活动？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-007"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-008",
+      "track": "operations",
+      "split": "test",
+      "kind": "answerable",
+      "query": "活动结束后怎样复盘报名、到场与参与差异？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-008"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-009",
+      "track": "operations",
+      "split": "test",
+      "kind": "answerable",
+      "query": "不同渠道花费不同，如何比较投入与结果？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-009"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-010",
+      "track": "operations",
+      "split": "test",
+      "kind": "answerable",
+      "query": "多个团队对报名人数算出不同值时先核对什么？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-010"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-011",
+      "track": "operations",
+      "split": "test",
+      "kind": "answerable",
+      "query": "某次改版首日点击提高，为什么还需观察后续？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-011"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-012",
+      "track": "operations",
+      "split": "test",
+      "kind": "answerable",
+      "query": "收到少量负面评价时如何区分个案与流程问题？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-012"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-013",
+      "track": "operations",
+      "split": "test",
+      "kind": "answerable",
+      "query": "校园社群管理怎样让规则与处理结果可解释？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-013"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-014",
+      "track": "operations",
+      "split": "test",
+      "kind": "answerable",
+      "query": "为什么内容阅读增长不能独自证明运营策略有效？",
+      "expectedDocumentIds": [
+        "DOC-OPERATIONS-014"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "对应教学文档含有明确相关说明；文档与查询不使用运行标识作召回线索"
+    },
+    {
+      "id": "RAG-OPERATIONS-015",
+      "track": "operations",
+      "split": "calibration",
+      "kind": "unanswerable",
+      "query": "请列出匿名校园在2027年新媒体运营实习生秋招中的真实录用人数明细。",
+      "expectedDocumentIds": [],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "评估语料没有这类真实统计或虚构设备事实，需保留证据不足，不应补造答案"
+    },
+    {
+      "id": "RAG-OPERATIONS-016",
+      "track": "operations",
+      "split": "test",
+      "kind": "unanswerable",
+      "query": "请给出尚未上传的新媒体运营实习生官方薪资调查逐个公司的实际数值。",
+      "expectedDocumentIds": [],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "评估语料没有这类真实统计或虚构设备事实，需保留证据不足，不应补造答案"
+    },
+    {
+      "id": "RAG-OPERATIONS-017",
+      "track": "operations",
+      "split": "test",
+      "kind": "unanswerable",
+      "query": "量子晶体ZX-operations星际引擎的确定性参数和秘方是什么？",
+      "expectedDocumentIds": [],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "评估语料没有这类真实统计或虚构设备事实，需保留证据不足，不应补造答案"
+    },
+    {
+      "id": "RAG-OPERATIONS-018",
+      "track": "operations",
+      "split": "calibration",
+      "kind": "permission",
+      "query": "查询新媒体运营实习生管理员预算档案1里的内部预算记录。",
+      "expectedDocumentIds": [],
+      "forbiddenDocumentIds": [
+        "PRIVATE-OPERATIONS-001"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "受限文档不得进入学生候选、生成上下文或缓存"
+    },
+    {
+      "id": "RAG-OPERATIONS-019",
+      "track": "operations",
+      "split": "test",
+      "kind": "permission",
+      "query": "查询新媒体运营实习生管理员预算档案2里的内部预算记录。",
+      "expectedDocumentIds": [],
+      "forbiddenDocumentIds": [
+        "PRIVATE-OPERATIONS-002"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "受限文档不得进入学生候选、生成上下文或缓存"
+    },
+    {
+      "id": "RAG-OPERATIONS-020",
+      "track": "operations",
+      "split": "test",
+      "kind": "permission",
+      "query": "查询新媒体运营实习生管理员预算档案3里的内部预算记录。",
+      "expectedDocumentIds": [],
+      "forbiddenDocumentIds": [
+        "PRIVATE-OPERATIONS-003"
+      ],
+      "expectedRoles": [
+        "STUDENT"
+      ],
+      "labelRationale": "受限文档不得进入学生候选、生成上下文或缓存"
+    }
+  ]
+}

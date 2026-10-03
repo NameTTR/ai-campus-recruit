@@ -1,7 +1,8 @@
 package com.aicampus.match.service.store;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 @ConfigurationProperties(prefix = "match")
 public class MatchProperties {
