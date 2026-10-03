@@ -29,6 +29,7 @@ import {
 } from 'lucide-vue-next'
 import {
   confirmLearningPlan,
+  compareResumeJobs,
   evaluateInterviewAnswer,
   analyzeResume,
   answerKnowledgeBase,
@@ -61,6 +62,7 @@ import {
   type LearningPlan,
   type LearningEvidence,
   type MatchResult,
+  type ResumeCompareResult,
   type ResumeDiagnosis,
   type ResumeSummary,
   type ResumeRewriteResponse,
@@ -83,6 +85,7 @@ import {
 } from '../features/student/studentWorkflow'
 
 import ResumeEvidencePanel from '../features/student/ResumeEvidencePanel.vue'
+import ResumeBuilderPanel from '../features/student/ResumeBuilderPanel.vue'
 import MatchEvidencePanel from '../features/student/MatchEvidencePanel.vue'
 import LearningEvidenceForm from '../features/student/LearningEvidenceForm.vue'
 import InterviewFeedbackPanel from '../features/student/InterviewFeedbackPanel.vue'
@@ -125,6 +128,9 @@ const resumeForm = reactive({
 const jobs = ref<JobSummary[]>([])
 const matches = ref<MatchResult[]>([])
 const selectedJobId = ref('')
+const selectedCompareJobIds = ref<string[]>([])
+const compareResult = ref<ResumeCompareResult>()
+const compareLoading = ref(false)
 const currentMatch = ref<MatchResult>()
 const jobsLoading = ref(false)
 const matchLoading = ref(false)
@@ -645,7 +651,7 @@ async function runMatch() {
   const resume = selectedResume.value
   const job = selectedJob.value
   if (!resume || !job) {
-    ElMessage.warning('请先选择简历和岗位')
+    ElMessage.warning('\u8bf7\u5148\u9009\u62e9\u7b80\u5386\u548c\u5c97\u4f4d')
     return
   }
   if (matchLoading.value) {
@@ -661,11 +667,32 @@ async function runMatch() {
       currentMatch.value = match
       persistSelection()
     }
-    ElMessage.success('岗位匹配已完成')
+    ElMessage.success('\u5c97\u4f4d\u5339\u914d\u5df2\u5b8c\u6210')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '岗位匹配失败')
+    ElMessage.error(error instanceof Error ? error.message : '\u5c97\u4f4d\u5339\u914d\u5931\u8d25')
   } finally {
     matchLoading.value = false
+  }
+}
+
+async function compareSelectedJobs() {
+  if (!selectedResumeId.value) {
+    ElMessage.warning('\u8bf7\u5148\u9009\u62e9\u7b80\u5386')
+    return
+  }
+  const ids = [...new Set(selectedCompareJobIds.value)].filter(Boolean)
+  if (ids.length < 2 || ids.length > 3) {
+    ElMessage.warning('\u8bf7\u9009\u62e9\u4e24\u5230\u4e09\u4e2a\u5c97\u4f4d\u8fdb\u884c\u6bd4\u8f83')
+    return
+  }
+  compareLoading.value = true
+  try {
+    compareResult.value = await compareResumeJobs({ resumeId: selectedResumeId.value, jobIds: ids })
+    ElMessage.success('\u5c97\u4f4d\u6bd4\u8f83\u5df2\u5b8c\u6210')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '\u5c97\u4f4d\u6bd4\u8f83\u5931\u8d25')
+  } finally {
+    compareLoading.value = false
   }
 }
 
@@ -1199,6 +1226,8 @@ watch(targetRole, (value) => {
         <article class="overview-card accent-plain"><span>已提取技能</span><strong>{{ selectedResume?.skills.length || 0 }}</strong><GraduationCap :size="22" /></article>
       </section>
 
+      <ResumeBuilderPanel :target-role="targetRole" :resume-id="selectedResumeId || undefined" />
+
       <section class="resume-hero panel" v-loading="resumeLoading">
         <div class="section-heading">
           <div><span class="eyebrow">RESUME LIBRARY</span><h2>我的简历</h2></div>
@@ -1287,6 +1316,12 @@ watch(targetRole, (value) => {
             <el-select v-model="jobCityFilter" clearable placeholder="城市"><el-option v-for="city in jobCities" :key="city" :label="city" :value="city" /></el-select>
             <el-select v-model="jobSkillFilter" clearable placeholder="技能"><el-option v-for="skill in jobSkills" :key="skill" :label="skill" :value="skill" /></el-select>
           </div>
+           <div class="compare-toolbar">
+             <el-select v-model="selectedCompareJobIds" multiple collapse-tags :max-collapse-tags="3" placeholder="选择 2-3 个岗位比较">
+               <el-option v-for="job in jobs" :key="`compare-${job.jobId}`" :label="`${job.title} ? ${job.companyName}`" :value="job.jobId" />
+             </el-select>
+             <el-button type="primary" plain :loading="compareLoading" :disabled="selectedCompareJobIds.length < 2" @click="compareSelectedJobs">比较岗位</el-button>
+           </div>
           <div class="job-card-list">
             <button v-for="job in filteredJobs" :key="job.jobId" class="job-card" :class="{ selected: job.jobId === selectedJobId }" @click="selectedJobId = job.jobId">
               <span class="job-card-mark">{{ job.companyName.slice(0, 1) }}</span>
@@ -1298,6 +1333,26 @@ watch(targetRole, (value) => {
         </article>
 
         <div class="job-detail-stack">
+          <article v-if="compareResult" class="panel comparison-panel">
+            <div class="section-heading"><div><span class="eyebrow">JOB COMPARISON</span><h2>岗位条件与证据比较</h2></div><el-button text @click="compareResult = undefined">关闭</el-button></div>
+            <p class="form-dirty-note">各岗位使用同一份选定简历。覆盖率表示要求覆盖情况；缺少安排或岗位条件时保留“信息不足”。</p>
+            <div class="comparison-grid">
+              <article v-for="item in compareResult.jobs" :key="item.job.jobId">
+                <strong>{{ item.job.title }}</strong><small>{{ item.job.companyName }} · {{ item.job.city }}</small>
+                <p class="comparison-evidence">技能覆盖 {{ item.match.score }}% · 当前简历证据覆盖 {{ item.match.details?.evidenceCoverage ?? '—' }}%</p>
+                <details v-for="req in item.requirements" :key="`${item.job.jobId}-${req.skill}`" class="comparison-requirement">
+                  <summary><el-tag size="small" :type="req.tier === 'REQUIRED' ? 'danger' : req.tier === 'PREFERRED' ? 'warning' : 'info'">{{ ({ REQUIRED: '明确必需', PREFERRED: '明确优先', UNSPECIFIED: '未注明' } as Record<string, string>)[req.tier] || '未注明' }}</el-tag> {{ req.skill }}</summary>
+                  <p>岗位原文：{{ req.quote || '技能清单中列出，正文未找到明确说明' }}</p>
+                  <template v-for="evidence in item.availableEvidence.filter(e => e.skill === req.skill)" :key="evidence.skill">
+                    <p>主资料：{{ evidence.declaredInMaster ? '已声明' : '尚未声明' }} · {{ evidence.supportedInMaster ? '已有材料支撑' : '材料中尚未体现实践' }}</p>
+                    <p>{{ evidence.shownInResume ? '当前简历已体现实践证据' : evidence.supportedInMaster ? '主资料已有，当前简历未体现：建议补充已有经历的表达' : '待补材料：可先核对已有经历，再安排学习或练习' }}</p>
+                    <p v-for="(source, index) in evidence.sources" :key="`${source.sourceId}-${index}`">资料依据：{{ source.quote || source.sourceId }}<span v-if="source.assessment"> · {{ source.assessment }}</span></p>
+                  </template>
+                </details>
+                <p v-for="condition in item.conditions" :key="`${item.job.jobId}-${condition.type}`"><b>{{ ({ EDUCATION: '学历', LOCATION: '工作地点', GRADUATION: '毕业时间', START_DATE: '到岗日期', WEEKLY_DAYS: '每周出勤', CONTINUOUS_MONTHS: '连续实习时长' } as Record<string, string>)[condition.type] || condition.type }}</b>：{{ ({ SATISFIED: '满足', NOT_SATISFIED: '不满足', UNKNOWN: '信息不足' } as Record<string, string>)[condition.status] || '信息不足' }}<small>{{ condition.requirement }} · {{ condition.explanation }}</small></p>
+              </article>
+            </div>
+          </article>
           <article class="panel job-detail">
             <template v-if="selectedJob">
               <div class="section-heading"><div><span class="eyebrow">SELECTED ROLE</span><h2>{{ selectedJob.title }}</h2></div><el-tag type="success">{{ selectedJob.status || 'OPEN' }}</el-tag></div>
@@ -2033,5 +2088,36 @@ watch(targetRole, (value) => {
   .answer-actions :deep(.el-button) { flex: 1; }
   .knowledge-search { grid-template-columns: 1fr; }
   .knowledge-search :deep(.el-button) { width: 100%; }
+}
+
+.compare-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin: 12px 0 16px;
+}
+.compare-toolbar :deep(.el-select) { min-width: 0; }
+.comparison-panel { margin-bottom: 16px; }
+.comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+.comparison-grid > article {
+  padding: 14px;
+  border: 1px solid var(--line, #e8ebea);
+  border-radius: 12px;
+  background: var(--surface-soft, #fbfcfb);
+}
+.comparison-grid small { display: block; margin-top: 4px; color: var(--muted, #75807c); }
+.comparison-grid p { margin: 8px 0 0; color: var(--muted, #596560); line-height: 1.5; }
+.comparison-requirement { margin-top: 12px; }
+.comparison-requirement summary { cursor: pointer; line-height: 1.8; }
+.comparison-requirement p { overflow-wrap: anywhere; }
+.comparison-evidence { font-weight: 600; color: var(--ink, #1f2b27) !important; }
+@media (max-width: 700px) {
+  .compare-toolbar { grid-template-columns: 1fr; }
+  .compare-toolbar :deep(.el-button) { width: 100%; }
 }
 </style>

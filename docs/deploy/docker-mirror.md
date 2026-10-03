@@ -194,3 +194,43 @@ docker compose exec -T frontend nginx -T
 评估脚本使用 Node.js 内置 `fetch`、Java 17 和仓库已有构建产物，不需要新增 Docker 服务。执行前先用中国可访问 Maven 源完成后端构建，再通过 Gateway 运行 RAG API 评估。Compose 继续使用项目已有镜像源，不改变基础设施拓扑。
 
 语义 RAG 升级只新增 MySQL 元数据表，并使用独立的 1024 维索引版本。不要把旧 collection 直接改维度；先执行索引重建，检查管理员状态，再让新版本承接查询。若排序或向量接口失败，服务保留关键词路径，便于在没有 Milvus 或临时没有模型配额时完成基础验证。
+
+## 简历导出镜像
+
+`resume-service` 使用独立的 `backend/resume-service/Dockerfile` 构建，继续采用 DaoCloud Java/Maven 镜像和阿里云 Ubuntu 软件源，并安装 LibreOffice Writer 与 Noto CJK 中文字体。生产环境请配置 `MINIO_PUBLIC_ENDPOINT`，使浏览器取得可访问的短期下载地址，而不是 Docker 网络内部的 MinIO 地址。
+
+
+### 简历工作区迁移与运行
+
+执行前保留 MySQL 与 MinIO 的现有 Docker volumes。此次迁移只创建
+`resume_workspace_profile`、`resume_workspace_draft`、`resume_workspace_draft_revision`、
+`resume_workspace_export` 和 `resume_workspace_photo`，由简历服务启动执行 `schema.sql`。
+原 `resume_summary_record`、上传原件及诊断历史保持。
+
+```powershell
+docker compose build resume-service ai-service match-service frontend
+docker compose up -d --wait --wait-timeout 600 resume-service ai-service match-service frontend
+```
+
+本机 Gateway 若配置为 18080，则 API 地址为 `http://localhost:18080`；
+前端默认 `http://localhost`。不要使用其他项目占用的 8080。
+简历服务内部端口 8103，健康检查 `/actuator/health`，OpenAPI `/v3/api-docs`。
+
+简历运行镜像独立安装 LibreOffice 与 Noto CJK，不扩大其他服务镜像。
+每次转换独立工作目录和 LibreOffice 运行配置，正文至少 10pt。
+`RESUME_RENDER_TIMEOUT_SECONDS=60` 和 `RESUME_RENDER_CONCURRENCY=2` 可配置。
+`MINIO_PUBLIC_ENDPOINT=http://localhost:9000` 用于本机浏览器下载；
+远程部署应改为学生浏览器能访问的域名或主机，签名时必须使用同一外部 Host。
+内网写入继续用 `MINIO_ENDPOINT=http://minio:9000`。
+
+`AI_RESUME_DRAFT_AI_ENABLED=true` 默认开启内容组织，AI 密钥沿用环境变量。
+关闭后仍可按事实整理、编辑、诊断规则、比较和导出。成功输入复用已有结果；
+模型组织的建议必须校验原文和来源，未确认建议不进入导出。
+
+重启简历服务时，持久化 `QUEUED/RUNNING` 导出任务重新排队，
+成功任务从 MinIO 重新签发下载地址。修改模板文件时应同步更新模板版本；
+已有草稿使用版本快照，版本失配应明确提示重新选择模板。
+
+用户原始素材 `jianli/` 由 `.gitignore` 和 `.dockerignore` 排除。
+全部素材清单位于 `docs/resume-template-catalog.json`，只发布八套清洁适配副本及预览。
+不要将原始个人示例、照片、推广资料和约 1.3 GB 素材复制进服务镜像。

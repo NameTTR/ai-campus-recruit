@@ -296,6 +296,7 @@ public class JwtGatewayAuthFilter implements WebFilter, Ordered {
         if (path.startsWith("/api/ai/coach")
                 || path.startsWith("/api/ai/learning")
                 || path.startsWith("/api/ai/resume/rewrite")
+                || path.startsWith("/api/ai/resume/draft")
                 || path.startsWith("/api/ai/career")) {
             return Permission.STUDENT_INTERVIEW_WRITE;
         }

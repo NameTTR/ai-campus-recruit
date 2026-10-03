@@ -34,3 +34,8 @@ Desktop.ini
 
 # Browser verification artifacts
 output/playwright/
+
+# Original user supplied resume materials (adapted assets are tracked separately)
+/jianli/
+
+.playwright-cli/

@@ -1505,16 +1505,29 @@ public class AiCoachService {
         JsonNode result =
                 root.has("result") && root.get("result").isObject() ? root.get("result") : root;
         ResumeRewriteResponse fallback = mockResumeRewrite(request);
+        String candidateSummary = textOr(result.get("improvedSummary"), fallback.improvedSummary());
+        List<String> sourceSkills = safeList(request == null ? null : request.skills(), List.of());
+        List<String> sourceProjects = safeList(request == null ? null : request.projects(), List.of());
+        final String summaryFactText = candidateSummary;
+        boolean summaryGrounded = sourceSkills.stream().anyMatch(value -> containsIgnoreCase(summaryFactText, value))
+                || sourceProjects.stream().anyMatch(value -> containsIgnoreCase(summaryFactText, value));
+        String summary = summaryGrounded ? candidateSummary : fallback.improvedSummary();
+        final List<String> projectFacts = sourceProjects;
+        final List<String> skillFacts = sourceSkills;
+        List<String> rewrittenProjects = readStringList(result.get("rewrittenProjects"), List.of()).stream()
+                .filter(value -> projectFacts.stream().anyMatch(project -> containsIgnoreCase(value, project)))
+                .toList();
+        if (rewrittenProjects.isEmpty() && !sourceProjects.isEmpty()) rewrittenProjects = fallback.rewrittenProjects();
+        List<String> keywords = readStringList(result.get("keywordSuggestions"), List.of()).stream()
+                .filter(value -> skillFacts.stream().anyMatch(skill -> containsIgnoreCase(value, skill)))
+                .toList();
+        if (keywords.isEmpty() && !sourceSkills.isEmpty()) keywords = fallback.keywordSuggestions();
         return new ResumeRewriteResponse(
                 textOr(result.get("studentId"), fallback.studentId()),
                 textOr(result.get("resumeId"), fallback.resumeId()),
-                textOr(result.get("targetRole"), fallback.targetRole()),
-                textOr(result.get("improvedSummary"), fallback.improvedSummary()),
-                readStringList(result.get("rewrittenProjects"), fallback.rewrittenProjects()),
-                readStringList(result.get("keywordSuggestions"), fallback.keywordSuggestions()),
-                readStringList(result.get("missingEvidence"), fallback.missingEvidence()),
-                readStringList(result.get("actionChecklist"), fallback.actionChecklist()),
-                false);
+                textOr(result.get("targetRole"), fallback.targetRole()), summary, rewrittenProjects,
+                keywords, readStringList(result.get("missingEvidence"), fallback.missingEvidence()),
+                readStringList(result.get("actionChecklist"), fallback.actionChecklist()), false);
     }
 
     private CareerPlanResponse parseCareerPlanResponse(String content, CareerPlanRequest request) {
@@ -1641,29 +1654,24 @@ public class AiCoachService {
 
     private ResumeRewriteResponse mockResumeRewrite(ResumeRewriteRequest request) {
         String role = targetRole(request);
-        List<String> skills = safeList(request == null ? null : request.skills(), DEFAULT_SKILLS);
-        String primarySkill = skills.get(0);
+        List<String> skills = safeList(request == null ? null : request.skills(), List.of()).stream()
+                .filter(value -> value != null && !value.isBlank()).map(String::trim).distinct().toList();
+        List<String> projects = safeList(request == null ? null : request.projects(), List.of()).stream()
+                .filter(value -> value != null && !value.isBlank()).map(String::trim).toList();
+        String summary = skills.isEmpty() && projects.isEmpty()
+                ? "No confirmed skills or projects were provided; add real facts before rewriting."
+                : "Draft for " + role + " uses only the supplied skills and project names; unsupported technology, duties, and metrics are omitted.";
+        List<String> rewrittenProjects = projects.stream()
+                .map(value -> "Project: " + value + " (add your responsibilities, methods, and checkable outcomes)")
+                .toList();
+        List<String> missingEvidence = new ArrayList<>();
+        if (projects.isEmpty()) missingEvidence.add("No project or experience name was provided");
+        if (skills.isEmpty()) missingEvidence.add("No skill declaration was provided");
+        missingEvidence.add("Personal responsibility and outcome evidence are still missing");
+        List<String> checklist = List.of("add real responsibilities and methods", "verify each rewrite against source facts", "add checkable evidence for outcomes");
         return new ResumeRewriteResponse(
-                studentId(request),
-                resumeId(request),
-                role,
-                "面向 "
-                        + role
-                        + "，候选人具备 "
-                        + String.join("、", skills)
-                        + " 等后端基础，参与校园招聘平台类项目，能够完成接口开发、数据建模、缓存设计和 Docker 部署，建议继续补充业务规模与性能指标。",
-                List.of(
-                        "负责 " + primarySkill + " 后端接口开发，完成简历上传、岗位匹配和投递状态流转等核心流程。",
-                        "基于 MySQL 设计招聘业务表结构，并结合 Redis 缓存提升列表查询体验。",
-                        "使用 Docker Compose 完成多服务联调，能够说明 Gateway、Nacos 和业务服务的部署关系。"),
-                DEFAULT_RESUME_KEYWORDS,
-                List.of("缺少接口耗时、数据量、并发量等结果指标", "项目中个人负责模块和团队协作边界还不够清晰", "没有写明线上部署、排障和复盘过程"),
-                List.of(
-                        "每个项目补充 1 个业务目标和 2 个量化结果",
-                        "把“参与开发”改成“负责模块 + 技术动作 + 结果”",
-                        "补充 MySQL 索引、Redis 缓存、RocketMQ 异步任务的真实使用场景",
-                        "准备 2 段可直接用于面试自我介绍的项目描述"),
-                true);
+                studentId(request), resumeId(request), role, summary, rewrittenProjects,
+                skills, missingEvidence, checklist, true);
     }
 
     private CareerPlanResponse mockCareerPlan(CareerPlanRequest request) {
@@ -2166,6 +2174,11 @@ public class AiCoachService {
         List<String> filtered =
                 values.stream().filter(value -> value != null && !value.isBlank()).toList();
         return filtered.isEmpty() ? fallback : filtered;
+    }
+
+    private static boolean containsIgnoreCase(String text, String fragment) {
+        return text != null && fragment != null && !fragment.isBlank()
+                && text.toLowerCase(Locale.ROOT).contains(fragment.toLowerCase(Locale.ROOT));
     }
 
     private static String valueOr(String value, String fallback) {

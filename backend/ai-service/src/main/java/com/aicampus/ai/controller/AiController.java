@@ -1,6 +1,9 @@
 package com.aicampus.ai.controller;
 
 import com.aicampus.ai.service.AiCoachService;
+import com.aicampus.ai.service.ResumeDraftGenerationService;
+import com.aicampus.common.resume.ResumeWorkspaceModels.DraftData;
+import com.aicampus.common.resume.ResumeWorkspaceModels.DraftGenerationRequest;
 import com.aicampus.ai.service.KnowledgeBaseService;
 import com.aicampus.ai.service.core.AiCareerCoreService;
 import com.aicampus.ai.service.knowledge.KnowledgeFileIngestionService;
@@ -80,6 +83,7 @@ public class AiController {
     private static final String ROLE_ADMIN = "ADMIN";
 
     private final AiCoachService aiCoachService;
+    private final ResumeDraftGenerationService resumeDraftGenerationService;
     private final AiCareerCoreService aiCareerCoreService;
     private final CandidateScreenTaskService candidateScreenTaskService;
     private final KnowledgeBaseService knowledgeBaseService;
@@ -88,12 +92,14 @@ public class AiController {
 
     public AiController(
             AiCoachService aiCoachService,
+            ResumeDraftGenerationService resumeDraftGenerationService,
             AiCareerCoreService aiCareerCoreService,
             CandidateScreenTaskService candidateScreenTaskService,
             KnowledgeBaseService knowledgeBaseService,
             KnowledgeFileIngestionService knowledgeFileIngestionService,
             KnowledgeVectorIndex knowledgeVectorIndex) {
         this.aiCoachService = aiCoachService;
+        this.resumeDraftGenerationService = resumeDraftGenerationService;
         this.aiCareerCoreService = aiCareerCoreService;
         this.candidateScreenTaskService = candidateScreenTaskService;
         this.knowledgeBaseService = knowledgeBaseService;
@@ -111,6 +117,23 @@ public class AiController {
     @PostMapping("/analyze")
     public ApiResponse<AiAnalyzeResponse> analyze(@RequestBody AiAnalyzeRequest request) {
         return ApiResponse.ok(aiCoachService.analyze(request));
+    }
+
+    @Operation(summary = "Generate a factual resume draft from confirmed profile facts")
+    @PostMapping("/resume/draft")
+    public ApiResponse<DraftData> resumeDraft(
+            @RequestBody DraftGenerationRequest request,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        if (!ROLE_STUDENT.equalsIgnoreCase(userRole) || userId == null || userId.isBlank())
+            return ApiResponse.fail("A student identity is required");
+        if (request == null || request.profile() == null) return ApiResponse.fail("profile is required");
+        String requested = request.userId();
+        if (requested != null && !requested.isBlank() && !userId.equals(requested))
+            return ApiResponse.fail("A student can only generate their own resume draft");
+        requested = userId;
+        return ApiResponse.ok(resumeDraftGenerationService.generate(new DraftGenerationRequest(
+                requested, request.profile(), request.targetRole(), request.job(), request.inputFingerprint())));
     }
 
     @Operation(summary = "Generate resume rewrite suggestions")

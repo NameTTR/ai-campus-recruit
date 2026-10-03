@@ -146,6 +146,7 @@ services:
       NACOS_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      AI_RESUME_DRAFT_AI_ENABLED: ${AI_RESUME_DRAFT_AI_ENABLED:-true}
       DASHSCOPE_MODEL: ${DASHSCOPE_MODEL:-qwen-plus}
       DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       DASHSCOPE_TEMPERATURE: ${DASHSCOPE_TEMPERATURE:-0.2}
@@ -280,7 +281,7 @@ services:
   resume-service:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: resume-service/Dockerfile
       args:
         SERVICE: resume-service
     container_name: recruit-resume-service
@@ -305,6 +306,10 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-resumes}
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
+      RESUME_SOFFICE_PATH: ${RESUME_SOFFICE_PATH:-/usr/bin/soffice}
+      RESUME_RENDER_TIMEOUT_SECONDS: ${RESUME_RENDER_TIMEOUT_SECONDS:-60}
+      RESUME_RENDER_CONCURRENCY: ${RESUME_RENDER_CONCURRENCY:-2}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8103/actuator/health"]
       interval: 15s

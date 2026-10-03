@@ -4828,3 +4828,55 @@ function demoIndexStatus(): KnowledgeIndexRebuildStatus {
     model: 'text-embedding-v4', dimension: 1024, indexVersion: 'demo', message: '演示模式；连接服务后可重建知识索引。',
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
 }
+
+
+export interface ResumeRequirementTier { skill: string; tier: string; quote: string }
+export interface ResumeAvailableEvidence { skill: string; declaredInMaster: boolean; supportedInMaster: boolean; shownInResume: boolean; sources: ResumeWorkspaceSourceRef[] }
+export interface ResumeJobComparison { job: JobSummary; match: MatchResult; requirements: ResumeRequirementTier[]; conditions: MatchCondition[]; availableEvidence: ResumeAvailableEvidence[] }
+export interface ResumeCompareResult { resumeId: string; jobs: ResumeJobComparison[]; inputFingerprint: string }
+
+export interface ResumeWorkspaceSourceRef { kind: string; sourceId: string; quote: string; confirmed: boolean; assessment?: string }
+export interface ResumeWorkspaceBasicInfo { name: string; phone: string; email: string; city: string; portfolioUrl: string; photoObjectKey?: string }
+export interface ResumeWorkspaceEducation { id: string; school: string; major: string; degree: string; startDate: string; endDate: string; graduationDate: string; courses: string[]; notes: string; source?: ResumeWorkspaceSourceRef }
+export interface ResumeWorkspaceExperience { id: string; type: string; title: string; organization: string; startDate: string; endDate: string; role: string; actions: string; methods: string; results: string; skills: string[]; links: string[]; source?: ResumeWorkspaceSourceRef; confirmed: boolean }
+export interface ResumeWorkspaceSkill { id: string; name: string; source?: ResumeWorkspaceSourceRef }
+export interface ResumeWorkspaceCredential { id: string; title: string; date: string; description: string; source?: ResumeWorkspaceSourceRef }
+export interface ResumeWorkspaceAvailability { cities: string[]; earliestStartDate: string; daysPerWeek?: number; continuousMonths?: number; graduationDate: string }
+export interface ResumeWorkspaceProfileData { basics: ResumeWorkspaceBasicInfo; education: ResumeWorkspaceEducation[]; skills: ResumeWorkspaceSkill[]; experiences: ResumeWorkspaceExperience[]; credentials: ResumeWorkspaceCredential[]; availability: ResumeWorkspaceAvailability }
+export interface ResumeMasterProfile { userId: string; revision: number; data: ResumeWorkspaceProfileData; sourceResumeId?: string; updatedAt: string }
+export interface ResumeProfileSaveRequest { expectedRevision: number; data: ResumeWorkspaceProfileData; sourceResumeId?: string; confirmed: boolean }
+export interface ResumeImportCandidate { resumeId: string; rawText: string; data: ResumeWorkspaceProfileData; warnings: string[] }
+export interface ResumeTemplateInfo { id: string; name: string; category: string; roleHints: string[]; maxPages: number; version: string; previewUrl?: string; sourceId: string }
+export interface ResumeDraftEntry { id: string; title: string; subtitle: string; bullets: string[]; links: string[]; factIds: string[]; visible: boolean; confirmed: boolean }
+export interface ResumeDraftBlock { id: string; type: string; title: string; entries: ResumeDraftEntry[]; visible: boolean }
+export interface ResumeDraftSuggestion { id: string; blockId: string; entryId: string; originalQuote: string; suggestedText: string; problem: string; basis: string; factIds: string[]; status: string }
+export interface ResumeClarificationQuestion { factId: string; question: string; reason: string }
+export interface ResumeDraftData { blocks: ResumeDraftBlock[]; questions: ResumeClarificationQuestion[]; suggestions: ResumeDraftSuggestion[]; warnings: string[]; generationSource: string }
+export interface ResumeDraft { id: string; resumeId?: string; userId: string; revision: number; profileRevision: number; profileSnapshot: ResumeWorkspaceProfileData; templateId: string; templateVersion: string; targetRole: string; jobSnapshot?: JobSummary; inputFingerprint: string; data: ResumeDraftData; confirmed: boolean; sourceStale: boolean; createdAt: string; updatedAt: string }
+export interface ResumeDraftRevision { revision: number; templateId: string; data: ResumeDraftData; confirmed: boolean; reason: string; createdAt: string }
+export interface ResumePhotoAsset { objectKey: string; fileName: string }
+export interface ResumeExportFile { fileName: string; contentType: string; url: string; sha256: string }
+export interface ResumeExportStatus { id: string; draftId: string; draftRevision: number; status: string; templateId: string; layoutIssues: string[]; pageCount: number; docx?: ResumeExportFile; pdf?: ResumeExportFile; error?: string; createdAt: string; updatedAt: string }
+
+export function compareResumeJobs(payload: { resumeId: string; jobIds: string[] }) { return strictRequest<ResumeCompareResult>('/api/matches/compare', { method: 'POST', body: JSON.stringify(payload) }, { resumeId: payload.resumeId, jobs: [], inputFingerprint: 'demo' }) }
+export function getMasterResumeProfile() { return strictRequest<ResumeMasterProfile>('/api/resumes/master-profile', { method: 'GET' }, { userId: '', revision: 0, data: emptyResumeProfile(), updatedAt: '' }) }
+export function saveMasterResumeProfile(payload: ResumeProfileSaveRequest) { return strictRequest<ResumeMasterProfile>('/api/resumes/master-profile', { method: 'PUT', body: JSON.stringify(payload) }, { userId: '', revision: payload.expectedRevision + 1, data: payload.data, updatedAt: new Date().toISOString() }) }
+export function importResumeProfile(resumeId: string) { return strictRequest<ResumeImportCandidate>('/api/resumes/master-profile/import', { method: 'POST', body: JSON.stringify({ resumeId }) }, { resumeId, rawText: '', data: emptyResumeProfile(), warnings: ['演示模式未返回导入资料'] }) }
+export function listResumeTemplates() { return strictRequest<ResumeTemplateInfo[]>('/api/resumes/templates', { method: 'GET' }, []) }
+export function listResumeDrafts() { return strictRequest<ResumeDraft[]>('/api/resumes/drafts', { method: 'GET' }, []) }
+export function createResumeDraft(payload: { templateId: string; targetRole: string; jobId?: string; profileRevision?: number; resumeId?: string }) { return strictRequest<ResumeDraft>('/api/resumes/drafts', { method: 'POST', body: JSON.stringify(payload) }, demoResumeDraft(payload)) }
+export function getResumeDraft(id: string) { return strictRequest<ResumeDraft>(`/api/resumes/drafts/${encodeURIComponent(id)}`, { method: 'GET' }, demoResumeDraft({ templateId: 'T01', targetRole: '' })) }
+export function updateResumeDraft(id: string, payload: { expectedRevision: number; templateId?: string; data?: ResumeDraftData; confirm?: boolean }) { return strictRequest<ResumeDraft>(`/api/resumes/drafts/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }, demoResumeDraft({ templateId: payload.templateId || 'T01', targetRole: '' })) }
+export function applyResumeSuggestion(id: string, payload: { expectedRevision: number; suggestionId: string }) { return strictRequest<ResumeDraft>(`/api/resumes/drafts/${encodeURIComponent(id)}/suggestions/apply`, { method: 'POST', body: JSON.stringify(payload) }, demoResumeDraft({ templateId: 'T01', targetRole: '' })) }
+export function restoreResumeDraft(id: string, payload: { expectedRevision: number; revision: number }) { return strictRequest<ResumeDraft>(`/api/resumes/drafts/${encodeURIComponent(id)}/restore`, { method: 'POST', body: JSON.stringify(payload) }, demoResumeDraft({ templateId: 'T01', targetRole: '' })) }
+export function listResumeDraftRevisions(id: string) { return strictRequest<ResumeDraftRevision[]>(`/api/resumes/drafts/${encodeURIComponent(id)}/revisions`, { method: 'GET' }, []) }
+export function diagnoseResumeDraft(id: string) { return strictRequest<ResumeDraft>(`/api/resumes/drafts/${encodeURIComponent(id)}/diagnose`, { method: 'POST' }, demoResumeDraft({ templateId: 'T01', targetRole: '' })) }
+export function uploadResumePhoto(file: File) {
+  const body = new FormData()
+  body.append('file', file)
+  return strictRequest<ResumePhotoAsset>('/api/resumes/master-profile/photo', { method: 'POST', body }, { objectKey: '', fileName: file.name })
+}
+export function createResumeExport(id: string, expectedRevision: number) { return strictRequest<ResumeExportStatus>(`/api/resumes/drafts/${encodeURIComponent(id)}/exports`, { method: 'POST', body: JSON.stringify({ expectedRevision }) }, { id: '', draftId: id, draftRevision: expectedRevision, status: 'QUEUED', templateId: '', layoutIssues: [], pageCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }) }
+export function getResumeExport(id: string) { return strictRequest<ResumeExportStatus>(`/api/resumes/exports/${encodeURIComponent(id)}`, { method: 'GET' }, { id, draftId: '', draftRevision: 0, status: 'FAILED', templateId: '', layoutIssues: [], pageCount: 0, error: '演示模式未生成文件', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }) }
+function emptyResumeProfile(): ResumeWorkspaceProfileData { return { basics: { name: '', phone: '', email: '', city: '', portfolioUrl: '' }, education: [], skills: [], experiences: [], credentials: [], availability: { cities: [], earliestStartDate: '', graduationDate: '' } } }
+function demoResumeDraft(payload: { templateId: string; targetRole: string }): ResumeDraft { return { id: `demo-${payload.templateId}`, userId: getAuthSession()?.userId || 'S001', revision: 1, profileRevision: 0, profileSnapshot: emptyResumeProfile(), templateId: payload.templateId, templateVersion: 'demo', targetRole: payload.targetRole, inputFingerprint: 'demo', data: { blocks: [], questions: [], suggestions: [], warnings: ['请填写并确认主资料后生成简历'], generationSource: 'RULE_FALLBACK' }, confirmed: false, sourceStale: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }

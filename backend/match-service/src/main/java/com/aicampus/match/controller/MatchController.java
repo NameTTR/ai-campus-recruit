@@ -11,7 +11,14 @@ import com.aicampus.common.evidence.*;
 import com.aicampus.match.client.JobClient;
 import com.aicampus.match.client.ResumeClient;
 import com.aicampus.match.service.EvidenceMatchRules;
+import com.aicampus.match.service.WorkspaceMatchRules;
 import com.aicampus.match.service.store.MatchRecordStore;
+import com.aicampus.common.resume.ResumeWorkspaceModels;
+import com.aicampus.common.resume.ResumeWorkspaceModels.*;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import io.swagger.v3.oas.annotations.Operation;
 
@@ -30,6 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -113,7 +121,8 @@ public class MatchController {
             return ApiResponse.fail("The requested job is not open");
         }
 
-        String fingerprint = EvidenceFingerprint.match(resume, job);
+        MasterProfile master = fetchMasterProfile(resume.studentId(), userId, role).value();
+        String fingerprint = ResumeWorkspaceModelsFingerprint.compare(resume, master, job);
         MatchResult cached =
                 matchStore.listByStudent(studentId).stream()
                         .filter(
@@ -128,13 +137,55 @@ public class MatchController {
                         .orElse(null);
         if (cached != null && evidenceEnabled)
             return ApiResponse.ok(copyWithDetails(cached, cached.details().withStale(false)));
-        MatchResult result = ruleMatch(resume, job, studentId);
+        MatchResult result = enrichMatch(ruleMatch(resume, job, studentId), resume, master, job, fingerprint);
         if (!evidenceEnabled) result = copyWithDetails(result, null);
         matchStore.save(result);
         return ApiResponse.ok(result);
     }
 
         }
+    @Operation(summary = "Compare one resume with two or three jobs using deterministic coverage and conditions")
+    @PostMapping("/compare")
+    public ApiResponse<CompareResult> compare(
+            @RequestBody CompareRequest request,
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role) {
+        if (request == null || isBlank(request.resumeId()) || request.jobIds() == null
+                || request.jobIds().stream().filter(value -> !isBlank(value)).map(String::trim).distinct().count() < 2
+                || request.jobIds().stream().filter(value -> !isBlank(value)).map(String::trim).distinct().count() > 3) {
+            return ApiResponse.fail("resumeId and two or three jobIds are required");
+        }
+        if (isBlank(userId) || (!isStudent(role) && !isAdmin(role))) {
+            return ApiResponse.fail("Only the matching student or an administrator can compare jobs");
+        }
+        ResourceResult<ResumeSummary> resumeResult = fetchResume(request.resumeId().trim(), userId, role);
+        if (resumeResult.error() != null) return ApiResponse.fail(resumeResult.error());
+        ResumeSummary resume = resumeResult.value();
+        if (isStudent(role) && (isBlank(userId) || !userId.trim().equals(resume.studentId()))) {
+            return ApiResponse.fail("The requested resume is not owned by the matching student");
+        }
+        ResourceResult<MasterProfile> masterResult = fetchMasterProfile(resume.studentId(), userId, role);
+        MasterProfile master = masterResult.value(); // absence is a supported legacy state
+        List<JobComparison> comparisons = new ArrayList<>();
+        for (String rawId : request.jobIds().stream().filter(value -> !isBlank(value)).map(String::trim).distinct().toList()) {
+            ResourceResult<JobSummary> jobResult = fetchJob(rawId, userId, role);
+            if (jobResult.error() != null) return ApiResponse.fail(jobResult.error());
+            JobSummary job = jobResult.value();
+            if (!"OPEN".equalsIgnoreCase(job.status())) return ApiResponse.fail("The requested job is not open: " + rawId);
+            String fingerprint = ResumeWorkspaceModelsFingerprint.compare(resume, master, job);
+            MatchResult match = enrichMatch(ruleMatch(resume, job, resume.studentId()), resume, master, job, fingerprint);
+            List<RequirementTier> tiers = WorkspaceMatchRules.tiers(job);
+            List<MatchCondition> conditions = master == null
+                    ? EvidenceMatchRules.conditions(EvidenceMatchRules.profile(resume), job)
+                    : WorkspaceMatchRules.conditions(master.data(), job);
+            comparisons.add(new JobComparison(job, match, tiers, conditions,
+                    WorkspaceMatchRules.evidence(master, resume, job)));
+        }
+        String fingerprint = ResumeWorkspaceModelsFingerprint.compare(resume, master,
+                comparisons.stream().map(JobComparison::job).toList());
+        return ApiResponse.ok(new CompareResult(resume.resumeId(), List.copyOf(comparisons), fingerprint));
+    }
+
     @GetMapping("/student/{studentId}")
     public ApiResponse<List<MatchResult>> byStudent(
             @PathVariable("studentId") String studentId,
@@ -184,6 +235,23 @@ public class MatchController {
         return ApiResponse.fail("Only an authenticated student or administrator can list matches");
     }
 
+
+    private ResourceResult<MasterProfile> fetchMasterProfile(String studentId, String userId, String role) {
+        try {
+            String owner = isAdmin(role) && !isBlank(studentId) ? studentId : requiredHeader(userId);
+            ApiResponse<MasterProfile> response = resumeClient.masterProfile(owner, requiredHeader(role));
+            if (response == null || response.data() == null) return ResourceResult.error(response == null ? "Master profile unavailable" : response.message());
+            return ResourceResult.value(response.data());
+        } catch (RuntimeException ex) {
+            return ResourceResult.error("Master profile unavailable");
+        }
+    }
+
+    private static final class ResumeWorkspaceModelsFingerprint {
+        private static String compare(ResumeSummary resume, MasterProfile master, JobSummary job) { return EvidenceFingerprint.of(EvidenceFingerprint.match(resume, job), master == null ? "NO_MASTER" : master.revision(), master == null ? "" : master.data(), WorkspaceMatchRules.VERSION); }
+        private static String compare(ResumeSummary resume, MasterProfile master, List<JobSummary> jobs) { return EvidenceFingerprint.of(resume, master == null ? "NO_MASTER" : master.revision(), master == null ? "" : master.data(), jobs, WorkspaceMatchRules.VERSION); }
+    }
+
     private ResourceResult<ResumeSummary> fetchResume(String resumeId, String userId, String role) {
         try {
             ApiResponse<ResumeSummary> response =
@@ -218,6 +286,35 @@ public class MatchController {
 
     private Object matchLock(String key) {
         return matchLocks[Math.floorMod(String.valueOf(key).hashCode(), matchLocks.length)];
+    }
+
+    private static MatchResult enrichMatch(MatchResult result, ResumeSummary resume, MasterProfile master, JobSummary job, String fingerprint) {
+        if (result == null || result.details() == null) return result;
+        MatchDetails details = result.details();
+        AnalysisMetadata old = details.metadata();
+        AnalysisMetadata metadata = new AnalysisMetadata(
+                fingerprint,
+                WorkspaceMatchRules.VERSION,
+                old == null ? "" : old.model(),
+                old == null ? "match-evidence-rules-v1" : old.promptVersion(),
+                old == null ? "RULE_SKILL_AND_EVIDENCE" : old.source(),
+                old == null ? java.time.Instant.now() : old.generatedAt());
+        List<MatchCondition> matchConditions =
+                master == null || master.data() == null
+                        ? details.conditions()
+                        : WorkspaceMatchRules.conditions(master.data(), job);
+        Map<String, AvailableEvidence> available = new java.util.LinkedHashMap<>();
+        WorkspaceMatchRules.evidence(master, resume, job).forEach(e -> available.put(SkillOntology.normalize(e.skill()), e));
+        List<MatchRequirement> requirements = details.requirements().stream().map(r -> {
+            AvailableEvidence e = available.get(SkillOntology.normalize(r.skill()));
+            String suggestion = r.supported() ? "整理已有实践的职责、验证方式和成果"
+                    : e != null && e.supportedInMaster() ? "主资料已有材料支撑，当前简历未体现；建议补充已有经历的表达"
+                    : "资料中尚未体现可核对的实践材料；请补充已有经历，或安排学习与练习";
+            return new MatchRequirement(r.skill(), r.declared(), r.supported(), r.status(), r.evidence(), suggestion);
+        }).toList();
+        return copyWithDetails(result, new MatchDetails(
+                details.skillsCoverage(), details.evidenceCoverage(), requirements, matchConditions,
+                metadata, details.jobSnapshot(), details.profileSnapshot(), details.stale()));
     }
 
     private static MatchResult ruleMatch(ResumeSummary resume, JobSummary job, String studentId) {
@@ -328,6 +425,14 @@ public class MatchController {
                                                 match.details().profileSnapshot(),
                                                 EvidenceMatchRules.profile(resume.value())))
                                     stale = true;
+                            }
+                            if ((isStudent(role) || isAdmin(role)) && match.details().metadata() != null
+                                    && WorkspaceMatchRules.VERSION.equals(match.details().metadata().algorithmVersion())) {
+                                ResourceResult<ResumeSummary> resume = fetchResume(match.resumeId(), userId, role);
+                                MasterProfile master = fetchMasterProfile(match.studentId(), userId, role).value();
+                                if (resume.value() == null || job.value() == null || !Objects.equals(
+                                        match.details().metadata().inputFingerprint(),
+                                        ResumeWorkspaceModelsFingerprint.compare(resume.value(), master, job.value()))) stale = true;
                             }
                             return copyWithDetails(match, match.details().withStale(stale));
                         })

@@ -638,3 +638,99 @@ Gateway 验证 Bearer Token 后清理外部身份头，再注入 `X-User-Id` 和
 - `useAi: false` 不调用模型，直接返回带引用的检索摘要。
 - 外部模型失败不会把异常、URL、Bearer Token 或密钥写入学生响应；客户端可重新发起同一请求。
 - 管理员重建失败返回失败状态而不是清空旧索引。新模型维度必须使用独立 collection/version，不能与旧 hash 向量混用。
+
+
+## 简历工作区、生成与导出
+
+简历工作区接口统一通过 Gateway 的用户身份头校验所有权。导入原件只生成待确认候选资料，学生确认后才写入主资料。
+
+- `GET /api/resumes/master-profile`：读取当前用户的主资料。
+- `PUT /api/resumes/master-profile`：保存主资料，支持 `expectedRevision`、`data`、`sourceResumeId` 和 `confirmed` 字段。
+- `POST /api/resumes/master-profile/import`：传入 `{ "resumeId": "R..." }`，返回待确认的导入候选资料。
+- `POST /api/resumes/master-profile/photo`：以 `multipart/form-data` 上传 JPG/PNG 个人照片。
+- `GET /api/resumes/templates`：获取首批启用的 T01-T08 适配模板及适用岗位信息。
+- `POST /api/resumes/drafts`：按 `templateId`、`targetRole`、可选 `jobId` 和 `profileRevision` 创建岗位版本草稿。
+- `GET/PATCH /api/resumes/drafts/{id}`：读取或编辑草稿；PATCH 使用 `expectedRevision`，并支持 `data` 与 `confirm=true`。
+- `POST /api/resumes/drafts/{id}/diagnose`：依据该草稿事实和岗位快照生成可定位的优先建议，并保存新修订。
+- `GET /api/resumes/drafts/{id}/revisions`：查看草稿修订历史。
+- `POST /api/resumes/drafts/{id}/suggestions/apply`：采纳一条已核对的诊断建议并生成新修订。
+- `POST /api/resumes/drafts/{id}/restore`：恢复到指定历史修订。
+- `POST /api/resumes/drafts/{id}/exports`：按指定草稿版本创建 Word/PDF 导出任务。
+- `GET /api/resumes/exports/{id}`：查询 `QUEUED`、`RUNNING`、`SUCCEEDED`、`NEEDS_EDIT` 或 `FAILED` 状态，并取得文件摘要、排版问题和短期下载地址。
+- `POST /api/matches/compare`：使用同一份简历比较 2-3 个服务端岗位的覆盖率、材料证据、岗位条件和待确认项。
+
+导出使用同一份可编辑 DOCX 转换 PDF；内容超出模板页数时返回 `NEEDS_EDIT`，保留草稿并提示精简、隐藏内容或切换双页模板。
+
+
+### 所有权、确认与版本
+
+业务 JSON 返回 `ApiResponse<T>`。使用 Gateway Bearer Token，由网关写入用户身份头；
+工作区接口仅允许非空 `X-User-Id` 与 `X-User-Role: STUDENT`。
+草稿、原件、修订、照片和导出检查同一学生的所有权，越权对象返回 404。
+直接调用 AI 草稿接口同样需要学生身份，`userId` 必须与身份相同。
+
+主资料由 `basics`、`education[]`、`skills[]`、`experiences[]`、`credentials[]` 和
+`availability` 组成。资料项使用稳定 `id` 与 `source`：
+`kind`、`sourceId`、`quote`、`confirmed`、`assessment`。
+导入候选中的 `confirmed=false`，读候选不会写入主资料。
+保存时明确 `confirmed=true`；每段经历另需学生确认。
+学习成果引用保留原评价和链接，不根据任务完成状态推断掌握技能。
+
+```json
+{
+  "expectedRevision": 0,
+  "confirmed": true,
+  "data": {
+    "basics": {"name": "李同学", "phone": "", "email": "", "city": "上海", "portfolioUrl": ""},
+    "education": [],
+    "skills": [],
+    "experiences": [],
+    "credentials": [],
+    "availability": {"cities": ["上海"], "earliestStartDate": "", "daysPerWeek": null, "continuousMonths": null, "graduationDate": ""}
+  }
+}
+```
+
+`expectedRevision` 必须匹配服务器版本，不匹配返回 HTTP 409，客户端保留本地输入。
+草稿 PATCH 的 `data` 包含 `blocks[]`、`questions[]`、`suggestions[]`、`warnings[]` 和
+`generationSource`。区块和条目都有 `visible`；条目另有 `factIds`、`confirmed`、
+`bullets` 和 `links`。隐藏条目不进入导出。
+学生确认草稿后，该草稿关联独立 `resumeId`，不覆盖上传原件。
+
+```json
+{"templateId":"T05","targetRole":"Java 开发实习生","jobId":"J...","profileRevision":1}
+```
+
+提供 `jobId` 时服务端读取真实岗位资料；草稿保存岗位、资料和模板版本快照。
+只提供岗位名称则使用通用岗位建议。主资料更新后 `sourceStale=true`，已有编辑和历史保持。
+同一资料、目标、模板和分析版本复用已有草稿；切换模板复用成功生成内容，不额外调用模型。
+`AI_DASHSCOPE:` 为已执行模型组织，`RULES:` / `RULE_FALLBACK` 为基础整理或降级，
+正文始终来自确认事实。模型建议必须通过逐句引用校验，并由学生采纳。
+
+### 采纳、撤销与导出
+
+采纳请求：`{"expectedRevision":2,"suggestionId":"suggest-..."}`。
+原句必须精确匹配当前正文；已修改的原句或已采纳建议不重复执行。
+恢复请求：`{"expectedRevision":3,"revision":2}`，恢复生成新修订而不删除历史。
+撤销使用同一恢复接口，客户端先保存当前未保存输入。
+
+导出请求：`{"expectedRevision":4}`。必须是已确认草稿。
+同一草稿修订的重复请求复用导出任务；失败后重复请求可重试。
+返回状态与处理方式：
+
+| 状态 | 页面处理 |
+| --- | --- |
+| `QUEUED` / `RUNNING` | 定时查询，保留编辑输入 |
+| `SUCCEEDED` | 显示最终 PDF，提供 Word/PDF 下载 |
+| `NEEDS_EDIT` | 显示页数和 `layoutIssues`，精简、隐藏内容或切换模板后重新确认 |
+| `FAILED` | 显示失败原因，保留草稿，提供重试 |
+
+成功文件包含 `fileName`、`contentType`、`url`、`sha256`。
+查询成功任务会刷新 15 分钟的 MinIO 签名地址；签名地址不替代任务所有权校验。
+超页数不返回下载文件，不把澄清问题或待填占位提示写入正文。
+
+岗位比较请求：`{"resumeId":"workspace-...","jobIds":["J1","J2"]}`，支持 2-3 个互异岗位。
+`requirements` 返回 `REQUIRED` / `PREFERRED` / `UNSPECIFIED` 及岗位原句；
+`availableEvidence` 分别提供主资料技能声明、主资料实践支撑、当前简历支撑和来源。
+`conditions` 比较学历、地点、毕业、到岗、每周出勤和连续时长，
+无法可靠判断时为 `UNKNOWN`。覆盖率保持规则含义，比较不调用模型。

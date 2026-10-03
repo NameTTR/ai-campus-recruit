@@ -1,0 +1,43 @@
+package com.aicampus.resume.workspace.store;
+
+import com.aicampus.common.resume.ResumeWorkspaceModels.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DuplicateKeyException;
+import java.util.*;
+
+/** MySQL JSON snapshot store. Every write uses a revision predicate for optimistic CAS. */
+public class JdbcWorkspaceStore implements WorkspaceStore {
+    private final JdbcTemplate jdbc; private final ObjectMapper mapper;
+    public JdbcWorkspaceStore(JdbcTemplate jdbc,ObjectMapper mapper){this.jdbc=jdbc;this.mapper=mapper.findAndRegisterModules();}
+    private <T> T read(String s,Class<T> t){try{return mapper.readValue(s,t);}catch(Exception e){throw new IllegalStateException("workspace snapshot decode failed",e);}}
+    private String json(Object x){try{return mapper.writeValueAsString(x);}catch(Exception e){throw new IllegalStateException("workspace snapshot encode failed",e);}}
+    @Override public Optional<MasterProfile> profile(String user){return jdbc.query("SELECT revision,profile_json,source_resume_id,updated_at FROM resume_workspace_profile WHERE user_id=?",rs->{if(!rs.next())return Optional.empty();return Optional.of(new MasterProfile(user,rs.getLong(1),read(rs.getString(2),ProfileData.class),rs.getString(3),rs.getTimestamp(4).toInstant()));},user);}
+    @Override public boolean saveProfile(MasterProfile p,long expected){
+        if(expected==0){try{jdbc.update("INSERT INTO resume_workspace_profile(user_id,revision,profile_json,source_resume_id) VALUES(?,?,?,?)",p.userId(),p.revision(),json(p.data()),p.sourceResumeId());return true;}catch(DuplicateKeyException e){return false;}}
+        return jdbc.update("UPDATE resume_workspace_profile SET revision=?,profile_json=?,source_resume_id=? WHERE user_id=? AND revision=?",p.revision(),json(p.data()),p.sourceResumeId(),p.userId(),expected)>0;
+    }
+    @Override public Optional<ResumeDraft> draft(String id){return jdbc.query("SELECT * FROM resume_workspace_draft WHERE draft_id=?",rs->{if(!rs.next())return Optional.empty();return Optional.of(draft(rs));},id);}
+    private ResumeDraft draft(java.sql.ResultSet r)throws java.sql.SQLException{return new ResumeDraft(r.getString("draft_id"),r.getString("resume_id"),r.getString("user_id"),r.getLong("revision"),r.getLong("profile_revision"),read(r.getString("profile_snapshot_json"),ProfileData.class),r.getString("template_id"),r.getString("template_version"),r.getString("target_role"),r.getString("job_snapshot_json")==null?null:read(r.getString("job_snapshot_json"),com.aicampus.common.dto.JobSummary.class),r.getString("input_fingerprint"),read(r.getString("data_json"),DraftData.class),r.getBoolean("confirmed"),false,r.getTimestamp("created_at").toInstant(),r.getTimestamp("updated_at").toInstant());}
+    @Override public Optional<ResumeDraft> draftByFingerprint(String u,String f){return jdbc.query("SELECT * FROM resume_workspace_draft WHERE user_id=? AND input_fingerprint=?",rs->{if(!rs.next())return Optional.empty();return Optional.of(draft(rs));},u,f);}
+    @Override public List<ResumeDraft> drafts(String u){return jdbc.query("SELECT * FROM resume_workspace_draft WHERE user_id=? ORDER BY updated_at DESC",(rs,n)->draft(rs),u);}
+    @Override public boolean createDraft(ResumeDraft d,DraftRevision rev){try{jdbc.update("INSERT INTO resume_workspace_draft(draft_id,resume_id,user_id,revision,profile_revision,profile_snapshot_json,template_id,template_version,target_role,job_snapshot_json,input_fingerprint,data_json,confirmed) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",d.id(),d.resumeId(),d.userId(),d.revision(),d.profileRevision(),json(d.profileSnapshot()),d.templateId(),d.templateVersion(),d.targetRole(),d.jobSnapshot()==null?null:json(d.jobSnapshot()),d.inputFingerprint(),json(d.data()),d.confirmed()); jdbc.update("INSERT INTO resume_workspace_draft_revision(draft_id,revision,template_id,data_json,confirmed,reason) VALUES(?,?,?,?,?,?)",d.id(),rev.revision(),rev.templateId(),json(rev.data()),rev.confirmed(),rev.reason());return true;}catch(DuplicateKeyException e){return false;}}
+    @Override public boolean saveDraft(ResumeDraft d,long expected,DraftRevision rev){int n=jdbc.update("UPDATE resume_workspace_draft SET revision=?,template_id=?,template_version=?,data_json=?,confirmed=? WHERE draft_id=? AND user_id=? AND revision=?",d.revision(),d.templateId(),d.templateVersion(),json(d.data()),d.confirmed(),d.id(),d.userId(),expected);if(n==0)return false;jdbc.update("INSERT INTO resume_workspace_draft_revision(draft_id,revision,template_id,data_json,confirmed,reason) VALUES(?,?,?,?,?,?)",d.id(),rev.revision(),rev.templateId(),json(rev.data()),rev.confirmed(),rev.reason());return true;}
+    @Override public List<DraftRevision> revisions(String id){return jdbc.query("SELECT revision,template_id,data_json,confirmed,reason,created_at FROM resume_workspace_draft_revision WHERE draft_id=? ORDER BY revision",(rs,n)->new DraftRevision(rs.getLong(1),rs.getString(2),read(rs.getString(3),DraftData.class),rs.getBoolean(4),rs.getString(5),rs.getTimestamp(6).toInstant()),id);}
+    @Override public Optional<ExportJob> export(String id){return jdbc.query("SELECT * FROM resume_workspace_export WHERE export_id=?",rs->{if(!rs.next())return Optional.empty();return Optional.of(export(rs));},id);}
+    @Override public Optional<ExportJob> exportForRevision(String d,long r){return jdbc.query("SELECT * FROM resume_workspace_export WHERE draft_id=? AND draft_revision=?",rs->{if(!rs.next())return Optional.empty();return Optional.of(export(rs));},d,r);}
+    private ExportJob export(java.sql.ResultSet r)throws java.sql.SQLException{ExportStatus s=new ExportStatus(r.getString("export_id"),r.getString("draft_id"),r.getLong("draft_revision"),r.getString("status"),r.getString("template_id"),r.getString("layout_issues_json")==null?List.of():readList(r.getString("layout_issues_json")),r.getInt("page_count"),r.getString("docx_json")==null?null:read(r.getString("docx_json"),ExportFile.class),r.getString("pdf_json")==null?null:read(r.getString("pdf_json"),ExportFile.class),r.getString("error_message"),r.getTimestamp("created_at").toInstant(),r.getTimestamp("updated_at").toInstant());return new ExportJob(r.getString("user_id"),s,read(r.getString("draft_snapshot_json"),ResumeDraft.class),null,null);}
+    private List<String> readList(String s){try{return mapper.readValue(s,mapper.getTypeFactory().constructCollectionType(List.class,String.class));}catch(Exception e){return List.of();}}
+    @Override public boolean createExport(ExportJob j){try{ExportStatus s=j.status();jdbc.update("INSERT INTO resume_workspace_export(export_id,draft_id,user_id,draft_revision,status,template_id,layout_issues_json,page_count,draft_snapshot_json) VALUES(?,?,?,?,?,?,?,?,?)",s.id(),s.draftId(),j.owner(),s.draftRevision(),s.status(),s.templateId(),json(s.layoutIssues()),s.pageCount(),json(j.snapshot()));return true;}catch(DuplicateKeyException e){return false;}}
+    @Override public boolean replaceExport(ExportJob j,String expected){ExportStatus s=j.status();return jdbc.update("UPDATE resume_workspace_export SET status=?,layout_issues_json=?,page_count=?,docx_json=?,pdf_json=?,error_message=? WHERE export_id=? AND status=?",s.status(),json(s.layoutIssues()),s.pageCount(),s.docx()==null?null:json(s.docx()),s.pdf()==null?null:json(s.pdf()),truncateError(s.error()),s.id(),expected)>0;}
+    private static String truncateError(String error) {
+        if (error == null || error.length() <= 1000) return error;
+        String suffix = " [truncated]";
+        int end = Math.max(0, 1000 - suffix.length());
+        if (end > 0 && Character.isHighSurrogate(error.charAt(end - 1))) end--;
+        return error.substring(0, end) + suffix;
+    }
+    @Override public List<ExportJob> unfinishedExports(){return jdbc.query("SELECT * FROM resume_workspace_export WHERE status IN ('QUEUED','RUNNING')",(rs,n)->export(rs));}
+    @Override public void savePhoto(PhotoRecord p){jdbc.update("INSERT INTO resume_workspace_photo(object_key,user_id,file_name) VALUES(?,?,?) ON DUPLICATE KEY UPDATE user_id=VALUES(user_id),file_name=VALUES(file_name)",p.objectKey(),p.owner(),p.fileName());}
+    @Override public Optional<PhotoRecord> photo(String k){return jdbc.query("SELECT object_key,user_id,file_name FROM resume_workspace_photo WHERE object_key=?",rs->{if(!rs.next())return Optional.empty();return Optional.of(new PhotoRecord(rs.getString(2),rs.getString(1),rs.getString(3)));},k);}
+}

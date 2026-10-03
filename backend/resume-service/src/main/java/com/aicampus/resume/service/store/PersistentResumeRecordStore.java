@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.lang.Nullable;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.util.List;
@@ -38,12 +40,14 @@ public class PersistentResumeRecordStore implements ResumeRecordStore {
         if (mapper.updateById(entity) == 0) {
             mapper.insert(entity);
         }
-        writeDetailCache(record);
+        afterCommit(() -> writeDetailCache(record));
     }
 
     @Override
     public Optional<ResumeRecord> findById(String resumeId) {
-        Optional<ResumeRecord> cachedRecord = readDetailCache(resumeId);
+        // Transactional reads must see the database snapshot and their own pending writes.
+        Optional<ResumeRecord> cachedRecord = TransactionSynchronizationManager.isActualTransactionActive()
+                ? Optional.empty() : readDetailCache(resumeId);
         if (cachedRecord.isPresent()) {
             return cachedRecord;
         }
@@ -53,7 +57,7 @@ public class PersistentResumeRecordStore implements ResumeRecordStore {
             return Optional.empty();
         }
         ResumeRecord record = entity.toRecord(objectMapper);
-        writeDetailCache(record);
+        afterCommit(() -> writeDetailCache(record));
         return Optional.of(record);
     }
 
@@ -73,9 +77,18 @@ public class PersistentResumeRecordStore implements ResumeRecordStore {
     public boolean delete(String resumeId) {
         boolean deleted = mapper.deleteById(resumeId) > 0;
         if (deleted) {
-            evictDetailCache(resumeId);
+            afterCommit(() -> evictDetailCache(resumeId));
         }
         return deleted;
+    }
+
+    private static void afterCommit(Runnable action) {
+        if(TransactionSynchronizationManager.isActualTransactionActive()) {
+            if(!TransactionSynchronizationManager.isSynchronizationActive())return;
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { action.run(); }
+            });
+        } else action.run();
     }
 
     private Optional<ResumeRecord> readDetailCache(String resumeId) {

@@ -43,6 +43,13 @@ resume:
     access-key: ${MINIO_ACCESS_KEY:minioadmin}
     secret-key: ${MINIO_SECRET_KEY:minioadmin}
     bucket: ${MINIO_BUCKET:resumes}
+    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:}
+  workspace:
+    enabled: ${RESUME_WORKSPACE_ENABLED:true}
+    local-user: ${RESUME_WORKSPACE_LOCAL_USER:}
+    export:
+      timeout-seconds: ${RESUME_EXPORT_TIMEOUT_SECONDS:90}
+      max-concurrency: ${RESUME_EXPORT_MAX_CONCURRENCY:2}
 
 management:
   health:

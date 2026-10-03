@@ -71,7 +71,7 @@ services:
   resume-service:
     build:
       context: ../backend
-      dockerfile: Dockerfile
+      dockerfile: resume-service/Dockerfile
       args:
         SERVICE: resume-service
     container_name: recruit-vm2-resume-service
@@ -83,6 +83,7 @@ services:
       RESUME_PERSISTENCE_ENABLED: ${RESUME_PERSISTENCE_ENABLED:-true}
       RESUME_EVIDENCE_ENABLED: ${RESUME_EVIDENCE_ENABLED:-true}
       JOB_SERVICE_URL: http://job-service:8104
+      AI_RESUME_DRAFT_AI_ENABLED: ${AI_RESUME_DRAFT_AI_ENABLED:-true}
       DASHSCOPE_MODEL: ${DASHSCOPE_MODEL:-qwen-plus}
       DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
       RESUME_CACHE_TTL: ${RESUME_CACHE_TTL:-10m}
@@ -96,6 +97,10 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-resumes}
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://${VM3_HOST}:9000}
+      RESUME_SOFFICE_PATH: ${RESUME_SOFFICE_PATH:-/usr/bin/soffice}
+      RESUME_RENDER_TIMEOUT_SECONDS: ${RESUME_RENDER_TIMEOUT_SECONDS:-60}
+      RESUME_RENDER_CONCURRENCY: ${RESUME_RENDER_CONCURRENCY:-2}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
       MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
     healthcheck:
