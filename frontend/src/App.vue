@@ -78,7 +78,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'is-authenticated': authed }">
+  <div class="app-shell" :class="{ 'is-authenticated': authed }" :data-section="section">
     <button v-if="authed && mobileNavOpen" class="nav-backdrop" aria-label="关闭导航" @click="mobileNavOpen = false" />
     <aside v-if="authed" class="side-nav" :class="{ 'is-open': mobileNavOpen }" :inert="searchOpen">
       <div class="brand">
