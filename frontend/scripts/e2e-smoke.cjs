@@ -2,6 +2,17 @@ const { spawn, spawnSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
+// Node 20 does not expose the WebSocket global unless the experimental
+// runtime flag is enabled. Relaunch once so the CDP browser client works in
+// both local shells and CI images without requiring an extra dependency.
+if (typeof WebSocket === 'undefined' && !process.execArgv.includes('--experimental-websocket')) {
+  const relaunched = spawnSync(process.execPath, ['--experimental-websocket', __filename, ...process.argv.slice(2)], {
+    stdio: 'inherit',
+    env: process.env
+  })
+  process.exit(relaunched.status || 0)
+}
+
 const rootDir = path.resolve(__dirname, '..')
 const explicitBaseUrl = Boolean(process.env.E2E_BASE_URL)
 const demoMode = ['1', 'true', 'yes', 'on'].includes((process.env.VITE_DEMO_MODE || '').trim().toLowerCase())

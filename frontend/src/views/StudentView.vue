@@ -139,6 +139,10 @@ const jobSkillFilter = ref('')
 
 const plans = ref<LearningPlan[]>([])
 const selectedPlanId = ref('')
+// Keep the first visit focused on the plan itself. The full builder is still
+// available through the compact settings bar whenever students need it.
+const planBuilderOpen = ref(false)
+let planBuilderInitialized = false
 const planVersions = ref<LearningPlan[]>([])
 const planLoading = ref(false)
 const planActionLoading = ref(false)
@@ -393,15 +397,15 @@ function validatePlanSchedule() {
     return false
   }
   if (!planForm.studyDays.length) {
-    ElMessage.warning('?????????')
+    ElMessage.warning('至少选择一个学习日')
     return false
   }
-  if (!Number.isInteger(planForm.dailyMinutesCap) || planForm.dailyMinutesCap < 30 || planForm.dailyMinutesCap > 720) {
-    ElMessage.warning('???????? 30 ? 720 ????')
+  if (!Number.isInteger(planForm.dailyMinutesCap) || planForm.dailyMinutesCap < 30 || planForm.dailyMinutesCap > 480) {
+    ElMessage.warning('每天上限需在 30 到 480 分钟之间')
     return false
   }
   if (planForm.weeklyHours * 60 > planForm.dailyMinutesCap * planForm.studyDays.length) {
-    ElMessage.warning('???????????????????????????')
+    ElMessage.warning('每周投入时间超过学习日和每天上限的总容量')
     return false
   }
   return true
@@ -636,6 +640,12 @@ async function performTaskAction(task: LearningPlan['tasks'][number], action: 'S
   taskScheduleMeta.value = { ...taskScheduleMeta.value, [taskKey]: next }
   persistLearningWorkspaceMeta()
   await saveTask(task.taskId, status, next)
+}
+
+function summarizeText(value?: string, maxLength = 72) {
+  const text = value?.trim() || ''
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength)}…`
 }
 
 function currentTaskActualMinutes(task: LearningPlan['tasks'][number]) {
@@ -978,6 +988,10 @@ async function loadPlans() {
   planLoading.value = true
   try {
     plans.value = await listLearningPlans()
+    if (!planBuilderInitialized) {
+      planBuilderOpen.value = plans.value.length === 0
+      planBuilderInitialized = true
+    }
     if (!selectedPlanId.value || !plans.value.some((plan) => plan.planId === selectedPlanId.value)) {
       const preferredPlan = [...plans.value]
         .filter((plan) => plan.status === 'ACTIVE')
@@ -1061,6 +1075,7 @@ async function createPlan() {
     persistLearningWorkspaceMeta()
     plans.value = [plan, ...plans.value.filter((item) => item.planId !== plan.planId)]
     selectedPlanId.value = plan.planId
+    planBuilderOpen.value = false
     await loadPlanVersions()
     ElMessage.success('学习计划已生成')
   } catch (error) {
@@ -1705,16 +1720,29 @@ watch(targetRole, (value) => {
 
       <section class="plan-builder panel" v-loading="planLoading">
         <div class="section-heading"><div><span class="eyebrow">PERSONAL ROADMAP</span><h2>学习计划</h2><p>按可投入时间生成与目标岗位关联的练习节奏。</p></div><Route :size="22" /></div>
-        <div class="plan-builder-fields">
+        <div v-if="plans.length && !planBuilderOpen" class="plan-builder-collapsed">
+          <div class="plan-builder-collapsed-copy">
+            <strong>{{ selectedPlan?.targetRole || planForm.targetRole || '学习计划设置' }}</strong>
+            <span>{{ selectedPlan?.weeklyHours || planForm.weeklyHours }} 小时/周 · {{ selectedPlan?.durationWeeks || planForm.durationWeeks }} 周</span>
+            <small v-if="activePlanSchedule.startDate">从 {{ activePlanSchedule.startDate }} 开始 · 每天最多 {{ activePlanSchedule.dailyMinutesCap || planForm.dailyMinutesCap }} 分钟</small>
+          </div>
+          <el-button size="small" @click="planBuilderOpen = true">调整计划</el-button>
+        </div>
+        <div v-if="planBuilderOpen || !plans.length" class="plan-builder-fields">
           <label class="form-field"><span>简历来源</span><el-select v-model="selectedResumeId" placeholder="选择简历" @change="selectResume"><el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" /></el-select></label>
           <label class="form-field"><span>岗位来源</span><el-select v-model="selectedJobId" placeholder="选择岗位"><el-option v-for="job in jobs" :key="job.jobId" :label="`${job.title} · ${job.companyName}`" :value="job.jobId" /></el-select></label>
           <label class="form-field"><span>目标岗位</span><el-input v-model="planForm.targetRole" placeholder="目标岗位" /></label>
           <label class="form-field"><span>每周投入（小时）</span><el-input-number v-model="planForm.weeklyHours" :min="2" :max="40" controls-position="right" /></label>
           <label class="form-field"><span>计划周期（周）</span><el-input-number v-model="planForm.durationWeeks" :min="1" :max="24" controls-position="right" /></label>
-          <label class="form-field"><span>开始日期</span><el-date-picker v-model="planForm.startDate" type="date" value-format="YYYY-MM-DD" placeholder="默认今天" /></label>
-          <label class="form-field"><span>提醒时间</span><el-time-picker v-model="planForm.reminderTime" value-format="HH:mm" format="HH:mm" placeholder="每天提醒" /></label>
-          <label class="form-field"><span>每周学习日</span><el-select v-model="planForm.studyDays" multiple collapse-tags placeholder="选择学习日"><el-option label="周一" value="MONDAY" /><el-option label="周二" value="TUESDAY" /><el-option label="周三" value="WEDNESDAY" /><el-option label="周四" value="THURSDAY" /><el-option label="周五" value="FRIDAY" /><el-option label="周六" value="SATURDAY" /><el-option label="周日" value="SUNDAY" /></el-select></label>
-          <label class="form-field"><span>每天上限（分钟）</span><el-input-number v-model="planForm.dailyMinutesCap" :min="30" :max="480" controls-position="right" /></label>
+          <details class="plan-advanced-settings">
+            <summary>高级安排（可选）</summary>
+            <div class="plan-advanced-fields">
+              <label class="form-field"><span>开始日期</span><el-date-picker v-model="planForm.startDate" type="date" value-format="YYYY-MM-DD" placeholder="默认今天" /></label>
+              <label class="form-field"><span>提醒时间</span><el-time-picker v-model="planForm.reminderTime" value-format="HH:mm" format="HH:mm" placeholder="每天提醒" /></label>
+              <label class="form-field"><span>每周学习日</span><el-select v-model="planForm.studyDays" multiple collapse-tags placeholder="选择学习日"><el-option label="周一" value="MONDAY" /><el-option label="周二" value="TUESDAY" /><el-option label="周三" value="WEDNESDAY" /><el-option label="周四" value="THURSDAY" /><el-option label="周五" value="FRIDAY" /><el-option label="周六" value="SATURDAY" /><el-option label="周日" value="SUNDAY" /></el-select></label>
+              <label class="form-field"><span>每天上限（分钟）</span><el-input-number v-model="planForm.dailyMinutesCap" :min="30" :max="480" controls-position="right" /></label>
+            </div>
+          </details>
           <el-button type="primary" :loading="planActionLoading" @click="createPlan">生成学习计划 <ArrowUpRight :size="16" /></el-button>
         </div>
       </section>
@@ -1733,7 +1761,10 @@ watch(targetRole, (value) => {
           <div class="version-rail"><span v-for="version in planVersions" :key="version.planId" :class="{ current: version.planId === selectedPlanId }">V{{ version.version }}</span></div>
           <div v-if="planVersions.length" class="version-actions"><el-button v-for="version in planVersions" :key="version.planId" :data-plan-id="version.planId" size="small" :type="version.planId === selectedPlanId ? 'primary' : 'default'" @click="selectedPlanId = version.planId; loadPlanVersions()">V{{ version.version }} · {{ planStatusLabel(version.status) }}</el-button></div>
           <el-alert v-if="selectedPlan && !selectedPlanIsActive" title="当前选择的是历史版本，任务和重新规划均为只读。" type="info" :closable="false" show-icon />
-          <p v-if="selectedPlan?.revisionReason" class="form-dirty-note">调整原因：{{ selectedPlan.revisionReason }}</p>
+          <details v-if="selectedPlan?.revisionReason" class="revision-reason">
+            <summary>调整原因：{{ summarizeText(selectedPlan.revisionReason) }}</summary>
+            <p>{{ selectedPlan.revisionReason }}</p>
+          </details>
           <div class="schedule-summary"><strong>本周安排</strong><span>{{ weekTasks.length }} 项 · {{ activePlanSchedule.startDate ? `第 ${currentPlanWeek} 周` : '尚未设置日期' }}</span><small v-if="todayPlanData?.reminders?.length">{{ todayPlanData.reminders.join('；') }}</small><small v-else-if="upcomingReminders.length">每天 {{ activePlanSchedule.reminderTime || '20:00' }} 提醒未完成任务</small><small v-else>暂无待提醒任务</small><small v-if="weeklyReviewData">上周实际 {{ weeklyReviewData.actualMinutes }} 分钟 · 完成 {{ weeklyReviewData.completedTasks }} 项 · 延期 {{ weeklyReviewData.delayedTasks }} 项</small></div>
           <div class="replan-form"><span>调整节奏与周复盘</span><el-input v-model="planForm.replanReason" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="计划变化或复盘原因" /><el-input v-model="weeklyReviewDraft" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="本周复盘：完成了什么、哪里卡住、下周准备怎么调整" /><el-select v-model="selectedCompletedSessionId" :disabled="!selectedPlanIsActive" clearable placeholder="选择同目标的已完成面试会话（可选)"><el-option v-for="session in compatibleCompletedSessions" :key="session.sessionId" :label="`${session.targetRole} · ${session.completedAt || session.updatedAt}`" :value="session.sessionId" /></el-select><div class="schedule-actions"><el-button :disabled="!selectedPlanIsActive" @click="savePlanSchedule">保存安排与复盘</el-button><el-button :disabled="!selectedPlanIsActive" :loading="planActionLoading" @click="replan">重新规划并预览</el-button></div><small v-if="weeklyReviewSaved" class="saved-note">最近已保存本周复盘</small></div>
         </aside>
@@ -1745,13 +1776,18 @@ watch(targetRole, (value) => {
           <el-empty v-if="!selectedPlan" description="请选择学习计划" :image-size="88" />
           <div v-else class="task-list">
             <div v-for="task in selectedPlan.tasks" :key="task.taskId" class="task-row" :class="{ 'task-today': todayTasks.some((item) => item.taskId === task.taskId), 'task-overdue': overdueTasks.some((item) => item.taskId === task.taskId) }">
-              <div class="task-main"><span class="week-chip">W{{ task.week }}</span><div><div class="task-title-line"><strong>{{ task.title }}</strong><el-tag size="small" :type="taskDisplayStatus(task) === 'COMPLETED' ? 'success' : taskDisplayStatus(task) === 'IN_PROGRESS' ? 'primary' : taskDisplayStatus(task) === 'PAUSED' || taskDisplayStatus(task) === 'DEFERRED' ? 'warning' : 'info'">{{ taskActionLabel(task) }}</el-tag></div><p>{{ task.description }}</p><div class="task-detail-lines"><small>安排：{{ taskSchedule(task).scheduledDate || `第 ${task.week} 周` }}</small><small v-if="taskSchedule(task).actualMinutes">实际：{{ taskSchedule(task).actualMinutes }} 分钟</small><small v-if="task.stage">{{ learningStageLabel(task.stage) }}</small><small v-if="task.skillGap">缺口：{{ task.skillGap }}</small><small v-if="task.acceptanceCriteria">验收：{{ task.acceptanceCriteria }}</small><small v-if="task.practiceDeliverable">交付：{{ task.practiceDeliverable }}</small></div></div></div>
+              <div class="task-main"><span class="week-chip">W{{ task.week }}</span><div><div class="task-title-line"><strong>{{ task.title }}</strong><el-tag size="small" :type="taskDisplayStatus(task) === 'COMPLETED' ? 'success' : taskDisplayStatus(task) === 'IN_PROGRESS' ? 'primary' : taskDisplayStatus(task) === 'PAUSED' || taskDisplayStatus(task) === 'DEFERRED' ? 'warning' : 'info'">{{ taskActionLabel(task) }}</el-tag></div><details class="task-details"><summary>查看任务详情</summary><p>{{ task.description }}</p><div class="task-detail-lines"><small>安排：{{ taskSchedule(task).scheduledDate || `第 ${task.week} 周` }}</small><small v-if="taskSchedule(task).actualMinutes">实际：{{ taskSchedule(task).actualMinutes }} 分钟</small><small v-if="task.stage">{{ learningStageLabel(task.stage) }}</small><small v-if="task.skillGap">缺口：{{ task.skillGap }}</small><small v-if="task.acceptanceCriteria">验收：{{ task.acceptanceCriteria }}</small><small v-if="task.practiceDeliverable">交付：{{ task.practiceDeliverable }}</small></div></details></div></div>
               <span class="task-hours"><Clock3 :size="14" />{{ task.estimatedHours }}h</span>
               <div class="task-actions"><el-button size="small" :disabled="!selectedPlanIsActive || taskSaving(task.taskId) || taskDisplayStatus(task) === 'IN_PROGRESS'" @click="performTaskAction(task, 'START')">开始</el-button><el-button size="small" :disabled="!selectedPlanIsActive || taskSaving(task.taskId) || taskDisplayStatus(task) !== 'IN_PROGRESS'" @click="performTaskAction(task, 'PAUSE')">暂停</el-button><el-button size="small" type="success" plain :disabled="!selectedPlanIsActive || taskSaving(task.taskId) || taskDisplayStatus(task) === 'COMPLETED'" @click="performTaskAction(task, 'COMPLETE')">完成</el-button><el-button size="small" text :disabled="!selectedPlanIsActive || taskSaving(task.taskId) || taskDisplayStatus(task) === 'COMPLETED'" @click="performTaskAction(task, 'DEFER')">延期一天</el-button></div>
-              <el-select class="task-status-select" :disabled="!selectedPlanIsActive || taskSaving(task.taskId)" :model-value="task.status === 'TODO' ? 'PENDING' : task.status" @update:model-value="saveTask(task.taskId, String($event))"><el-option label="待开始" value="PENDING" /><el-option label="进行中" value="IN_PROGRESS" /><el-option label="已完成" value="COMPLETED" /><el-option label="已跳过" value="SKIPPED" /></el-select>
-              <el-input v-model="taskFeedback[task.taskId]" :disabled="!selectedPlanIsActive || taskSaving(task.taskId)" placeholder="复盘备注" @change="saveTask(task.taskId, task.status)" />
-              <LearningEvidenceForm :plan-id="selectedPlan.planId" :task="task" :readonly="selectedPlan.status !== 'ACTIVE' && selectedPlan.status !== 'COMPLETED'" @saved="recordTaskEvidence" @resume-candidate="openResumeCandidateFromEvidence" @interview-follow-up="openInterviewFollowUpFromEvidence" />
-              <small v-if="taskSaving(task.taskId)" class="task-save-state">正在保存…</small><small v-else-if="taskErrors[task.taskId]" class="task-save-state error">{{ taskErrors[task.taskId] }} <el-button link type="primary" :disabled="!selectedPlanIsActive" @click="saveTask(task.taskId, taskRetryStatus[task.taskId] || task.status)">重试</el-button></small>
+              <details class="task-management-details">
+                <summary>{{ task.evidence?.length ? '查看进度与成果' : '记录复盘或提交成果' }}</summary>
+                <div class="task-management-fields">
+                  <el-select class="task-status-select" :disabled="!selectedPlanIsActive || taskSaving(task.taskId)" :model-value="task.status === 'TODO' ? 'PENDING' : task.status" @update:model-value="saveTask(task.taskId, String($event))"><el-option label="待开始" value="PENDING" /><el-option label="进行中" value="IN_PROGRESS" /><el-option label="已完成" value="COMPLETED" /><el-option label="已跳过" value="SKIPPED" /></el-select>
+                  <el-input v-model="taskFeedback[task.taskId]" :disabled="!selectedPlanIsActive || taskSaving(task.taskId)" placeholder="复盘备注" @change="saveTask(task.taskId, task.status)" />
+                  <LearningEvidenceForm :plan-id="selectedPlan.planId" :task="task" :readonly="selectedPlan.status !== 'ACTIVE' && selectedPlan.status !== 'COMPLETED'" @saved="recordTaskEvidence" @resume-candidate="openResumeCandidateFromEvidence" @interview-follow-up="openInterviewFollowUpFromEvidence" />
+                  <small v-if="taskSaving(task.taskId)" class="task-save-state">正在保存…</small><small v-else-if="taskErrors[task.taskId]" class="task-save-state error">{{ taskErrors[task.taskId] }} <el-button link type="primary" :disabled="!selectedPlanIsActive" @click="saveTask(task.taskId, taskRetryStatus[task.taskId] || task.status)">重试</el-button></small>
+                </div>
+              </details>
             </div>
           </div>
         </article>
@@ -2219,6 +2255,29 @@ watch(targetRole, (value) => {
 .plan-builder-fields :deep(.el-input-number) { width: 100%; }
 .plan-builder-fields :deep(.el-select__selected-item) { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-builder-fields :deep(.el-select__selected-item > span) { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-builder-collapsed { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; border: 1px solid #dcebe2; border-radius: 10px; background: #f6fbf8; }
+.plan-builder-collapsed-copy { display: grid; gap: 3px; min-width: 0; }
+.plan-builder-collapsed-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.plan-builder-collapsed-copy span { color: var(--muted, #66716c); font-size: 12px; }
+.plan-builder-collapsed-copy small { color: var(--muted, #66716c); font-size: 11px; }
+.plan-advanced-settings { grid-column: 1 / -1; padding-top: 3px; }
+.plan-advanced-settings summary,
+.revision-reason summary,
+.task-details summary,
+.task-management-details summary { color: var(--muted, #66716c); cursor: pointer; font-size: 12px; font-weight: 700; list-style: none; }
+.plan-advanced-settings summary::-webkit-details-marker,
+.revision-reason summary::-webkit-details-marker,
+.task-details summary::-webkit-details-marker,
+.task-management-details summary::-webkit-details-marker { display: none; }
+.plan-advanced-settings summary::before,
+.revision-reason summary::before,
+.task-details summary::before,
+.task-management-details summary::before { display: inline-block; margin-right: 5px; content: '＋'; color: var(--accent, #28664f); font-size: 14px; }
+.plan-advanced-settings[open] summary::before,
+.revision-reason[open] summary::before,
+.task-details[open] summary::before,
+.task-management-details[open] summary::before { content: '−'; }
+.plan-advanced-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; margin-top: 12px; padding: 12px; border-radius: 9px; background: #f7faf8; }
 .plan-layout { grid-template-columns: minmax(300px, 0.65fr) minmax(0, 1.35fr); }
 .plan-sidebar { display: grid; align-content: start; gap: 15px; }
 .plan-summary-card { display: grid; gap: 11px; padding: 16px; border-radius: 12px; background: #eff9f3; }
@@ -2226,6 +2285,8 @@ watch(targetRole, (value) => {
 .plan-summary-card span { font-size: 14px; font-weight: 750; }
 .plan-summary-card strong { color: var(--accent, #28664f); }
 .plan-summary-card p { margin: 0; color: var(--muted, #66716c); font-size: 12px; }
+.revision-reason { display: grid; gap: 6px; padding: 9px 10px; border-radius: 8px; background: #f7f9f8; }
+.revision-reason p { margin: 0; color: var(--muted, #66716c); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
 .version-rail { display: flex; flex-wrap: wrap; gap: 7px; }
 .version-rail span { padding: 5px 8px; border: 1px solid var(--line, #e8ebea); border-radius: 6px; color: var(--muted, #66716c); font-size: 11px; font-weight: 700; }
 .version-rail span.current { border-color: #b9dcc7; background: #e7f6ed; color: var(--accent, #28664f); }
@@ -2245,11 +2306,16 @@ watch(targetRole, (value) => {
 .week-chip { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 9px; background: #eef7f1; color: var(--accent, #28664f); font-size: 11px; font-weight: 800; }
 .task-main strong { display: block; font-size: 13px; }
 .task-main p { margin: 4px 0 0; color: var(--muted, #66716c); font-size: 12px; line-height: 1.55; }
+.task-details { margin-top: 6px; }
+.task-details > p { margin-top: 8px; }
+.task-details[open] { padding-bottom: 2px; }
 .task-detail-lines { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 7px; }
 .task-detail-lines small { color: #728078; font-size: 10px; line-height: 1.45; }
 .task-hours { display: inline-flex; align-items: center; gap: 3px; color: var(--muted, #66716c); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .task-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; grid-column: 1 / -1; }
 .task-status-select { grid-column: 1 / -1; }
+.task-management-details { grid-column: 1 / -1; min-width: 0; padding-top: 2px; }
+.task-management-fields { display: grid; gap: 9px; margin-top: 9px; }
 .task-row > :last-child { grid-column: 1 / -1; min-width: 0; }
 .task-row :deep(.el-select),
 .task-row :deep(.el-input) { min-width: 0; width: 100%; }
@@ -2370,6 +2436,7 @@ watch(targetRole, (value) => {
   .match-history-grid { grid-template-columns: 1fr; }
   .plan-builder-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .plan-builder-fields > .el-button { justify-self: end; }
+  .plan-advanced-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .interview-launch-actions { justify-content: flex-start; }
 }
 
@@ -2398,6 +2465,7 @@ watch(targetRole, (value) => {
   .resume-hero-content,
   .profile-form,
   .plan-builder-fields,
+  .plan-advanced-fields,
   .match-controls,
   .report-columns,
   .match-insights { grid-template-columns: 1fr; }
@@ -2406,6 +2474,8 @@ watch(targetRole, (value) => {
   .plan-builder-fields > :first-child,
   .plan-builder-fields > .el-button { grid-column: auto; justify-self: stretch; }
   .plan-builder-fields > .el-button { width: 100%; }
+  .plan-builder-collapsed { align-items: flex-start; flex-direction: column; }
+  .plan-builder-collapsed > .el-button { width: 100%; }
   .task-row { grid-template-columns: minmax(0, 1fr) 62px; }
   .task-row > :nth-child(3) { grid-column: 1 / -1; }
   .task-row > :last-child { grid-column: 1 / -1; }

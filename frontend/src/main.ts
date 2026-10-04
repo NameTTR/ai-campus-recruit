@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { ElAlert } from 'element-plus/es/components/alert/index'
 import { ElButton } from 'element-plus/es/components/button/index'
 import { ElDialog } from 'element-plus/es/components/dialog/index'
+import { ElDatePicker } from 'element-plus/es/components/date-picker/index'
 import { ElEmpty } from 'element-plus/es/components/empty/index'
 import { ElForm, ElFormItem } from 'element-plus/es/components/form/index'
 import { ElInput } from 'element-plus/es/components/input/index'
@@ -15,6 +16,7 @@ import { ElSwitch } from 'element-plus/es/components/switch/index'
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index'
 import { ElTag } from 'element-plus/es/components/tag/index'
 import { ElTimeline, ElTimelineItem } from 'element-plus/es/components/timeline/index'
+import { ElTimePicker } from 'element-plus/es/components/time-picker/index'
 import 'element-plus/dist/index.css'
 import App from './App.vue'
 import router from './router'
@@ -26,6 +28,7 @@ const elementPlusComponents = [
   ElAlert,
   ElButton,
   ElDialog,
+  ElDatePicker,
   ElEmpty,
   ElForm,
   ElFormItem,
@@ -43,7 +46,8 @@ const elementPlusComponents = [
   ElTableColumn,
   ElTag,
   ElTimeline,
-  ElTimelineItem
+  ElTimelineItem,
+  ElTimePicker
 ]
 
 elementPlusComponents.forEach((component) => app.use(component))
