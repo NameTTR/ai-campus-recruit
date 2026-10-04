@@ -98,14 +98,6 @@ const route = useRoute()
 const router = useRouter()
 const markdown = new MarkdownIt({ breaks: true, linkify: true })
 const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'resume')
-const moduleTitle: Record<string, string> = {
-  resume: '简历管理',
-  jobs: '岗位匹配',
-  plan: '学习路径',
-  interview: '模拟面试',
-  knowledge: '知识库问答'
-}
-
 const profile = ref<UserProfile>()
 const targetRole = ref('')
 const resumes = ref<ResumeSummary[]>([])
@@ -1215,14 +1207,8 @@ watch(targetRole, (value) => {
 
 <template>
   <section class="page student-workspace">
-    <header class="workspace-header">
-      <div class="header-copy">
-        <span v-if="activeModule !== 'resume'" class="eyebrow">CAREER COMMAND CENTER</span>
-        <h1>{{ moduleTitle[activeModule] || '学生工作台' }}</h1>
-        <p v-if="activeModule !== 'resume'">把每一次简历更新、岗位匹配和练习沉淀为可追踪的求职进度。</p>
-      </div>
-      <label v-if="activeModule !== 'resume'" class="target-role-control">
-        <span>目标岗位</span>
+    <header v-if="activeModule !== 'resume'" class="workspace-header compact-workspace-header">
+      <label class="target-role-control" aria-label="目标岗位">
         <el-input v-model="targetRole" placeholder="例如 Java 后端实习生">
           <template #prefix><Target :size="16" /></template>
         </el-input>
@@ -1556,6 +1542,8 @@ watch(targetRole, (value) => {
 <style scoped>
 .legacy-resume-history{margin-top:20px;border-top:1px solid var(--line,#e5ebe7);padding-top:16px}
 .legacy-resume-history>summary{color:var(--muted,#66716c);font-size:13px;cursor:pointer;width:fit-content;margin-bottom:18px}
+.workspace-header.compact-workspace-header{justify-content:flex-end;align-items:center;padding:0}
+.workspace-header.compact-workspace-header .target-role-control{display:block;width:min(318px,100%)}
 .claim-list { display: grid; gap: 9px; margin: 12px 0; padding: 13px; border-radius: 10px; background: #f5f9f6; font-size: 13px; }
 .claim-list article { padding: 9px; border: 1px solid #e5ebe7; border-radius: 8px; background: #fff; }
 .claim-list p { margin: 0 0 4px; line-height: 1.7; white-space: pre-wrap; }
