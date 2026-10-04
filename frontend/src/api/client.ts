@@ -398,6 +398,20 @@ export interface LearningPlanRequest {
   targetRole?: string
   weeklyHours?: number
   durationWeeks?: number
+  /** Optional schedule metadata. Older AI services ignore this on the client request. */
+  startDate?: string
+  studyDays?: string[]
+  dailyMinutesCap?: number
+}
+
+export interface LearningPlanSchedule {
+  startDate?: string
+  studyDays?: string[]
+  dailyMinutesCap?: number
+  reminderTime?: string
+  preferredWeekdays?: number[]
+  weeklyReviewDay?: number
+  timezone?: string
 }
 
 export interface LearningReference {
@@ -431,8 +445,50 @@ export interface LearningEvidence {
   analysisMetadata?: AnalysisMetadata
   submittedAt: string
   evaluatedAt?: string
+  confirmed?: boolean
+  resumeCandidate?: boolean
+  confirmedAt?: string
 }
 export interface LearningEvidenceRequest { description: string; links: string[] }
+
+export interface LearningTodayResponse {
+  planId: string
+  date: string
+  tasks: LearningTask[]
+  reminders: string[]
+  plannedMinutes: number
+  actualMinutes: number
+}
+
+export interface LearningWeeklyReview {
+  planId: string
+  week: number
+  plannedMinutes: number
+  actualMinutes: number
+  completedTasks: number
+  delayedTasks: number
+  weakSkills: string[]
+  nextActions: string[]
+  incompleteReason?: string
+  hardestTask?: string
+  needsSplit?: boolean
+  mastery?: number
+  nextWeekMinutes?: number
+  newProblems?: string[]
+}
+
+export interface LearningWeeklyReviewRequest {
+  week?: number
+  plannedMinutes?: number
+  actualMinutes?: number
+  completedTasks?: number
+  incompleteReason?: string
+  hardestTask?: string
+  needsSplit?: boolean
+  mastery?: number
+  nextWeekMinutes?: number
+  newProblems?: string[]
+}
 
 export interface LearningTask {
   prerequisites?: string[] | null
@@ -452,6 +508,19 @@ export interface LearningTask {
   practiceDeliverable?: string
   completedAt?: string
   updatedAt: string
+  taskDate?: string
+  estimatedMinutes?: number
+  dependencies?: string[]
+  source?: string
+  actualMinutes?: number
+  delayed?: boolean
+  deferredUntil?: string
+  scheduledDate?: string
+  dueDate?: string
+  reminderAt?: string
+  snoozedUntil?: string
+  startedAt?: string
+  pausedAt?: string
 }
 
 export interface LearningPlan {
@@ -466,6 +535,9 @@ export interface LearningPlan {
   targetRole: string
   weeklyHours: number
   durationWeeks: number
+  startDate?: string
+  studyDays?: string[]
+  dailyMinutesCap?: number
   status: string
   version: number
   revisionOfPlanId?: string
@@ -474,11 +546,19 @@ export interface LearningPlan {
   mocked?: boolean
   createdAt: string
   updatedAt: string
+  schedule?: LearningPlanSchedule
+  weeklyReview?: string
 }
 
 export interface LearningTaskUpdateRequest {
   status: string
   feedback?: string
+  scheduledDate?: string
+  dueDate?: string
+  snoozedUntil?: string
+  action?: 'START' | 'PAUSE' | 'COMPLETE' | 'DEFER' | 'SKIP'
+  actualMinutes?: number
+  deferredUntil?: string
 }
 
 export interface LearningPlanReplanRequest {
@@ -487,6 +567,9 @@ export interface LearningPlanReplanRequest {
   weeklyHours?: number
   durationWeeks?: number
   interviewSessionId?: string
+  startDate?: string
+  studyDays?: string[]
+  dailyMinutesCap?: number
 }
 
 export interface InterviewSessionRequest {
@@ -3724,7 +3807,7 @@ function buildLocalLearningPlan(payload: LearningPlanRequest, version = 1, revis
         ? `补齐 ${targetRole} 所需的简历证据与基础知识。`
         : `围绕 ${targetRole} 完成项目复盘、专项训练和复盘记录。`,
       estimatedHours: weeklyHours,
-      status: 'TODO',
+      status: 'PENDING',
       updatedAt: now
     })),
     createdAt: now,
@@ -3766,7 +3849,15 @@ export function getLearningPlan(planId: string) {
 
 export function updateLearningTask(planId: string, taskId: string, payload: LearningTaskUpdateRequest) {
   const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}`
-  const init: RequestInit = { method: 'PUT', body: JSON.stringify(payload) }
+  const init: RequestInit = {
+    method: 'PUT',
+    body: JSON.stringify({
+      status: payload.status,
+      feedback: payload.feedback,
+      actualMinutes: payload.actualMinutes,
+      deferredUntil: payload.deferredUntil
+    })
+  }
   if (shouldUseApi(path)) {
     return authenticatedRequest<LearningTask>(path, init)
   }
@@ -3781,6 +3872,9 @@ export function updateLearningTask(planId: string, taskId: string, payload: Lear
     status: payload.status,
     feedback: payload.feedback?.trim() || undefined,
     completedAt: payload.status === 'COMPLETED' ? updatedAt : undefined,
+    scheduledDate: payload.scheduledDate || task.scheduledDate,
+    dueDate: payload.dueDate || task.dueDate,
+    snoozedUntil: payload.snoozedUntil || task.snoozedUntil,
     updatedAt
   }
   localLearningPlans.set(planId, {
@@ -4779,6 +4873,85 @@ export function submitLearningEvidence(planId: string, taskId: string, payload: 
   }
   task.evidence = [result, ...(task.evidence || [])]
   return Promise.resolve(result)
+}
+
+export function getLearningToday(planId: string, date?: string) {
+  const params = date ? `?date=${encodeURIComponent(date)}` : ''
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/today${params}`
+  if (shouldUseApi(path)) return authenticatedRequest<LearningTodayResponse>(path, { method: 'GET' })
+  const plan = localLearningPlans.get(planId)
+  const day = date || new Date().toISOString().slice(0, 10)
+  const tasks = plan?.tasks.filter((task) => task.taskDate === day || task.scheduledDate === day) || []
+  return Promise.resolve({ planId, date: day, tasks, reminders: [], plannedMinutes: tasks.reduce((sum, task) => sum + (task.estimatedMinutes || task.estimatedHours * 60), 0), actualMinutes: tasks.reduce((sum, task) => sum + (task.actualMinutes || 0), 0) })
+}
+
+export function getLearningWeeklyReview(planId: string, week?: number) {
+  const params = week ? `?week=${encodeURIComponent(week)}` : ''
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/review${params}`
+  if (shouldUseApi(path)) return authenticatedRequest<LearningWeeklyReview>(path, { method: 'GET' })
+  const plan = localLearningPlans.get(planId)
+  const targetWeek = week || 1
+  const tasks = plan?.tasks.filter((task) => task.week === targetWeek) || []
+  return Promise.resolve({ planId, week: targetWeek, plannedMinutes: tasks.reduce((sum, task) => sum + (task.estimatedMinutes || task.estimatedHours * 60), 0), actualMinutes: tasks.reduce((sum, task) => sum + (task.actualMinutes || 0), 0), completedTasks: tasks.filter((task) => task.status === 'COMPLETED').length, delayedTasks: tasks.filter((task) => task.delayed || task.deferredUntil).length, weakSkills: tasks.map((task) => task.skillGap).filter((skill): skill is string => Boolean(skill)), nextActions: tasks.filter((task) => task.status !== 'COMPLETED').map((task) => task.title) })
+}
+
+export function getLearningReminders(planId: string, date?: string) {
+  const params = date ? `?date=${encodeURIComponent(date)}` : ''
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/reminders${params}`
+  if (shouldUseApi(path)) return authenticatedRequest<string[]>(path, { method: 'GET' })
+  const plan = localLearningPlans.get(planId)
+  const day = date || new Date().toISOString().slice(0, 10)
+  const reminders = (plan?.tasks || []).flatMap((task) => {
+    const scheduled = task.taskDate || task.scheduledDate
+    if (scheduled === day && !['COMPLETED', 'SKIPPED'].includes(task.status)) return [`待完成：${task.title}`]
+    if (task.deferredUntil && task.deferredUntil < day) return [`已逾期：${task.title}`]
+    return []
+  })
+  return Promise.resolve([...new Set(reminders)])
+}
+
+export function listLearningWeeklyReviews(planId: string) {
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/reviews`
+  if (shouldUseApi(path)) return authenticatedRequest<LearningWeeklyReview[]>(path, { method: 'GET' })
+  return Promise.resolve([] as LearningWeeklyReview[])
+}
+
+export function submitLearningWeeklyReview(planId: string, payload: LearningWeeklyReviewRequest) {
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/reviews`
+  if (shouldUseApi(path)) return authenticatedRequest<LearningWeeklyReview>(path, { method: 'POST', body: JSON.stringify(payload) })
+  return getLearningWeeklyReview(planId, payload.week)
+}
+
+export function retryLearningEvidence(planId: string, taskId: string, evidenceId: string) {
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/evidence/${encodeURIComponent(evidenceId)}/retry`
+  if (shouldUseApi(path)) return authenticatedRequest<LearningEvidence>(path, { method: 'POST' })
+  const plan = localLearningPlans.get(planId)
+  const evidence = plan?.tasks.find((task) => task.taskId === taskId)?.evidence?.find((item) => item.evidenceId === evidenceId)
+  return evidence ? Promise.resolve(evidence) : Promise.reject(new Error('成果记录不存在'))
+}
+
+export function confirmLearningEvidence(planId: string, taskId: string, evidenceId: string) {
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/evidence/${encodeURIComponent(evidenceId)}/confirm`
+  if (shouldUseApi(path)) return authenticatedRequest<LearningEvidence>(path, { method: 'POST' })
+  const plan = localLearningPlans.get(planId)
+  const task = plan?.tasks.find((item) => item.taskId === taskId)
+  const evidence = task?.evidence?.find((item) => item.evidenceId === evidenceId)
+  if (!task || !evidence) return Promise.reject(new Error('成果记录不存在'))
+  const updated = { ...evidence, status: 'CONFIRMED', confirmed: true }
+  task.evidence = task.evidence?.map((item) => item.evidenceId === evidenceId ? updated : item)
+  return Promise.resolve(updated)
+}
+
+export function addLearningEvidenceToResumeCandidate(planId: string, taskId: string, evidenceId: string) {
+  const path = `/api/ai/learning/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/evidence/${encodeURIComponent(evidenceId)}/resume-candidate`
+  if (shouldUseApi(path)) return authenticatedRequest<LearningEvidence>(path, { method: 'POST' })
+  const plan = localLearningPlans.get(planId)
+  const task = plan?.tasks.find((item) => item.taskId === taskId)
+  const evidence = task?.evidence?.find((item) => item.evidenceId === evidenceId)
+  if (!task || !evidence) return Promise.reject(new Error('成果记录不存在'))
+  const updated = { ...evidence, resumeCandidate: true }
+  task.evidence = task.evidence?.map((item) => item.evidenceId === evidenceId ? updated : item)
+  return Promise.resolve(updated)
 }
 
 export function confirmLearningPlan(planId: string, revisionId: string) {

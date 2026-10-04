@@ -117,11 +117,39 @@ CREATE TABLE IF NOT EXISTS ai_learning_plan (
     revision_of_plan_id VARCHAR(64) NULL,
     version INT NOT NULL,
     status VARCHAR(32) NOT NULL,
+    start_date VARCHAR(32) NULL,
+    study_days VARCHAR(128) NULL,
+    daily_minutes_cap INT NOT NULL DEFAULT 360,
     plan_snapshot MEDIUMTEXT NOT NULL,
     created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     KEY idx_ai_learning_plan_student_updated (student_id, updated_at),
     KEY idx_ai_learning_plan_root_version (root_plan_id, version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_learning_evidence (
+    evidence_id VARCHAR(100) NOT NULL PRIMARY KEY,
+    plan_id VARCHAR(100) NOT NULL,
+    task_id VARCHAR(150) NOT NULL,
+    student_id VARCHAR(100) NOT NULL,
+    input_fingerprint VARCHAR(64) NOT NULL,
+    evidence_snapshot MEDIUMTEXT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'EVALUATING',
+    confirmed TINYINT(1) NOT NULL DEFAULT 0,
+    resume_candidate TINYINT(1) NOT NULL DEFAULT 0,
+    submitted_at VARCHAR(40) NOT NULL,
+    evaluated_at VARCHAR(40) NULL,
+    UNIQUE KEY uk_ai_learning_evidence_input (student_id, task_id, input_fingerprint)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_learning_weekly_review (
+    plan_id VARCHAR(100) NOT NULL,
+    student_id VARCHAR(100) NOT NULL,
+    week INT NOT NULL,
+    review_snapshot MEDIUMTEXT NOT NULL,
+    updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (plan_id, student_id, week),
+    KEY idx_ai_learning_weekly_review_student_updated (student_id, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS ai_interview_session (

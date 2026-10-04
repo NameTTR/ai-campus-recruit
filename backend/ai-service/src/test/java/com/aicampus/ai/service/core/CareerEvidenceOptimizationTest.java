@@ -131,6 +131,8 @@ class CareerEvidenceOptimizationTest {
                             assertThat(t.taskId()).isEqualTo(taskId);
                             assertThat(t.status()).isEqualTo("COMPLETED");
                         });
+        assertThat(active.tasks().stream().map(LearningTask::taskId).toList())
+                .doesNotHaveDuplicates();
         assertThat(service.getLearningPlan(original.planId(), "S").status())
                 .isEqualTo("SUPERSEDED");
         assertThat(service.confirmLearningRevision(original.planId(), "S", draft.planId()).planId())

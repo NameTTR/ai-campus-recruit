@@ -277,6 +277,18 @@ public class AiController {
                 sessionId, resolveCoreStudentId(studentId, userId, userRole))));
     }
 
+    @Operation(summary = "List content-driven follow-up questions for an interview")
+    @GetMapping("/interview/sessions/{sessionId}/follow-ups")
+    public ApiResponse<List<InterviewSessionQuestion>> interviewFollowUps(
+            @PathVariable String sessionId,
+            @RequestParam(required = false) String studentId,
+            @RequestHeader(value = X_USER_ID, required = false) String userId,
+            @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        return ApiResponse.ok(aiCareerCoreService.getInterviewSession(
+                        sessionId, resolveCoreStudentId(studentId, userId, userRole))
+                .questions().stream().filter(InterviewSessionQuestion::followUp).toList());
+    }
+
     @Operation(summary = "Answer the next interview question")
     @PutMapping("/interview/sessions/{sessionId}/questions/{questionId}/answer")
     public ApiResponse<InterviewSession> answerInterviewQuestion(

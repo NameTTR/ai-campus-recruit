@@ -17,6 +17,10 @@ import com.aicampus.common.dto.LearningPlanCreateRequest;
 import com.aicampus.common.dto.LearningPlanReplanRequest;
 import com.aicampus.common.dto.LearningTask;
 import com.aicampus.common.dto.LearningTaskUpdateRequest;
+import com.aicampus.common.dto.LearningEvidence;
+import com.aicampus.common.dto.LearningEvidenceRequest;
+import com.aicampus.common.dto.LearningTodayResponse;
+import com.aicampus.common.dto.LearningWeeklyReview;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
@@ -26,6 +30,74 @@ import java.util.Comparator;
 import java.util.List;
 
 class AiCareerCoreServiceTest {
+    @Test
+    void scheduledTasksTrackDailyProgressAndConfirmedEvidenceSeparately() {
+        AiCareerCoreService service = service();
+        LearningPlan plan =
+                service.createLearningPlan(
+                        "S-CORE-SCHEDULE-001",
+                        "STUDENT",
+                        new LearningPlanCreateRequest(
+                                "S-CORE-SCHEDULE-001",
+                                null,
+                                null,
+                                null,
+                                "Java Backend Intern",
+                                6,
+                                2,
+                                "2026-10-05",
+                                List.of("MONDAY", "WEDNESDAY"),
+                                180));
+
+        assertThat(plan.startDate()).isEqualTo("2026-10-05");
+        assertThat(plan.studyDays()).containsExactly("MONDAY", "WEDNESDAY");
+        assertThat(plan.dailyMinutesCap()).isEqualTo(180);
+        assertThat(plan.tasks()).isNotEmpty().allSatisfy(task -> assertThat(task.taskDate()).isNotBlank());
+
+        LearningTask first = plan.tasks().get(0);
+        LearningTask updated =
+                service.updateLearningTask(
+                        plan.planId(),
+                        first.taskId(),
+                        plan.studentId(),
+                        new LearningTaskUpdateRequest("IN_PROGRESS", "Started the exercise", 40, "2026-10-08"));
+        assertThat(updated.actualMinutes()).isEqualTo(40);
+        assertThat(updated.deferredUntil()).isEqualTo("2026-10-08");
+        assertThat(updated.delayed()).isTrue();
+
+        LearningTodayResponse today = service.learningToday(plan.planId(), plan.studentId(), first.taskDate());
+        assertThat(today.tasks()).extracting(LearningTask::taskId).contains(first.taskId());
+        assertThat(today.plannedMinutes()).isGreaterThan(0);
+        assertThat(today.actualMinutes()).isEqualTo(40);
+        assertThat(today.reminders()).anyMatch(value -> value.contains("待完成"));
+
+        LearningWeeklyReview review = service.learningWeeklyReview(plan.planId(), plan.studentId(), first.week());
+        assertThat(review.plannedMinutes()).isGreaterThanOrEqualTo(today.plannedMinutes());
+        assertThat(review.actualMinutes()).isEqualTo(40);
+        assertThat(review.delayedTasks()).isEqualTo(1);
+
+        LearningEvidence evidence =
+                service.submitLearningEvidence(
+                        plan.planId(),
+                        first.taskId(),
+                        plan.studentId(),
+                        new LearningEvidenceRequest("Built and tested the requested endpoint.", List.of("https://example.com/work")));
+        assertThat(evidence.status()).isEqualTo("RECORDED");
+        assertThat(evidence.confirmed()).isFalse();
+        assertThat(evidence.resumeCandidate()).isFalse();
+        LearningEvidence confirmed =
+                service.confirmLearningEvidence(plan.planId(), first.taskId(), evidence.evidenceId(), plan.studentId());
+        assertThat(confirmed.confirmed()).isTrue();
+        assertThat(confirmed.resumeCandidate()).isFalse();
+        LearningEvidence candidate =
+                service.addEvidenceToResumeCandidate(
+                        plan.planId(), first.taskId(), evidence.evidenceId(), plan.studentId());
+        assertThat(candidate.confirmed()).isTrue();
+        assertThat(candidate.resumeCandidate()).isTrue();
+        assertThat(service.getLearningPlan(plan.planId(), plan.studentId()).tasks().get(0).status())
+                .isEqualTo("IN_PROGRESS");
+    }
+
     @Test
     void defaultLearningPlanHasEightWeeksAndReplanPreservesCompletedTasks() {
         AiCareerCoreService service = service();

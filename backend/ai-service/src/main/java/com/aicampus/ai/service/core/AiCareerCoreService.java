@@ -27,14 +27,19 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.DateTimeException;
+import java.time.DayOfWeek;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -52,6 +57,7 @@ public class AiCareerCoreService {
     private final InterviewSessionStore interviewSessionStore;
     private final RecruitmentContextClient contextClient;
     private LearningEvidenceStore learningEvidenceStore = new InMemoryLearningEvidenceStore();
+    private LearningWeeklyReviewStore learningWeeklyReviewStore = new InMemoryLearningWeeklyReviewStore();
     private static final String ALGORITHM_VERSION = "career-evidence-v2";
     private static final String RUBRIC_VERSION = "interview-four-dimensions-v1";
     private final Object[] operationLocks =
@@ -60,6 +66,11 @@ public class AiCareerCoreService {
     @Autowired(required = false)
     public void setLearningEvidenceStore(LearningEvidenceStore store) {
         this.learningEvidenceStore = store;
+    }
+
+    @Autowired(required = false)
+    public void setLearningWeeklyReviewStore(LearningWeeklyReviewStore store) {
+        this.learningWeeklyReviewStore = store;
     }
 
     private Object operationLock(String key) {
@@ -90,8 +101,11 @@ public class AiCareerCoreService {
         int weeklyHours = normalizeWeeklyHours(request == null ? null : request.weeklyHours());
         int durationWeeks =
                 normalizeDurationWeeks(request == null ? null : request.durationWeeks());
-        String input =
-                planFingerprint(studentId, context, targetRole, weeklyHours, durationWeeks, null);
+        String input = fingerprint(
+                planFingerprint(studentId, context, targetRole, weeklyHours, durationWeeks, null),
+                valueOr(request == null ? null : request.startDate()),
+                usefulStrings(request == null ? null : request.studyDays()).toString(),
+                String.valueOf(request == null ? null : request.dailyMinutesCap()));
         synchronized (operationLock("create:" + studentId + input)) {
             LearningPlan cached =
                     learningPlanStore.listByStudent(studentId, 100).stream()
@@ -119,6 +133,11 @@ public class AiCareerCoreService {
                             context,
                             null,
                             null);
+            plan = applySchedule(plan,
+                    request == null ? null : request.startDate(),
+                    request == null ? null : request.studyDays(),
+                    request == null ? null : request.dailyMinutesCap());
+            plan = withAnalysisMetadata(plan, input, plan.mocked(), "learning-plan-v2");
             learningPlanStore.save(plan);
             return plan;
         }
@@ -135,6 +154,90 @@ public class AiCareerCoreService {
         LearningPlan plan = requireLearningPlan(planId);
         requireOwner(plan.studentId(), studentId, "Learning plan");
         return enrichEvidence(plan);
+    }
+
+    public LearningTodayResponse learningToday(String planId, String studentId, String requestedDate) {
+        LearningPlan plan = getLearningPlan(planId, studentId);
+        String date = valueOr(requestedDate, LocalDate.now().toString());
+        List<LearningTask> tasks = safeTasks(plan.tasks()).stream()
+                .filter(t -> date.equals(t.taskDate()))
+                .toList();
+        int planned = tasks.stream().mapToInt(LearningTask::estimatedMinutes).sum();
+        int actual = tasks.stream().mapToInt(t -> t.actualMinutes() == null ? 0 : t.actualMinutes()).sum();
+        List<String> reminders = new ArrayList<>();
+        tasks.stream().filter(t -> t.delayed() || t.deferredUntil() != null)
+                .forEach(t -> reminders.add("已延期：" + t.title()));
+        tasks.stream().filter(t -> "PENDING".equals(t.status()) || "IN_PROGRESS".equals(t.status()))
+                .forEach(t -> reminders.add("待完成：" + t.title()));
+        return new LearningTodayResponse(plan.planId(), date, tasks, List.copyOf(reminders), planned, actual);
+    }
+
+    public LearningWeeklyReview learningWeeklyReview(String planId, String studentId, Integer requestedWeek) {
+        LearningPlan plan = getLearningPlan(planId, studentId);
+        int week = requestedWeek == null ? 1 : requestedWeek;
+        if (week < 1 || week > plan.durationWeeks()) throw new IllegalArgumentException("week is outside the plan");
+        List<LearningTask> tasks = safeTasks(plan.tasks()).stream().filter(t -> t.week() == week).toList();
+        int planned = tasks.stream().mapToInt(LearningTask::estimatedMinutes).sum();
+        int actual = tasks.stream().mapToInt(t -> t.actualMinutes() == null ? 0 : t.actualMinutes()).sum();
+        List<String> weak = tasks.stream().filter(t -> "SKIPPED".equals(t.status()) || t.delayed())
+                .map(LearningTask::skillGap).filter(Objects::nonNull).distinct().toList();
+        List<String> actions = tasks.stream().filter(t -> !"COMPLETED".equals(t.status()))
+                .map(t -> "完成并提交：" + t.title()).toList();
+        return new LearningWeeklyReview(plan.planId(), week, planned, actual,
+                (int) tasks.stream().filter(t -> "COMPLETED".equals(t.status())).count(),
+                (int) tasks.stream().filter(LearningTask::delayed).count(), weak, actions);
+    }
+
+    public List<LearningWeeklyReview> listLearningWeeklyReviews(String planId, String studentId) {
+        LearningPlan plan = getLearningPlan(planId, studentId);
+        return learningWeeklyReviewStore.list(plan.planId(), studentId);
+    }
+
+    public LearningWeeklyReview saveLearningWeeklyReview(
+            String planId, String studentId, LearningWeeklyReviewRequest request) {
+        LearningWeeklyReview calculated = learningWeeklyReview(
+                planId, studentId, request == null ? null : request.week());
+        int week = request != null && request.week() != null ? request.week() : calculated.week();
+        LearningWeeklyReview review = new LearningWeeklyReview(
+                calculated.planId(), week,
+                request != null && request.plannedMinutes() != null
+                        ? Math.max(0, request.plannedMinutes()) : calculated.plannedMinutes(),
+                request != null && request.actualMinutes() != null
+                        ? Math.max(0, request.actualMinutes()) : calculated.actualMinutes(),
+                request != null && request.completedTasks() != null
+                        ? Math.max(0, request.completedTasks()) : calculated.completedTasks(),
+                calculated.delayedTasks(), calculated.weakSkills(), calculated.nextActions(),
+                request == null ? null : valueOr(request.incompleteReason()),
+                request == null ? null : valueOr(request.hardestTask()),
+                request != null && Boolean.TRUE.equals(request.needsSplit()),
+                request != null && request.mastery() != null
+                        ? Math.max(0, Math.min(100, request.mastery())) : 0,
+                request != null && request.nextWeekMinutes() != null
+                        ? Math.max(0, request.nextWeekMinutes()) : 0,
+                request == null ? List.of() : usefulStrings(request.newProblems()));
+        learningWeeklyReviewStore.save(review, studentId);
+        return review;
+    }
+
+    public List<String> learningReminders(String planId, String studentId, String requestedDate) {
+        LearningTodayResponse today = learningToday(planId, studentId, requestedDate);
+        LearningPlan plan = getLearningPlan(planId, studentId);
+        List<String> reminders = new ArrayList<>(today.reminders());
+        LocalDate parsedDate;
+        try { parsedDate = LocalDate.parse(today.date()); } catch (DateTimeException ex) { parsedDate = LocalDate.now(); }
+        final LocalDate reminderDate = parsedDate;
+        safeTasks(plan.tasks()).stream()
+                .filter(t -> t.deferredUntil() != null && t.deferredUntil().compareTo(reminderDate.toString()) < 0)
+                .forEach(t -> reminders.add("已逾期：" + t.title()));
+        safeTasks(plan.tasks()).stream()
+                .filter(t -> safeList(t.evidence()).isEmpty()
+                        && ("COMPLETED".equals(t.status()) || "IN_PROGRESS".equals(t.status())))
+                .forEach(t -> reminders.add("成果待提交：" + t.title()));
+        safeTasks(plan.tasks()).stream()
+                .flatMap(t -> safeList(t.evidence()).stream())
+                .filter(e -> "NEEDS_REVISION".equals(e.status()) || "FAILED".equals(e.status()))
+                .forEach(e -> reminders.add("成果需要修改或重试：" + e.evidenceId()));
+        return List.copyOf(new LinkedHashSet<>(reminders));
     }
 
     public LearningTask updateLearningTask(
@@ -177,7 +280,15 @@ public class AiCareerCoreService {
                                 safeList(task.prerequisites()),
                                 safeList(task.references()),
                                 task.referenceStatus(),
-                                safeList(task.evidence()));
+                                safeList(task.evidence()),
+                                task.taskDate(),
+                                task.estimatedMinutes(),
+                                safeList(task.dependencies()),
+                                task.source(),
+                                request == null || request.actualMinutes() == null
+                                        ? task.actualMinutes() : request.actualMinutes(),
+                                request != null && request.deferredUntil() != null,
+                                request == null ? task.deferredUntil() : request.deferredUntil());
                 tasks.add(updatedTask);
             }
             if (updatedTask == null) {
@@ -256,6 +367,11 @@ public class AiCareerCoreService {
                             context,
                             previous,
                             additionalContext);
+            if (request != null && (valueOr(request.startDate()) != null
+                    || request.studyDays() != null && !request.studyDays().isEmpty()
+                    || request.dailyMinutesCap() != null)) {
+                generated = applySchedule(generated, request.startDate(), request.studyDays(), request.dailyMinutesCap());
+            }
             if (Boolean.TRUE.equals(request.previewOnly())) {
                 LearningPlan draft =
                         copyPlan(generated, "DRAFT", generated.tasks(), generated.updatedAt());
@@ -997,29 +1113,40 @@ public class AiCareerCoreService {
             List<LearningTask> previousTasks,
             int weeklyHours,
             int durationWeeks) {
-        Map<Integer, List<LearningTask>> completedByWeek = new HashMap<>();
+        Map<Integer, Map<String, LearningTask>> completedByWeek = new HashMap<>();
         for (LearningTask task : safeTasks(previousTasks)) {
             if ("COMPLETED".equals(task.status())) {
                 completedByWeek
-                        .computeIfAbsent(task.week(), ignored -> new ArrayList<>())
-                        .add(task);
+                        .computeIfAbsent(task.week(), ignored -> new HashMap<>())
+                        .putIfAbsent(task.taskId(), task);
             }
         }
         List<LearningTask> result = new ArrayList<>();
+        Set<String> completedTaskIds = new HashSet<>();
         for (int week = 1; week <= durationWeeks; week++) {
             int currentWeek = week;
-            List<LearningTask> completed = completedByWeek.getOrDefault(week, List.of());
-            result.addAll(completed);
+            List<LearningTask> completed = completedByWeek
+                    .getOrDefault(week, Map.of())
+                    .values()
+                    .stream()
+                    .sorted(Comparator.comparing(LearningTask::taskId))
+                    .toList();
+            for (LearningTask task : completed) {
+                if (completedTaskIds.add(task.taskId())) {
+                    result.add(task);
+                }
+            }
             int completedHours = completed.stream().mapToInt(LearningTask::estimatedHours).sum();
             int remainingHours = weeklyHours - completedHours;
             if (remainingHours <= 0) {
                 continue;
             }
-            List<LearningTask> candidates =
-                    newTasks.stream()
-                            .filter(task -> task.week() == currentWeek)
-                            .limit(Math.max(0, 2 - completed.size()))
-                            .toList();
+            Set<String> selectedTaskIds = new HashSet<>(completedTaskIds);
+            List<LearningTask> candidates = newTasks.stream()
+                    .filter(task -> task.week() == currentWeek)
+                    .filter(task -> selectedTaskIds.add(task.taskId()))
+                    .limit(Math.max(0, 2 - completed.size()))
+                    .toList();
             if (candidates.isEmpty()) {
                 throw new IllegalArgumentException(
                         "Completed tasks leave no remaining task slot for week " + week);
@@ -1032,7 +1159,21 @@ public class AiCareerCoreService {
                 result.add(copyTaskWithHours(task, allocatedHours));
             }
         }
-        return result.stream()
+        // A revision can pass through the preservation step more than once
+        // (generation and confirmation both protect completed work).  Older
+        // persisted plans may also already contain duplicate task IDs.  Keep
+        // one canonical task per ID, preferring the completed copy so the
+        // student's history and evidence are never lost.
+        Map<String, LearningTask> uniqueTasks = new LinkedHashMap<>();
+        for (LearningTask task : result) {
+            LearningTask existing = uniqueTasks.get(task.taskId());
+            if (existing == null
+                    || (!"COMPLETED".equals(existing.status())
+                            && "COMPLETED".equals(task.status()))) {
+                uniqueTasks.put(task.taskId(), task);
+            }
+        }
+        return uniqueTasks.values().stream()
                 .sorted(
                         Comparator.comparingInt(LearningTask::week)
                                 .thenComparing(LearningTask::taskId))
@@ -1163,7 +1304,14 @@ public class AiCareerCoreService {
                 safeList(task.prerequisites()),
                 safeList(task.references()),
                 task.referenceStatus(),
-                safeList(task.evidence()));
+                safeList(task.evidence()),
+                task.taskDate(),
+                Math.max(0, estimatedHours) * 60,
+                safeList(task.dependencies()),
+                task.source(),
+                task.actualMinutes(),
+                task.delayed(),
+                task.deferredUntil());
     }
 
     private String selectedInterviewSummary(String sessionId, String studentId, LearningPlan plan) {
@@ -1270,7 +1418,9 @@ public class AiCareerCoreService {
                                 studentId,
                                 description,
                                 links,
-                                evaluation.mocked() ? "RECORDED" : "SUCCEEDED",
+                                evaluation.mocked()
+                                        ? "RECORDED"
+                                        : (evaluation.score() < 70 ? "NEEDS_REVISION" : "SUCCEEDED"),
                                 evaluation,
                                 null,
                                 metadata(input, evaluation.mocked(), "learning-evaluation-v1"),
@@ -1297,6 +1447,51 @@ public class AiCareerCoreService {
         }
     }
 
+    public List<LearningEvidence> listLearningEvidence(String planId, String taskId, String studentId) {
+        LearningPlan plan = getLearningPlan(planId, studentId);
+        if (safeTasks(plan.tasks()).stream().noneMatch(t -> taskId.equals(t.taskId())))
+            throw new IllegalArgumentException("Learning task not found");
+        return learningEvidenceStore.listByTask(studentId, taskId);
+    }
+
+    public LearningEvidence retryLearningEvidence(String planId, String taskId, String evidenceId, String studentId) {
+        LearningEvidence evidence = findEvidence(planId, taskId, evidenceId, studentId);
+        if (!List.of("FAILED", "NEEDS_REVISION").contains(evidence.status())) return evidence;
+        return submitLearningEvidence(planId, taskId, studentId,
+                new LearningEvidenceRequest(evidence.description(), evidence.links()));
+    }
+
+    public LearningEvidence confirmLearningEvidence(String planId, String taskId, String evidenceId, String studentId) {
+        LearningEvidence evidence = findEvidence(planId, taskId, evidenceId, studentId);
+        if (!List.of("SUCCEEDED", "RECORDED", "RESUME_CANDIDATE", "CONFIRMED").contains(evidence.status()))
+            throw new IllegalArgumentException("Only evaluated evidence can be confirmed");
+        LearningEvidence confirmed = withEvidenceFlags(evidence, "CONFIRMED", true, evidence.resumeCandidate());
+        learningEvidenceStore.save(confirmed);
+        return confirmed;
+    }
+
+    public LearningEvidence addEvidenceToResumeCandidate(String planId, String taskId, String evidenceId, String studentId) {
+        LearningEvidence evidence = findEvidence(planId, taskId, evidenceId, studentId);
+        if (!evidence.confirmed() || !List.of("CONFIRMED", "RESUME_CANDIDATE").contains(evidence.status()))
+            throw new IllegalArgumentException("Student confirmation is required before a resume candidate can be created");
+        LearningEvidence candidate = withEvidenceFlags(evidence, "RESUME_CANDIDATE", evidence.confirmed(), true);
+        learningEvidenceStore.save(candidate);
+        return candidate;
+    }
+
+    private LearningEvidence findEvidence(String planId, String taskId, String evidenceId, String studentId) {
+        return listLearningEvidence(planId, taskId, studentId).stream()
+                .filter(e -> evidenceId.equals(e.evidenceId()))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("Learning evidence not found"));
+    }
+
+    private static LearningEvidence withEvidenceFlags(LearningEvidence evidence, String status,
+            boolean confirmed, boolean resumeCandidate) {
+        return new LearningEvidence(evidence.evidenceId(), evidence.planId(), evidence.taskId(), evidence.studentId(),
+                evidence.description(), safeList(evidence.links()), status, evidence.evaluation(), evidence.error(),
+                evidence.analysisMetadata(), evidence.submittedAt(), evidence.evaluatedAt(), confirmed, resumeCandidate);
+    }
+
     private LearningPlan enrichEvidence(LearningPlan plan) {
         List<LearningTask> tasks =
                 plan.tasks().stream()
@@ -1320,7 +1515,14 @@ public class AiCareerCoreService {
                                                 safeList(t.references()),
                                                 t.referenceStatus(),
                                                 learningEvidenceStore.listByTask(
-                                                        plan.studentId(), t.taskId())))
+                                                        plan.studentId(), t.taskId()),
+                                                t.taskDate(),
+                                                t.estimatedMinutes(),
+                                                safeList(t.dependencies()),
+                                                t.source(),
+                                                t.actualMinutes(),
+                                                t.delayed(),
+                                                t.deferredUntil()))
                         .toList();
         return copyPlan(plan, plan.status(), tasks, plan.updatedAt());
     }
@@ -1599,6 +1801,78 @@ public class AiCareerCoreService {
                 .orElseThrow(() -> new IllegalArgumentException("Interview session not found"));
     }
 
+    private static LearningPlan applySchedule(
+            LearningPlan plan, String requestedStartDate, List<String> requestedStudyDays,
+            Integer requestedDailyMinutesCap) {
+        String startDate = valueOr(requestedStartDate);
+        if (startDate == null) startDate = valueOr(plan.startDate());
+        List<String> studyDays = usefulStrings(requestedStudyDays);
+        if (studyDays.isEmpty()) studyDays = safeList(plan.studyDays());
+        if (studyDays.isEmpty()) studyDays = List.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY");
+        studyDays = studyDays.stream().map(value -> value.trim().toUpperCase(Locale.ROOT)).distinct().toList();
+        List<DayOfWeek> weekdays = new ArrayList<>();
+        for (String value : studyDays) {
+            try { weekdays.add(DayOfWeek.valueOf(value)); }
+            catch (IllegalArgumentException ex) { throw new IllegalArgumentException("studyDays must contain valid weekday names"); }
+        }
+        int cap = requestedDailyMinutesCap == null ? plan.dailyMinutesCap() : requestedDailyMinutesCap;
+        if (cap <= 0) cap = Math.max(30, (int) Math.ceil(plan.weeklyHours() * 60d / Math.max(1, studyDays.size())));
+        if (cap > 720) throw new IllegalArgumentException("dailyMinutesCap must be between 30 and 720");
+        LocalDate first = null;
+        try { first = startDate == null ? LocalDate.now() : LocalDate.parse(startDate); }
+        catch (DateTimeException ex) { throw new IllegalArgumentException("startDate must be yyyy-MM-dd"); }
+        while (!weekdays.contains(first.getDayOfWeek())) {
+            first = first.plusDays(1);
+        }
+        List<LearningTask> scheduled = new ArrayList<>();
+        Map<Integer, Integer> weekTaskIndex = new HashMap<>();
+        Map<Integer, Integer> dailyMinutes = new HashMap<>();
+        for (LearningTask task : safeTasks(plan.tasks())) {
+            String taskDate = task.taskDate();
+            int slot = weekTaskIndex.merge(task.week(), 1, Integer::sum) - 1;
+            DayOfWeek selectedDay = weekdays.get(slot % weekdays.size());
+            taskDate = first.plusDays(Math.max(0, task.week() - 1) * 7L)
+                    .with(java.time.temporal.TemporalAdjusters.nextOrSame(selectedDay)).toString();
+            int minutes = task.estimatedMinutes() > 0 ? task.estimatedMinutes() : task.estimatedHours() * 60;
+            if (minutes <= 0) throw new IllegalArgumentException("Every learning task must have estimated minutes");
+            // A generated task may be longer than one sitting. Schedule the first
+            // sitting within the daily cap and keep the task itself intact for the
+            // student's next session.
+            minutes = Math.min(minutes, cap);
+            int dayKey = (int) (LocalDate.parse(taskDate).toEpochDay());
+            int used = dailyMinutes.merge(dayKey, minutes, Integer::sum);
+            if (used > cap) throw new IllegalArgumentException("Daily learning limit exceeded on " + taskDate);
+            boolean delayed = task.delayed() || task.deferredUntil() != null;
+            scheduled.add(new LearningTask(task.taskId(), task.week(), task.title(), task.description(),
+                    task.skillGap(), task.stage(), task.acceptanceCriteria(), task.practiceDeliverable(),
+                    task.estimatedHours(), task.status(), task.feedback(), task.completedAt(), task.updatedAt(),
+                    safeList(task.prerequisites()), safeList(task.references()), task.referenceStatus(),
+                    safeList(task.evidence()), taskDate, minutes,
+                    safeList(task.dependencies()), task.source(), task.actualMinutes(), delayed,
+                    task.deferredUntil()));
+        }
+        int weeklyBudget = Math.max(1, plan.weeklyHours()) * 60;
+        for (int week = 1; week <= plan.durationWeeks(); week++) {
+            final int currentWeek = week;
+            int total = scheduled.stream().filter(t -> t.week() == currentWeek).mapToInt(LearningTask::estimatedMinutes).sum();
+            if (total > weeklyBudget) throw new IllegalArgumentException("Week " + week + " exceeds the weekly learning budget");
+        }
+        return new LearningPlan(plan.planId(), plan.rootPlanId(), plan.studentId(), plan.resumeId(), plan.jobId(),
+                plan.matchId(), plan.targetRole(), plan.contextSnapshot(), plan.weeklyHours(), plan.durationWeeks(),
+                first.toString(), studyDays, cap, plan.status(), plan.version(), plan.revisionOfPlanId(), scheduled,
+                plan.mocked(), plan.createdAt(), plan.updatedAt(), plan.revisionReason(), plan.analysisMetadata());
+    }
+
+    private LearningPlan withAnalysisMetadata(
+            LearningPlan plan, String inputFingerprint, boolean mocked, String modelVersion) {
+        return new LearningPlan(plan.planId(), plan.rootPlanId(), plan.studentId(), plan.resumeId(),
+                plan.jobId(), plan.matchId(), plan.targetRole(), plan.contextSnapshot(), plan.weeklyHours(),
+                plan.durationWeeks(), plan.startDate(), safeList(plan.studyDays()), plan.dailyMinutesCap(),
+                plan.status(), plan.version(), plan.revisionOfPlanId(), safeTasks(plan.tasks()), mocked,
+                plan.createdAt(), plan.updatedAt(), plan.revisionReason(),
+                metadata(inputFingerprint, mocked, modelVersion));
+    }
+
     private static LearningPlan copyPlan(
             LearningPlan plan, String status, List<LearningTask> tasks, Instant updatedAt) {
         return new LearningPlan(
@@ -1612,6 +1886,9 @@ public class AiCareerCoreService {
                 plan.contextSnapshot(),
                 plan.weeklyHours(),
                 plan.durationWeeks(),
+                plan.startDate(),
+                safeList(plan.studyDays()),
+                plan.dailyMinutesCap(),
                 status,
                 plan.version(),
                 plan.revisionOfPlanId(),

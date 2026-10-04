@@ -737,3 +737,17 @@ Gateway 验证 Bearer Token 后清理外部身份头，再注入 `X-User-Id` 和
 `availableEvidence` 分别提供主资料技能声明、主资料实践支撑、当前简历支撑和来源。
 `conditions` 比较学历、地点、毕业、到岗、每周出勤和连续时长，
 无法可靠判断时为 `UNKNOWN`。覆盖率保持规则含义，比较不调用模型。
+
+### Learning path execution (schedule and evidence)
+
+Learning plan creation accepts optional `startDate` (`yyyy-MM-dd`), `studyDays` (weekday names, default Monday-Friday), and `dailyMinutesCap`. The service normalizes a weekend start to the next selected study day, assigns each task a `taskDate` and `estimatedMinutes`, and rejects schedules that exceed weekly or daily budgets. Legacy requests remain valid.
+
+- `GET /api/ai/learning/plans/{planId}/today?date=yyyy-MM-dd`: today's tasks, planned/actual minutes, and reminders.
+- `GET /api/ai/learning/plans/{planId}/reminders`: server-computed in-app reminders for due work and evidence needing attention.
+- `GET /api/ai/learning/plans/{planId}/reviews` and `POST /api/ai/learning/plans/{planId}/reviews`: list or save a student's weekly retrospective. The POST body may include `week`, `actualMinutes`, `incompleteReason`, `hardestTask`, `needsSplit`, `mastery`, `nextWeekMinutes`, and `newProblems`.
+- `GET /api/ai/learning/plans/{planId}/tasks/{taskId}/evidence`: list evidence history.
+- `POST /api/ai/learning/plans/{planId}/tasks/{taskId}/evidence/{evidenceId}/retry`: retry failed or revision-needed evaluation while retaining the original submission.
+- `POST .../{evidenceId}/accept` (alias `confirm`): student confirmation is required before a result can be used as a resume candidate.
+- `POST .../{evidenceId}/resume-candidate`: mark a confirmed successful result as a resume candidate.
+
+Evidence states are `RECORDED`, `EVALUATING`, `NEEDS_REVISION`, `SUCCEEDED`, and `FAILED`. A task completion flag is self-reported progress and never upgrades skill evidence automatically.

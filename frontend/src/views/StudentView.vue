@@ -39,6 +39,9 @@ import {
   finishInterviewSession,
   getProfile,
   getInterviewSession,
+  getLearningReminders,
+  getLearningToday,
+  getLearningWeeklyReview,
   getLearningPlan,
   listInterviewSessions,
   listJobs,
@@ -49,6 +52,7 @@ import {
   listResumes,
   matchResumeJob,
   replanLearningPlan,
+  submitLearningWeeklyReview,
   rewriteResume,
   saveInterviewSessionAnswer,
   updateLearningTask,
@@ -60,7 +64,10 @@ import {
   type JobSummary,
   type KnowledgeAnswerResponse,
   type LearningPlan,
+  type LearningPlanSchedule,
   type LearningEvidence,
+  type LearningTodayResponse,
+  type LearningWeeklyReview,
   type MatchResult,
   type ResumeCompareResult,
   type ResumeDiagnosis,
@@ -142,8 +149,30 @@ const planForm = reactive({
   targetRole: '',
   weeklyHours: 6,
   durationWeeks: 8,
-  replanReason: ''
+  replanReason: '',
+  startDate: new Date().toISOString().slice(0, 10),
+  reminderTime: '20:00',
+  studyDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+  dailyMinutesCap: 72
 })
+type TaskScheduleMeta = {
+  status?: 'PAUSED' | 'DEFERRED'
+  scheduledDate?: string
+  dueDate?: string
+  reminderAt?: string
+  snoozedUntil?: string
+  startedAt?: string
+  pausedAt?: string
+  completedAt?: string
+  actualMinutes?: number
+}
+type LocalPlanSchedule = LearningPlanSchedule & { weeklyReview?: string }
+const planSchedules = ref<Record<string, LocalPlanSchedule>>({})
+const taskScheduleMeta = ref<Record<string, TaskScheduleMeta>>({})
+const weeklyReviewDraft = ref('')
+const weeklyReviewSaved = ref(false)
+const todayPlanData = ref<LearningTodayResponse>()
+const weeklyReviewData = ref<LearningWeeklyReview>()
 const taskFeedback = ref<Record<string, string>>({})
 const taskDraftsByPlan = new Map<string, Record<string, string>>()
 let taskFeedbackPlanId = ''
@@ -212,6 +241,61 @@ const selectedPlanProgress = computed(() => {
   const total = selectedPlan.value?.tasks.length || 0
   return total ? Math.round((selectedPlanCompletedTasks.value / total) * 100) : 0
 })
+const activePlanSchedule = computed<LocalPlanSchedule>(() => {
+  const plan = selectedPlan.value
+  if (!plan) return { startDate: planForm.startDate, reminderTime: planForm.reminderTime }
+  const stored = planSchedules.value[plan.planId] || {}
+  const apiStudyDays = Array.isArray(plan.studyDays) && plan.studyDays.length
+    ? plan.studyDays
+    : (Array.isArray(plan.schedule?.studyDays) && plan.schedule.studyDays.length ? plan.schedule.studyDays : undefined)
+  const fromApi = {
+    ...(plan.schedule || {}),
+    startDate: plan.startDate || plan.schedule?.startDate,
+    studyDays: apiStudyDays || ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+    dailyMinutesCap: plan.dailyMinutesCap || plan.schedule?.dailyMinutesCap
+  } as LocalPlanSchedule
+  const storedStudyDays = Array.isArray(stored.studyDays) && stored.studyDays.length ? stored.studyDays : undefined
+  return {
+    ...fromApi,
+    ...stored,
+    studyDays: storedStudyDays || fromApi.studyDays,
+    startDate: stored.startDate || fromApi.startDate || plan.startDate
+  }
+})
+const todayKey = computed(() => new Date().toISOString().slice(0, 10))
+const currentPlanWeek = computed(() => {
+  const start = activePlanSchedule.value.startDate
+  if (!start) return 1
+  const elapsed = Math.floor((Date.parse(`${todayKey.value}T00:00:00`) - Date.parse(`${start}T00:00:00`)) / 86400000)
+  return Math.max(1, Math.min(selectedPlan.value?.durationWeeks || 1, Math.floor(elapsed / 7) + 1))
+})
+const planTasks = computed(() => selectedPlan.value?.tasks || [])
+const taskMetaKey = (planId: string, taskId: string) => `${planId}:${taskId}`
+const taskSchedule = (task: LearningPlan['tasks'][number]) => {
+  const plan = selectedPlan.value
+  const meta = plan ? taskScheduleMeta.value[taskMetaKey(plan.planId, task.taskId)] || {} : {}
+  const apiTask = task as LearningPlan['tasks'][number] & TaskScheduleMeta
+  const schedule = activePlanSchedule.value
+  const base = schedule.startDate ? Date.parse(`${schedule.startDate}T00:00:00`) : NaN
+  const derived = Number.isFinite(base) ? new Date(base + Math.max(0, (task.week || 1) - 1) * 7 * 86400000).toISOString().slice(0, 10) : ''
+  const scheduledDate = meta.scheduledDate || apiTask.scheduledDate || apiTask.taskDate || derived
+  const dueDate = meta.dueDate || apiTask.dueDate || apiTask.deferredUntil || scheduledDate
+  return { ...apiTask, ...meta, scheduledDate, dueDate }
+}
+const taskDisplayStatus = (task: LearningPlan['tasks'][number]) => {
+  const meta = selectedPlan.value ? taskScheduleMeta.value[taskMetaKey(selectedPlan.value.planId, task.taskId)] : undefined
+  return meta?.status || (task.status === 'TODO' ? 'PENDING' : task.status)
+}
+const todayTasks = computed(() => planTasks.value.filter((task) => taskSchedule(task).scheduledDate === todayKey.value))
+const weekTasks = computed(() => planTasks.value.filter((task) => task.week === currentPlanWeek.value))
+const overdueTasks = computed(() => planTasks.value.filter((task) => {
+  const due = taskSchedule(task).dueDate
+  return Boolean(due && due < todayKey.value && !['COMPLETED', 'SKIPPED'].includes(taskDisplayStatus(task)))
+}))
+const upcomingReminders = computed(() => planTasks.value.filter((task) => {
+  const reminder = taskSchedule(task).reminderAt || activePlanSchedule.value.reminderTime
+  return Boolean(reminder && !['COMPLETED', 'SKIPPED'].includes(taskDisplayStatus(task)))
+}))
 const selectedSessionProgress = computed(() => {
   const total = selectedSession.value?.questions.length || 0
   return total ? Math.round(((selectedSession.value?.answers.length || 0) / total) * 100) : 0
@@ -308,6 +392,18 @@ function validatePlanSchedule() {
     ElMessage.warning('计划周期需在 1 到 24 周之间')
     return false
   }
+  if (!planForm.studyDays.length) {
+    ElMessage.warning('?????????')
+    return false
+  }
+  if (!Number.isInteger(planForm.dailyMinutesCap) || planForm.dailyMinutesCap < 30 || planForm.dailyMinutesCap > 720) {
+    ElMessage.warning('???????? 30 ? 720 ????')
+    return false
+  }
+  if (planForm.weeklyHours * 60 > planForm.dailyMinutesCap * planForm.studyDays.length) {
+    ElMessage.warning('???????????????????????????')
+    return false
+  }
   return true
 }
 
@@ -341,6 +437,7 @@ function syncTargetRole() {
   targetRole.value = saved || profile.value?.targetPosition || ''
   planForm.targetRole = planForm.targetRole || targetRole.value
   interviewTargetRole.value = interviewTargetRole.value || targetRole.value
+  loadLearningWorkspaceMeta()
   loadKnowledgeHistory()
 }
 
@@ -389,6 +486,160 @@ function matchScoreLabel(match?: MatchResult) {
 
 function taskSaving(taskId: string) {
   return taskSavingIds.value.includes(taskId)
+}
+
+function learningWorkspaceKey(suffix: string) {
+  return profile.value?.userId ? `aicampus.learning.${suffix}.${profile.value.userId}` : ''
+}
+
+function loadLearningWorkspaceMeta() {
+  try {
+    const schedules = learningWorkspaceKey('schedules')
+    const tasks = learningWorkspaceKey('tasks')
+    planSchedules.value = schedules ? JSON.parse(localStorage.getItem(schedules) || '{}') : {}
+    taskScheduleMeta.value = tasks ? JSON.parse(localStorage.getItem(tasks) || '{}') : {}
+  } catch {
+    planSchedules.value = {}
+    taskScheduleMeta.value = {}
+  }
+}
+
+function persistLearningWorkspaceMeta() {
+  try {
+    const schedules = learningWorkspaceKey('schedules')
+    const tasks = learningWorkspaceKey('tasks')
+    if (schedules) localStorage.setItem(schedules, JSON.stringify(planSchedules.value))
+    if (tasks) localStorage.setItem(tasks, JSON.stringify(taskScheduleMeta.value))
+  } catch {
+    // Private browsing or storage limits should not block task updates.
+  }
+}
+
+function syncPlanSchedule(plan?: LearningPlan) {
+  if (!plan) {
+    weeklyReviewDraft.value = ''
+    weeklyReviewSaved.value = false
+    return
+  }
+  const apiSchedule = {
+    ...(plan.schedule || {}),
+    startDate: plan.startDate || plan.schedule?.startDate,
+    studyDays: plan.studyDays || plan.schedule?.studyDays,
+    dailyMinutesCap: plan.dailyMinutesCap || plan.schedule?.dailyMinutesCap
+  } as LocalPlanSchedule
+  const saved = planSchedules.value[plan.planId] || {}
+  const savedStudyDays = Array.isArray(saved.studyDays) && saved.studyDays.length
+    ? saved.studyDays
+    : undefined
+  const apiStudyDays = Array.isArray(apiSchedule.studyDays) && apiSchedule.studyDays.length
+    ? apiSchedule.studyDays
+    : undefined
+  planSchedules.value = {
+    ...planSchedules.value,
+    [plan.planId]: {
+      ...apiSchedule,
+      ...saved,
+      startDate: saved.startDate || apiSchedule.startDate || plan.startDate,
+      studyDays: savedStudyDays || apiStudyDays || ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+      dailyMinutesCap: saved.dailyMinutesCap || apiSchedule.dailyMinutesCap || Math.max(30, Math.ceil(plan.weeklyHours * 60 / 5))
+    }
+  }
+  weeklyReviewDraft.value = saved.weeklyReview || ''
+  weeklyReviewSaved.value = Boolean(saved.weeklyReview)
+}
+
+async function loadPlanInsights(plan?: LearningPlan) {
+  if (!plan) {
+    todayPlanData.value = undefined
+    weeklyReviewData.value = undefined
+    return
+  }
+  try {
+    const [today, review, reminders] = await Promise.all([
+      getLearningToday(plan.planId, todayKey.value),
+      getLearningWeeklyReview(plan.planId, currentPlanWeek.value),
+      getLearningReminders(plan.planId, todayKey.value)
+    ])
+    if (selectedPlanId.value === plan.planId) {
+      todayPlanData.value = { ...today, reminders }
+      weeklyReviewData.value = review
+    }
+  } catch {
+    // Keep derived local schedule data when the optional insight endpoints are unavailable.
+    todayPlanData.value = undefined
+    weeklyReviewData.value = undefined
+  }
+}
+
+async function savePlanSchedule() {
+  const plan = selectedPlan.value
+  if (!plan) return
+  planSchedules.value = {
+    ...planSchedules.value,
+    [plan.planId]: {
+      ...planSchedules.value[plan.planId],
+      startDate: planForm.startDate || undefined,
+      reminderTime: planForm.reminderTime || undefined,
+      weeklyReview: weeklyReviewDraft.value.trim() || undefined
+    }
+  }
+  weeklyReviewSaved.value = true
+  persistLearningWorkspaceMeta()
+  if (weeklyReviewDraft.value.trim()) {
+    try {
+      await submitLearningWeeklyReview(plan.planId, {
+        week: currentPlanWeek.value,
+        plannedMinutes: weeklyReviewData.value?.plannedMinutes,
+        actualMinutes: weeklyReviewData.value?.actualMinutes,
+        completedTasks: selectedPlanCompletedTasks.value,
+        incompleteReason: weeklyReviewDraft.value.trim()
+      })
+    } catch {
+      // Keep the local review when an older backend has no review endpoint.
+    }
+  }
+  ElMessage.success('学习安排已保存')
+}
+
+function taskActionLabel(task: LearningPlan['tasks'][number]) {
+  const status = taskDisplayStatus(task)
+  if (status === 'IN_PROGRESS') return '进行中'
+  if (status === 'COMPLETED') return '已完成'
+  if (status === 'PAUSED') return '已暂停'
+  if (status === 'DEFERRED') return '已延期'
+  if (status === 'SKIPPED') return '已跳过'
+  return '待开始'
+}
+
+async function performTaskAction(task: LearningPlan['tasks'][number], action: 'START' | 'PAUSE' | 'COMPLETE' | 'DEFER' | 'SKIP') {
+  const plan = selectedPlan.value
+  if (!plan || !selectedPlanIsActive.value) return
+  const now = new Date()
+  const taskKey = taskMetaKey(plan.planId, task.taskId)
+  const previous = taskScheduleMeta.value[taskKey] || {}
+  const next: TaskScheduleMeta = { ...previous }
+  let status = task.status === 'TODO' ? 'PENDING' : task.status
+  if (action === 'START') { status = 'IN_PROGRESS'; next.status = undefined; next.startedAt = now.toISOString() }
+  if (action === 'PAUSE') { status = 'PENDING'; next.status = 'PAUSED'; next.pausedAt = now.toISOString() }
+  if (action === 'COMPLETE') { status = 'COMPLETED'; next.status = undefined; next.completedAt = now.toISOString() }
+  if ((action === 'PAUSE' || action === 'COMPLETE') && previous.startedAt) {
+    const elapsed = Math.max(0, Math.round((now.getTime() - Date.parse(previous.startedAt)) / 60000))
+    next.actualMinutes = (previous.actualMinutes || currentTaskActualMinutes(task)) + elapsed
+  }
+  if (action === 'SKIP') { status = 'SKIPPED'; next.status = undefined }
+  if (action === 'DEFER') {
+    status = 'PENDING'; next.status = 'DEFERRED'
+    next.snoozedUntil = new Date(now.getTime() + 86400000).toISOString().slice(0, 10)
+    next.scheduledDate = next.snoozedUntil
+    next.dueDate = next.snoozedUntil
+  }
+  taskScheduleMeta.value = { ...taskScheduleMeta.value, [taskKey]: next }
+  persistLearningWorkspaceMeta()
+  await saveTask(task.taskId, status, next)
+}
+
+function currentTaskActualMinutes(task: LearningPlan['tasks'][number]) {
+  return task.actualMinutes || 0
 }
 
 function ensureResumeProfileSaved() {
@@ -749,8 +1000,14 @@ async function loadPlanVersions() {
     planForm.targetRole = route.query.matchId ? selectedJob.value?.title || plan.targetRole : plan.targetRole
     planForm.weeklyHours = plan.weeklyHours
     planForm.durationWeeks = plan.durationWeeks
+    syncPlanSchedule(plan)
+    planForm.startDate = activePlanSchedule.value.startDate || ''
+    planForm.reminderTime = activePlanSchedule.value.reminderTime || '20:00'
+    planForm.studyDays = activePlanSchedule.value.studyDays || ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY']
+    planForm.dailyMinutesCap = activePlanSchedule.value.dailyMinutesCap || Math.max(30, Math.round(plan.weeklyHours * 60 / Math.max(1, planForm.studyDays.length)))
   }
   syncTaskFeedback(plan)
+  void loadPlanInsights(plan)
   if (!selectedPlanId.value) {
     planVersions.value = []
     return
@@ -786,8 +1043,22 @@ async function createPlan() {
       matchId: selectedContextMatch.value?.matchId,
       targetRole: planForm.targetRole.trim() || selectedJob.value?.title || profile.value?.targetPosition,
       weeklyHours: planForm.weeklyHours,
-      durationWeeks: planForm.durationWeeks
+      durationWeeks: planForm.durationWeeks,
+      startDate: planForm.startDate || todayKey.value,
+      studyDays: planForm.studyDays,
+      dailyMinutesCap: planForm.dailyMinutesCap
     })
+    planSchedules.value = {
+      ...planSchedules.value,
+      [plan.planId]: {
+        ...(plan.schedule || {}),
+        startDate: planForm.startDate || todayKey.value,
+        reminderTime: planForm.reminderTime || '20:00',
+        studyDays: planForm.studyDays,
+        dailyMinutesCap: planForm.dailyMinutesCap
+      }
+    }
+    persistLearningWorkspaceMeta()
     plans.value = [plan, ...plans.value.filter((item) => item.planId !== plan.planId)]
     selectedPlanId.value = plan.planId
     await loadPlanVersions()
@@ -799,7 +1070,7 @@ async function createPlan() {
   }
 }
 
-async function saveTask(taskId: string, status: string) {
+async function saveTask(taskId: string, status: string, metadata?: TaskScheduleMeta) {
   const plan = selectedPlan.value
   if (!plan) {
     return
@@ -820,7 +1091,13 @@ async function saveTask(taskId: string, status: string) {
     const currentTask = plan.tasks.find((task) => task.taskId === taskId)
     const updated = await updateLearningTask(plan.planId, taskId, {
       status,
-      feedback: taskFeedback.value[taskId] ?? currentTask?.feedback
+      feedback: taskFeedback.value[taskId] ?? currentTask?.feedback,
+      scheduledDate: metadata?.scheduledDate,
+      dueDate: metadata?.dueDate,
+      snoozedUntil: metadata?.snoozedUntil,
+      action: metadata?.status === 'PAUSED' ? 'PAUSE' : metadata?.status === 'DEFERRED' ? 'DEFER' : undefined,
+      actualMinutes: metadata?.actualMinutes ?? currentTask?.actualMinutes,
+      deferredUntil: metadata?.snoozedUntil
     })
     if (taskFeedbackPlanId === plan.planId) {
       taskFeedback.value = { ...taskFeedback.value, [taskId]: updated.feedback || '' }
@@ -839,6 +1116,14 @@ async function saveTask(taskId: string, status: string) {
         updatedAt: updated.updatedAt
       }
     })
+    const storedTaskMeta = taskScheduleMeta.value[taskMetaKey(plan.planId, taskId)]
+    if (metadata || storedTaskMeta) {
+      taskScheduleMeta.value = {
+        ...taskScheduleMeta.value,
+        [taskMetaKey(plan.planId, taskId)]: metadata || { ...storedTaskMeta, status: undefined }
+      }
+      persistLearningWorkspaceMeta()
+    }
     ElMessage.success('任务进度已保存')
   } catch (error) {
     if (selectedPlanId.value === plan.planId) {
@@ -853,6 +1138,7 @@ async function saveTask(taskId: string, status: string) {
         const refreshed = await getLearningPlan(plan.planId)
         if (refreshRevision === taskWriteRevision) {
           plans.value = plans.value.map((item) => item.planId === refreshed.planId ? refreshed : item)
+          void loadPlanInsights(refreshed)
           if (refreshed.status !== 'ACTIVE' && selectedPlanId.value === refreshed.planId) syncTaskFeedback(refreshed)
         }
       } catch {
@@ -881,6 +1167,9 @@ async function replan() {
       reason: planForm.replanReason.trim(),
       weeklyHours: planForm.weeklyHours,
       durationWeeks: planForm.durationWeeks,
+      startDate: planForm.startDate || activePlanSchedule.value.startDate,
+      studyDays: planForm.studyDays,
+      dailyMinutesCap: planForm.dailyMinutesCap,
       interviewSessionId: compatibleInterviewSessionId.value,
       previewOnly: true
     })
@@ -926,6 +1215,18 @@ function recordTaskEvidence(evidence: LearningEvidence) {
   plans.value = plans.value.map((plan) => plan.planId === evidence.planId ? { ...plan,
     tasks: plan.tasks.map((task) => task.taskId === evidence.taskId ? { ...task,
       evidence: [evidence, ...(task.evidence || []).filter((item) => item.evidenceId !== evidence.evidenceId)] } : task) } : plan)
+}
+
+function openResumeCandidateFromEvidence(evidence: LearningEvidence) {
+  ElMessage.info('成果已记录。打开简历页面后，可在主资料中选择它作为候选经历。')
+  void router.push('/student/resume')
+}
+
+function openInterviewFollowUpFromEvidence(evidence: LearningEvidence) {
+  const plan = selectedPlan.value
+  if (plan) interviewTargetRole.value = plan.targetRole
+  ElMessage.info('已带入当前目标岗位，请在模拟面试中开始追问练习。')
+  void router.push({ path: '/student/interview', query: { taskId: evidence.taskId, planId: evidence.planId } })
 }
 
 function persistInterviewDraft(session?: InterviewSession) {
@@ -1180,8 +1481,9 @@ watch(() => [resumeForm.education, resumeForm.skills, resumeForm.projects], () =
   if (!hydratingResume && resumeFormId) {
     writeStudentDraft(sessionStorage, profile.value?.userId || '', 'resume', resumeFormId, {
       education: resumeForm.education, skills: resumeForm.skills, projects: resumeForm.projects
-    })
-  }
+  })
+}
+
 }, { flush: 'sync' })
 watch(selectedJobId, () => {
   const selectedRole = selectedJob.value?.title
@@ -1409,6 +1711,10 @@ watch(targetRole, (value) => {
           <label class="form-field"><span>目标岗位</span><el-input v-model="planForm.targetRole" placeholder="目标岗位" /></label>
           <label class="form-field"><span>每周投入（小时）</span><el-input-number v-model="planForm.weeklyHours" :min="2" :max="40" controls-position="right" /></label>
           <label class="form-field"><span>计划周期（周）</span><el-input-number v-model="planForm.durationWeeks" :min="1" :max="24" controls-position="right" /></label>
+          <label class="form-field"><span>开始日期</span><el-date-picker v-model="planForm.startDate" type="date" value-format="YYYY-MM-DD" placeholder="默认今天" /></label>
+          <label class="form-field"><span>提醒时间</span><el-time-picker v-model="planForm.reminderTime" value-format="HH:mm" format="HH:mm" placeholder="每天提醒" /></label>
+          <label class="form-field"><span>每周学习日</span><el-select v-model="planForm.studyDays" multiple collapse-tags placeholder="选择学习日"><el-option label="周一" value="MONDAY" /><el-option label="周二" value="TUESDAY" /><el-option label="周三" value="WEDNESDAY" /><el-option label="周四" value="THURSDAY" /><el-option label="周五" value="FRIDAY" /><el-option label="周六" value="SATURDAY" /><el-option label="周日" value="SUNDAY" /></el-select></label>
+          <label class="form-field"><span>每天上限（分钟）</span><el-input-number v-model="planForm.dailyMinutesCap" :min="30" :max="480" controls-position="right" /></label>
           <el-button type="primary" :loading="planActionLoading" @click="createPlan">生成学习计划 <ArrowUpRight :size="16" /></el-button>
         </div>
       </section>
@@ -1428,19 +1734,23 @@ watch(targetRole, (value) => {
           <div v-if="planVersions.length" class="version-actions"><el-button v-for="version in planVersions" :key="version.planId" :data-plan-id="version.planId" size="small" :type="version.planId === selectedPlanId ? 'primary' : 'default'" @click="selectedPlanId = version.planId; loadPlanVersions()">V{{ version.version }} · {{ planStatusLabel(version.status) }}</el-button></div>
           <el-alert v-if="selectedPlan && !selectedPlanIsActive" title="当前选择的是历史版本，任务和重新规划均为只读。" type="info" :closable="false" show-icon />
           <p v-if="selectedPlan?.revisionReason" class="form-dirty-note">调整原因：{{ selectedPlan.revisionReason }}</p>
-          <div class="replan-form"><span>需要调整节奏？</span><el-input v-model="planForm.replanReason" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="计划变化或复盘原因" /><el-select v-model="selectedCompletedSessionId" :disabled="!selectedPlanIsActive" clearable placeholder="选择同目标的已完成面试会话（可选)"><el-option v-for="session in compatibleCompletedSessions" :key="session.sessionId" :label="`${session.targetRole} · ${session.completedAt || session.updatedAt}`" :value="session.sessionId" /></el-select><el-button :disabled="!selectedPlanIsActive" :loading="planActionLoading" @click="replan">重新规划并预览</el-button></div>
+          <div class="schedule-summary"><strong>本周安排</strong><span>{{ weekTasks.length }} 项 · {{ activePlanSchedule.startDate ? `第 ${currentPlanWeek} 周` : '尚未设置日期' }}</span><small v-if="todayPlanData?.reminders?.length">{{ todayPlanData.reminders.join('；') }}</small><small v-else-if="upcomingReminders.length">每天 {{ activePlanSchedule.reminderTime || '20:00' }} 提醒未完成任务</small><small v-else>暂无待提醒任务</small><small v-if="weeklyReviewData">上周实际 {{ weeklyReviewData.actualMinutes }} 分钟 · 完成 {{ weeklyReviewData.completedTasks }} 项 · 延期 {{ weeklyReviewData.delayedTasks }} 项</small></div>
+          <div class="replan-form"><span>调整节奏与周复盘</span><el-input v-model="planForm.replanReason" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="计划变化或复盘原因" /><el-input v-model="weeklyReviewDraft" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="本周复盘：完成了什么、哪里卡住、下周准备怎么调整" /><el-select v-model="selectedCompletedSessionId" :disabled="!selectedPlanIsActive" clearable placeholder="选择同目标的已完成面试会话（可选)"><el-option v-for="session in compatibleCompletedSessions" :key="session.sessionId" :label="`${session.targetRole} · ${session.completedAt || session.updatedAt}`" :value="session.sessionId" /></el-select><div class="schedule-actions"><el-button :disabled="!selectedPlanIsActive" @click="savePlanSchedule">保存安排与复盘</el-button><el-button :disabled="!selectedPlanIsActive" :loading="planActionLoading" @click="replan">重新规划并预览</el-button></div><small v-if="weeklyReviewSaved" class="saved-note">最近已保存本周复盘</small></div>
         </aside>
         <article class="panel task-panel">
           <el-alert title="完成状态为自报进度；成果评价单独记录，不会自动更新已掌握技能。" type="info" :closable="false" />
-          <div class="section-heading"><div><span class="eyebrow">WEEKLY ACTIONS</span><h2>任务进度</h2></div><div class="progress-text"><strong>{{ selectedPlanProgress }}%</strong><span>{{ selectedPlanCompletedTasks }}/{{ selectedPlan?.tasks.length || 0 }} 已完成</span></div></div>
+          <div class="section-heading"><div><h2>任务进度</h2><p class="task-context">今日 {{ todayPlanData?.tasks.length ?? todayTasks.length }} 项 · 本周 {{ weekTasks.length }} 项<span v-if="overdueTasks.length"> · 逾期 {{ overdueTasks.length }} 项</span></p></div><div class="progress-text"><strong>{{ selectedPlanProgress }}%</strong><span>{{ selectedPlanCompletedTasks }}/{{ selectedPlan?.tasks.length || 0 }} 已完成</span></div></div>
+          <div v-if="todayTasks.length || todayPlanData?.tasks.length" class="today-strip"><strong>今天先做</strong><span v-for="task in (todayPlanData?.tasks || todayTasks).slice(0, 3)" :key="task.taskId">{{ task.title }}</span></div>
+          <el-alert v-if="overdueTasks.length" title="有任务已经超过安排日期，请完成、延期或跳过后再继续。" type="warning" :closable="false" />
           <el-empty v-if="!selectedPlan" description="请选择学习计划" :image-size="88" />
           <div v-else class="task-list">
-            <div v-for="task in selectedPlan.tasks" :key="task.taskId" class="task-row">
-              <div class="task-main"><span class="week-chip">W{{ task.week }}</span><div><strong>{{ task.title }}</strong><p>{{ task.description }}</p><div class="task-detail-lines"><small v-if="task.stage">{{ learningStageLabel(task.stage) }}</small><small v-if="task.skillGap">缺口：{{ task.skillGap }}</small><small v-if="task.acceptanceCriteria">验收：{{ task.acceptanceCriteria }}</small><small v-if="task.practiceDeliverable">交付：{{ task.practiceDeliverable }}</small></div></div></div>
+            <div v-for="task in selectedPlan.tasks" :key="task.taskId" class="task-row" :class="{ 'task-today': todayTasks.some((item) => item.taskId === task.taskId), 'task-overdue': overdueTasks.some((item) => item.taskId === task.taskId) }">
+              <div class="task-main"><span class="week-chip">W{{ task.week }}</span><div><div class="task-title-line"><strong>{{ task.title }}</strong><el-tag size="small" :type="taskDisplayStatus(task) === 'COMPLETED' ? 'success' : taskDisplayStatus(task) === 'IN_PROGRESS' ? 'primary' : taskDisplayStatus(task) === 'PAUSED' || taskDisplayStatus(task) === 'DEFERRED' ? 'warning' : 'info'">{{ taskActionLabel(task) }}</el-tag></div><p>{{ task.description }}</p><div class="task-detail-lines"><small>安排：{{ taskSchedule(task).scheduledDate || `第 ${task.week} 周` }}</small><small v-if="taskSchedule(task).actualMinutes">实际：{{ taskSchedule(task).actualMinutes }} 分钟</small><small v-if="task.stage">{{ learningStageLabel(task.stage) }}</small><small v-if="task.skillGap">缺口：{{ task.skillGap }}</small><small v-if="task.acceptanceCriteria">验收：{{ task.acceptanceCriteria }}</small><small v-if="task.practiceDeliverable">交付：{{ task.practiceDeliverable }}</small></div></div></div>
               <span class="task-hours"><Clock3 :size="14" />{{ task.estimatedHours }}h</span>
-              <el-select :disabled="!selectedPlanIsActive || taskSaving(task.taskId)" :model-value="task.status" @update:model-value="saveTask(task.taskId, String($event))"><el-option label="待开始" value="PENDING" /><el-option label="进行中" value="IN_PROGRESS" /><el-option label="已完成" value="COMPLETED" /><el-option label="已跳过" value="SKIPPED" /></el-select>
+              <div class="task-actions"><el-button size="small" :disabled="!selectedPlanIsActive || taskSaving(task.taskId) || taskDisplayStatus(task) === 'IN_PROGRESS'" @click="performTaskAction(task, 'START')">开始</el-button><el-button size="small" :disabled="!selectedPlanIsActive || taskSaving(task.taskId) || taskDisplayStatus(task) !== 'IN_PROGRESS'" @click="performTaskAction(task, 'PAUSE')">暂停</el-button><el-button size="small" type="success" plain :disabled="!selectedPlanIsActive || taskSaving(task.taskId) || taskDisplayStatus(task) === 'COMPLETED'" @click="performTaskAction(task, 'COMPLETE')">完成</el-button><el-button size="small" text :disabled="!selectedPlanIsActive || taskSaving(task.taskId) || taskDisplayStatus(task) === 'COMPLETED'" @click="performTaskAction(task, 'DEFER')">延期一天</el-button></div>
+              <el-select class="task-status-select" :disabled="!selectedPlanIsActive || taskSaving(task.taskId)" :model-value="task.status === 'TODO' ? 'PENDING' : task.status" @update:model-value="saveTask(task.taskId, String($event))"><el-option label="待开始" value="PENDING" /><el-option label="进行中" value="IN_PROGRESS" /><el-option label="已完成" value="COMPLETED" /><el-option label="已跳过" value="SKIPPED" /></el-select>
               <el-input v-model="taskFeedback[task.taskId]" :disabled="!selectedPlanIsActive || taskSaving(task.taskId)" placeholder="复盘备注" @change="saveTask(task.taskId, task.status)" />
-              <LearningEvidenceForm :plan-id="selectedPlan.planId" :task="task" :readonly="selectedPlan.status !== 'ACTIVE' && selectedPlan.status !== 'COMPLETED'" @saved="recordTaskEvidence" />
+              <LearningEvidenceForm :plan-id="selectedPlan.planId" :task="task" :readonly="selectedPlan.status !== 'ACTIVE' && selectedPlan.status !== 'COMPLETED'" @saved="recordTaskEvidence" @resume-candidate="openResumeCandidateFromEvidence" @interview-follow-up="openInterviewFollowUpFromEvidence" />
               <small v-if="taskSaving(task.taskId)" class="task-save-state">正在保存…</small><small v-else-if="taskErrors[task.taskId]" class="task-save-state error">{{ taskErrors[task.taskId] }} <el-button link type="primary" :disabled="!selectedPlanIsActive" @click="saveTask(task.taskId, taskRetryStatus[task.taskId] || task.status)">重试</el-button></small>
             </div>
           </div>
@@ -1907,6 +2217,8 @@ watch(targetRole, (value) => {
 .plan-builder { display: grid; gap: 20px; }
 .plan-builder-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; align-items: end; }
 .plan-builder-fields :deep(.el-input-number) { width: 100%; }
+.plan-builder-fields :deep(.el-select__selected-item) { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-builder-fields :deep(.el-select__selected-item > span) { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-layout { grid-template-columns: minmax(300px, 0.65fr) minmax(0, 1.35fr); }
 .plan-sidebar { display: grid; align-content: start; gap: 15px; }
 .plan-summary-card { display: grid; gap: 11px; padding: 16px; border-radius: 12px; background: #eff9f3; }
@@ -1925,19 +2237,32 @@ watch(targetRole, (value) => {
 .progress-text strong { color: var(--accent, #28664f); font-size: 22px; }
 .progress-text span { color: var(--muted, #66716c); font-size: 11px; }
 .task-list { display: grid; margin-top: 14px; }
-.task-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px 128px; gap: 12px; align-items: center; padding: 17px 0; border-top: 1px solid var(--line, #e8ebea); min-width: 0; }
+.task-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px 128px; gap: 12px; align-items: start; padding: 17px 0; border-top: 1px solid var(--line, #e8ebea); min-width: 0; }
+.task-row.task-today { border-left: 2px solid var(--accent, #28664f); padding-left: 10px; }
+.task-row.task-overdue { border-left: 2px solid #b46c2e; padding-left: 10px; }
 .task-main { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 11px; min-width: 0; }
+.task-title-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .week-chip { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 9px; background: #eef7f1; color: var(--accent, #28664f); font-size: 11px; font-weight: 800; }
 .task-main strong { display: block; font-size: 13px; }
 .task-main p { margin: 4px 0 0; color: var(--muted, #66716c); font-size: 12px; line-height: 1.55; }
 .task-detail-lines { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 7px; }
 .task-detail-lines small { color: #728078; font-size: 10px; line-height: 1.45; }
 .task-hours { display: inline-flex; align-items: center; gap: 3px; color: var(--muted, #66716c); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.task-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; grid-column: 1 / -1; }
+.task-status-select { grid-column: 1 / -1; }
 .task-row > :last-child { grid-column: 1 / -1; min-width: 0; }
 .task-row :deep(.el-select),
 .task-row :deep(.el-input) { min-width: 0; width: 100%; }
 .task-save-state { grid-column: 1 / -1; color: var(--accent, #28664f); }
 .task-save-state.error { color: #b14d4d; }
+.task-context { margin: 5px 0 0; color: var(--muted, #66716c); font-size: 13px; line-height: 1.6; }
+.today-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; padding: 9px 0; border-block: 1px solid var(--line, #e8ebea); color: var(--muted, #66716c); font-size: 13px; }
+.today-strip strong { color: var(--ink, #1f2724); }
+.today-strip span { padding: 3px 8px; border-left: 2px solid var(--accent, #28664f); }
+.schedule-summary { display: grid; gap: 5px; padding: 12px 0; border-block: 1px solid var(--line, #e8ebea); color: var(--muted, #66716c); font-size: 13px; }
+.schedule-summary strong { color: var(--ink, #1f2724); font-size: 14px; }
+.schedule-summary small, .saved-note { color: var(--muted, #66716c); font-size: 12px; }
+.schedule-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .interview-launch { display: flex; align-items: center; justify-content: space-between; gap: 24px; background: #f4fbf6; }
 .interview-launch h2 { margin: 5px 0 0; font-size: 21px; }
@@ -2085,6 +2410,7 @@ watch(targetRole, (value) => {
   .task-row > :nth-child(3) { grid-column: 1 / -1; }
   .task-row > :last-child { grid-column: 1 / -1; }
   .task-hours { justify-self: end; }
+  .task-actions { grid-column: 1 / -1; }
   .session-grid { grid-template-columns: 1fr; }
   .question-nav,
   .answer-actions { flex-wrap: wrap; }
