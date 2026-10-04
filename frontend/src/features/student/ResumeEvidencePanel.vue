@@ -17,19 +17,5 @@ const categories: Record<string, string> = { COMPLETENESS: '资料完整性', SK
   </section>
 </template>
 <style scoped>
-.structured-diagnosis{display:grid;gap:12px;margin:16px 0;font-size:14px;min-width:0}
-.basis{color:var(--muted,#64716b);margin:0;line-height:1.7;font-size:13px}
-.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-block:1px solid var(--line,#dce3df);padding:12px 0}
-.metrics div{display:grid;gap:5px;padding:0 12px;border-right:1px solid var(--line,#dce3df);min-width:0}
-.metrics div:first-child{padding-left:0}.metrics div:last-child{padding-right:0;border-right:0}
-.metrics strong{font:600 22px/1.2 "IBM Plex Mono",Consolas,monospace;color:var(--accent,#28664f)}
-.metrics span{color:var(--muted,#64716b);font-size:12px;line-height:1.5}
-.finding,.snapshot{padding:12px 0;border:0;border-top:1px solid var(--line,#dce3df);min-width:0}
-.finding summary,.snapshot summary{cursor:pointer;font-weight:600;line-height:1.7;overflow-wrap:anywhere}
-dl{display:grid;grid-template-columns:66px minmax(0,1fr);gap:8px;line-height:1.8;font-size:13px}
-dt{color:var(--muted,#64716b)}dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
-small{display:block;color:var(--muted,#64716b);font-size:12px;line-height:1.6}
-blockquote{border-left:2px solid var(--accent,#28664f);padding-left:12px;margin:8px 0;white-space:pre-wrap}
-.snapshot p{overflow-wrap:anywhere;line-height:1.7;font-size:13px;color:var(--muted,#64716b)}
-@media(max-width:560px){.metrics div{padding:0 7px}.metrics strong{font-size:20px}dl{grid-template-columns:1fr;gap:5px}}
+.structured-diagnosis{display:grid;gap:12px;margin:16px 0;font-size:13px}.basis{color:#66716c;margin:0;line-height:1.7}.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.metrics div{display:grid;gap:6px;padding:13px;background:#f0f8f4;border-radius:10px}.metrics strong{font-size:23px;color:#28664f}.metrics span{color:#66716c;font-size:12px}.finding,.snapshot{padding:12px;border:1px solid #e5ebe7;border-radius:10px}.finding summary,.snapshot summary{cursor:pointer;font-weight:600;line-height:1.6}dl{display:grid;grid-template-columns:66px 1fr;gap:8px;line-height:1.8}dt{color:#66716c}dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}small{display:block;color:#66716c}blockquote{border-left:3px solid #8db7a2;padding-left:12px;margin:8px 0;white-space:pre-wrap}.snapshot p{overflow-wrap:anywhere;line-height:1.7}@media(max-width:560px){.metrics{grid-template-columns:1fr}dl{grid-template-columns:1fr}}
 </style>

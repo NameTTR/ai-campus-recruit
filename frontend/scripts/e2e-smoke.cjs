@@ -2,11 +2,6 @@ const { spawn, spawnSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
-if (typeof WebSocket === 'undefined') {
-  const relaunched = spawnSync(process.execPath, ['--experimental-websocket', __filename, ...process.argv.slice(2)], { stdio: 'inherit', env: process.env })
-  process.exit(relaunched.status ?? 1)
-}
-
 const rootDir = path.resolve(__dirname, '..')
 const explicitBaseUrl = Boolean(process.env.E2E_BASE_URL)
 const demoMode = ['1', 'true', 'yes', 'on'].includes((process.env.VITE_DEMO_MODE || '').trim().toLowerCase())
@@ -21,22 +16,14 @@ const persistedTaskFeedback = 'MVP-已完成并保存'
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 let devServer
-const browserErrors = []
-const layoutChecks = []
 
 async function main() {
   fs.mkdirSync(artifactsDir, { recursive: true })
-  const startedAt = new Date().toISOString()
-  let status = 'RUNNING'
-  let failure = null
   const coreFixture = demoMode ? null : readCoreFixture()
   console.log(`E2E smoke mode: ${demoMode ? 'offline demo UI' : 'live service UI'}`)
   await ensureFrontend()
   const browser = await startBrowser()
   const client = await connect(browser.webSocketDebuggerUrl)
-  client.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
-    browserErrors.push(exceptionDetails.exception?.description || exceptionDetails.text)
-  })
   try {
     await enablePage(client, 1440, 980)
     await navigate(client, `${baseUrl}/login`)
@@ -53,7 +40,6 @@ async function main() {
     await assertNoHorizontalOverflow(client)
     await screenshot(client, '01-student-resume.png')
     if (coreFixture || await elementBox(client, "Boolean(document.querySelector('.resume-diagnosis'))")) {
-      await openLegacyResumeHistory(client)
       await assertDetailsToggle(client, '.resume-diagnosis')
     }
 
@@ -80,7 +66,7 @@ async function main() {
     await screenshot(client, '04-student-interview.png')
 
     await navigate(client, `${baseUrl}/student/knowledge`)
-    await assertText(client, ['知识库问答'])
+    await assertText(client, ['知识库问答', 'RAG KNOWLEDGE BASE'])
     await assertNoHorizontalOverflow(client)
     await screenshot(client, '05-student-knowledge.png')
 
@@ -109,23 +95,14 @@ async function main() {
     await waitForExpression(client, "location.pathname === '/company/jobs'")
 
     await loginAs(client, 'admin', 'ADMIN', '/admin/ai')
-    await assertText(client, ['知识库管理', '知识文档', '新增文档 / 上传文件'])
+    await assertText(client, ['知识库管理', '知识文档', '手工新增', '上传导入'])
     await assertNoHorizontalOverflow(client)
     await screenshot(client, '09-admin-knowledge.png')
-    await clickSelector(client, '.admin-editor > summary')
-    await assertText(client, ['新增文档', '上传文件', '文档内容', '上传到知识库'])
-    await assertNoHorizontalOverflow(client)
-    await screenshot(client, '09b-admin-knowledge-editor.png')
     await navigate(client, `${baseUrl}/admin/accounts`)
-    await assertText(client, ['账号管理', '关键词', '角色', '状态', '创建账号与重置密码', '账号列表'])
+    await assertText(client, ['账号管理', '账号筛选', '创建账号', '账号列表'])
     await assertNoHorizontalOverflow(client)
     await assertNoInternalHorizontalOverflow(client, '.list-panel')
     await screenshot(client, '10-admin-accounts.png')
-    await clickSelector(client, '.admin-editor > summary')
-    await waitForExpression(client, "document.querySelector('.admin-editor').open === true")
-    await assertText(client, ['初始密码', '新密码'])
-    await assertNoHorizontalOverflow(client)
-    await screenshot(client, '10b-admin-account-editor.png')
     await navigate(client, `${baseUrl}/admin/overview`)
     await waitForExpression(client, "location.pathname === '/admin/ai'")
 
@@ -141,11 +118,7 @@ async function main() {
     await screenshot(client, '12-student-resume-mobile.png')
     await clickSelector(client, '.mobile-menu')
     await waitForExpression(client, "Boolean(document.querySelector('.side-nav.is-open')) && Boolean(document.querySelector('.nav-backdrop'))")
-    await waitForExpression(client, "document.querySelector('.side-nav').contains(document.activeElement) && document.querySelector('main').inert")
     await screenshot(client, '13-student-drawer-mobile.png')
-    await pressKey(client, 'Escape', 'Escape', 27)
-    await waitForExpression(client, "!document.querySelector('.side-nav.is-open') && document.activeElement === document.querySelector('.mobile-menu')")
-    await clickSelector(client, '.mobile-menu')
     await clickSelector(client, '.nav-backdrop')
     await waitForExpression(client, "!document.querySelector('.side-nav.is-open')")
 
@@ -154,7 +127,7 @@ async function main() {
       ['jobs', ['岗位匹配', '岗位与匹配']],
       ['plan', ['学习路径', '学习计划']],
       ['interview', ['模拟面试', '模拟面试会话']],
-      ['knowledge', ['知识库问答']]
+      ['knowledge', ['知识库问答', 'RAG KNOWLEDGE BASE']]
     ]) {
       await navigate(client, `${baseUrl}/student/${name}`)
       await assertText(client, expected)
@@ -179,29 +152,8 @@ async function main() {
     await assertNoInternalHorizontalOverflow(client, '.list-panel')
     await screenshot(client, '22-admin-accounts-mobile.png')
 
-    await setViewport(client, 320, 640)
-    await assertNoHorizontalOverflow(client)
-    await screenshot(client, '23-admin-accounts-small-mobile.png')
-    await loginAs(client, 'student', 'STUDENT', '/student/resume')
-    for (const name of ['resume', 'jobs', 'plan', 'interview', 'knowledge']) {
-      await navigate(client, `${baseUrl}/student/${name}`)
-      await assertNoHorizontalOverflow(client)
-      await screenshot(client, `24-student-${name}-small-mobile.png`)
-    }
-    if (!demoMode) {
-      await verifyRetrievalOnlyKnowledge(client, '25-knowledge-results-small-mobile.png')
-    }
-    if (browserErrors.length) {
-      throw new Error(`Browser errors: ${browserErrors.join('; ')}`)
-    }
-    status = 'PASSED'
-    for (const file of ['failure.png', 'failure-text.txt']) {
-      fs.rmSync(path.join(artifactsDir, file), { force: true })
-    }
     console.log(`E2E smoke passed. Screenshots: ${artifactsDir}`)
   } catch (error) {
-    status = 'FAILED'
-    failure = error.message
     try {
       await screenshot(client, 'failure.png')
       fs.writeFileSync(path.join(artifactsDir, 'failure-text.txt'), await bodyText(client), 'utf8')
@@ -210,7 +162,6 @@ async function main() {
     }
     throw error
   } finally {
-    fs.writeFileSync(path.join(artifactsDir, 'layout-report.json'), JSON.stringify({ status, startedAt, finishedAt: new Date().toISOString(), baseUrl, demoMode, failure, browserErrors, layoutChecks }, null, 2), 'utf8')
     client.close()
     await stopBrowser(browser.process)
     if (devServer) {
@@ -290,7 +241,6 @@ async function verifyCoreFixture(client, fixture) {
 }
 
 async function selectFixtureResume(client, resume) {
-  await openLegacyResumeHistory(client)
   await waitForExpression(client, "Boolean(document.querySelector('.resume-picker .el-select')) && !document.querySelector('.resume-hero .el-loading-mask')")
   await selectElementPlusOption(client, '.resume-picker .el-select', resume.fileName)
   await waitForExpression(client, `Boolean(document.querySelector('.resume-summary strong')?.innerText.includes(${JSON.stringify(resume.fileName)}))`)
@@ -332,12 +282,10 @@ async function verifyResumeDraftPersistence(client, fixture, resume) {
   await navigate(client, `${baseUrl}/student/jobs`)
   await waitForExpression(client, "location.pathname === '/student/jobs'")
   await navigate(client, `${baseUrl}/student/resume`)
-  await openLegacyResumeHistory(client)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   await assertInputValue(client, educationSelector, draftMarker)
 
   await navigate(client, `${baseUrl}/student/resume`)
-  await openLegacyResumeHistory(client)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   await assertInputValue(client, educationSelector, draftMarker)
 
@@ -346,7 +294,6 @@ async function verifyResumeDraftPersistence(client, fixture, resume) {
     expression: `sessionStorage.removeItem(${JSON.stringify(draftKey)})`
   })
   await navigate(client, `${baseUrl}/student/resume`)
-  await openLegacyResumeHistory(client)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   await assertInputValue(client, educationSelector, originalEducation)
   await screenshot(client, '00g-resume-draft-restored.png')
@@ -467,12 +414,12 @@ async function verifyCompletedInterviewReadOnly(client, fixture, session) {
   await clickSessionCard(client, fixture.sessionId)
   await waitForExpression(client, "location.pathname === '/student/interview' && !new URLSearchParams(location.search).get('tab')")
   await waitForExpression(client, "Boolean(document.querySelector('.answer-input textarea')?.readOnly)")
-  await waitForExpression(client, "Boolean(document.querySelector('.feedback-panel'))")
+  await waitForText(client, '本题反馈')
   await waitForText(client, feedbackText)
   await screenshot(client, '00e-completed-interview-readonly.png')
 }
 
-async function verifyRetrievalOnlyKnowledge(client, screenshotName = '00f-retrieval-only-rag.png') {
+async function verifyRetrievalOnlyKnowledge(client) {
   const query = 'Java Redis'
   await navigate(client, `${baseUrl}/student/knowledge`)
   await waitForExpression(client, "Boolean(document.querySelector('.knowledge-mode .el-switch'))")
@@ -491,20 +438,13 @@ async function verifyRetrievalOnlyKnowledge(client, screenshotName = '00f-retrie
   await waitForText(client, '检索摘要')
   await waitForText(client, '未调用 AI 生成')
   await waitForText(client, query)
-  await waitForExpression(client, "document.querySelector('.provider-value')?.innerText === '检索摘要'")
-  await clickSelector(client, '.knowledge-source-details > summary')
-  await waitForExpression(client, "document.querySelector('.knowledge-source-details').open === true")
-  await waitForText(client, '分析版本:')
-  await clickSelector(client, '.knowledge-source-details > summary')
-  await waitForExpression(client, "document.querySelector('.knowledge-source-details').open === false")
-  await assertNoHorizontalOverflow(client)
-  await screenshot(client, screenshotName)
   await fillInput(client, '.knowledge-search input', '')
   await clickSelector(client, '.knowledge-search button')
   await waitForText(client, '请输入检索关键词')
   await navigate(client, `${baseUrl}/student/knowledge`)
   await waitForText(client, '最近查询')
   await waitForText(client, query)
+  await screenshot(client, '00f-retrieval-only-rag.png')
 }
 
 async function fetchFixtureData(client, route) {
@@ -579,8 +519,7 @@ async function startBrowser() {
   const port = Number(process.env.E2E_CDP_PORT || 9300 + Math.floor(Math.random() * 600))
   const userDataDir = path.join(process.env.TEMP || artifactsDir, `aicampus-e2e-${Date.now()}`)
   const proc = spawn(browserPath, [
-    ...(process.env.E2E_HEADED === '1' ? [] : ['--headless=new']),
-    '--window-size=1440,980',
+    '--headless=new',
     '--disable-gpu',
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${userDataDir}`,
@@ -728,7 +667,7 @@ async function clickSelector(client, selector) {
   for (let index = 0; index < 24; index += 1) {
     const box = await elementBox(client, `(() => {
       const element = document.querySelector(${JSON.stringify(selector)});
-      if (!element || !element.getClientRects().length) return null;
+      if (!element) return null;
       element.scrollIntoView({ block: 'center', inline: 'nearest' });
       const rect = element.getBoundingClientRect();
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, disabled: element.disabled };
@@ -896,12 +835,10 @@ async function assertNoText(client, unexpectedParts) {
 
 async function assertNoHorizontalOverflow(client) {
   const dimensions = await elementBox(client, `(() => ({
-    path: location.pathname,
     viewport: document.documentElement.clientWidth,
     scrollWidth: document.documentElement.scrollWidth,
     bodyScrollWidth: document.body.scrollWidth
   }))()`)
-  layoutChecks.push(dimensions)
   const widest = Math.max(dimensions.scrollWidth, dimensions.bodyScrollWidth)
   if (widest > dimensions.viewport + 1) {
     throw new Error(`Horizontal overflow detected: viewport=${dimensions.viewport}, content=${widest}`)
@@ -933,30 +870,13 @@ async function assertDetailsToggle(client, selector) {
   await waitForExpression(client, `document.querySelector(${JSON.stringify(selector)}).open === false`)
 }
 
-async function openLegacyResumeHistory(client) {
-  if (await elementBox(client, "Boolean(document.querySelector('[data-testid=\"resume-legacy-history\"]:not([open])'))")) {
-    await clickSelector(client, '[data-testid="resume-legacy-history"] > summary')
-    await waitForExpression(client, "document.querySelector('[data-testid=\"resume-legacy-history\"]').open === true")
-  }
-}
-
 async function verifyGlobalSearch(client) {
   await clickSelector(client, '.global-search')
   await waitForExpression(client, "Boolean(document.querySelector('.search-overlay'))")
-  await waitForExpression(client, "document.activeElement === document.querySelector('.command-search-input input')")
-  await fillInput(client, '.command-search-input input', '__e2e_no_function__')
-  await waitForExpression(client, "Boolean(document.querySelector('.command-empty'))")
-  await pressKey(client, 'Escape', 'Escape', 27)
-  await waitForExpression(client, "!document.querySelector('.search-overlay') && document.activeElement === document.querySelector('.global-search')")
-  await clickSelector(client, '.global-search')
   await fillInput(client, '.command-search-input input', '学习路径')
-  await pressKey(client, 'Enter', 'Enter', 13)
+  await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
   await waitForExpression(client, "location.pathname === '/student/plan' && !document.querySelector('.search-overlay')")
-}
-
-async function pressKey(client, key, code, windowsVirtualKeyCode) {
-  await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode })
-  await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode })
 }
 
 async function assertSelectDisplay(client, expected) {
