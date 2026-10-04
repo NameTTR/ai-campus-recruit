@@ -657,9 +657,12 @@ Gateway 验证 Bearer Token 后清理外部身份头，再注入 `X-User-Id` 和
 - `POST /api/resumes/drafts/{id}/restore`：恢复到指定历史修订。
 - `POST /api/resumes/drafts/{id}/exports`：按指定草稿版本创建 Word/PDF 导出任务。
 - `GET /api/resumes/exports/{id}`：查询 `QUEUED`、`RUNNING`、`SUCCEEDED`、`NEEDS_EDIT` 或 `FAILED` 状态，并取得文件摘要、排版问题和短期下载地址。
+- `GET /api/resumes/exports/{id}/files/{format}`：使用当前学生的 Bearer Token 获取已成功导出的固定版本文件，`format` 仅允许 `pdf` 或 `docx`。PDF 返回 `application/pdf` 和 `inline`，Word 返回 DOCX 类型和 `attachment`；中文文件名来自导出时的资料快照，采用 UTF-8 `Content-Disposition`。响应为文件字节，缓存策略为 `private, no-store`，不暴露存储路径。无身份或非学生返回 401；文件不存在、格式无效、非本人、导出未成功或文件与快照不一致时返回 404，错误仍使用 `ApiResponse<T>`。预览和下载应通过此同源接口读取，避免依赖浏览器访问存储服务。
 - `POST /api/matches/compare`：使用同一份简历比较 2-3 个服务端岗位的覆盖率、材料证据、岗位条件和待确认项。
 
 导出使用同一份可编辑 DOCX 转换 PDF；内容超出模板页数时返回 `NEEDS_EDIT`，保留草稿并提示精简、隐藏内容或切换双页模板。
+
+自动预览可以直接导出全部可见条目均已确认的生成草稿，不修改草稿总确认状态，也不将预览操作记为新增简历证据。可见条目包含未确认内容时返回 400；待采纳建议和补充问题不进入文件。导出复用按草稿 ID、修订号及当前渲染/模板版本隔离。服务启动时增量增加 `render_version`、`docx_key` 和 `pdf_key`，历史记录标记为 `legacy` 并保留原文件；升级后的旧草稿可以直接重新导出，原正文、修订和历史下载不变。
 
 
 ### 所有权、确认与版本
@@ -714,7 +717,7 @@ Gateway 验证 Bearer Token 后清理外部身份头，再注入 `X-User-Id` 和
 恢复请求：`{"expectedRevision":3,"revision":2}`，恢复生成新修订而不删除历史。
 撤销使用同一恢复接口，客户端先保存当前未保存输入。
 
-导出请求：`{"expectedRevision":4}`。必须是已确认草稿。
+导出请求：`{"expectedRevision":4}`。所有可见条目必须已确认；自动预览不会改变草稿总确认状态。
 同一草稿修订的重复请求复用导出任务；失败后重复请求可重试。
 返回状态与处理方式：
 

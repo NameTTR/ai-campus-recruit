@@ -38,7 +38,8 @@ import java.util.concurrent.TimeUnit;
  */
 @Service
 public class ResumeRenderService {
-    private static final String FONT = "Noto Sans CJK SC";
+    public static final String RENDER_VERSION = "resume-render-v4";
+    private static final String FONT = "Microsoft YaHei";
     private final ResumeTemplateRegistry registry;
     private final String sofficePath;
     private final Duration timeout;
@@ -92,6 +93,10 @@ public class ResumeRenderService {
         try (InputStream in = new ClassPathResource(template.baseResource()).getInputStream();
              XWPFDocument doc = new XWPFDocument(in)) {
             clearBody(doc);
+            // Source artwork uses page-positioned floating images. Real header
+            // cells and paragraph borders preserve the theme without covering
+            // text or becoming detached when the document is edited in Word.
+            clearHeaderDrawings(doc);
             configurePage(doc, template);
             String color = template.color();
             ProfileData profile = draft.profileSnapshot();
@@ -100,17 +105,17 @@ public class ResumeRenderService {
 
             DraftData data = draft.data();
             boolean hasDraftBlocks = data != null && data.blocks() != null && !data.blocks().isEmpty();
-            boolean splitLayout = "T06".equals(template.id()) || "T07".equals(template.id());
+            boolean splitLayout = "T06".equals(template.id());
             IBody left = doc, right = doc;
             if (splitLayout) {
-                XWPFTable content = doc.createTable(1, 2); content.setWidth("100%"); content.removeBorders();
-                var props = content.getCTTbl().getTblPr();
-                var layout = props.isSetTblLayout() ? props.getTblLayout() : props.addNewTblLayout();
-                layout.setType(STTblLayoutType.FIXED);
-                boolean operations = "T06".equals(template.id());
+                XWPFTable content = doc.createTable(1, 2);
+                setTableColumns(content, 3100, pageContentWidth(doc) - 3100);
+                content.removeBorders();
                 XWPFTableCell leftCell = content.getRow(0).getCell(0), rightCell = content.getRow(0).getCell(1);
-                leftCell.setWidth(operations ? "3400" : "5170"); rightCell.setWidth(operations ? "5780" : "5170");
-                content.setCellMargins(0, 110, 0, 110);
+                leftCell.setVerticalAlignment(XWPFTableCell.XWPFVertAlign.TOP);
+                rightCell.setVerticalAlignment(XWPFTableCell.XWPFVertAlign.TOP);
+                shade(leftCell, "EDF3EB");
+                content.setCellMargins(80, 150, 80, 150);
                 left = leftCell; right = rightCell;
             }
             if (hasDraftBlocks) {
@@ -119,11 +124,7 @@ public class ResumeRenderService {
                     String type = value(block.type()).toLowerCase();
                     IBody destination = splitLayout && !(type.contains("education") || type.contains("skill")) ? right : left;
                     List<DraftEntry> visibleEntries = safe(block.entries()).stream().filter(e -> e.visible() && e.confirmed()).toList();
-                    if ("T07".equals(template.id()) && destination == right && visibleEntries.size() > 4) {
-                        int pivot = (visibleEntries.size() + 1) / 2;
-                        addBlock(left, new DraftBlock(block.id(), block.type(), block.title(), visibleEntries.subList(0, pivot), true), color, template.id());
-                        addBlock(right, new DraftBlock(block.id(), block.type(), block.title(), visibleEntries.subList(pivot, visibleEntries.size()), true), color, template.id());
-                    } else addBlock(destination, block, color, template.id());
+                    if (!visibleEntries.isEmpty()) addBlock(destination, block, color, template.id());
                 }
             } else {
                 addConfirmedProfileSections(left, right, profile, color, template.id());
@@ -141,11 +142,12 @@ public class ResumeRenderService {
         pgSz.setW(BigInteger.valueOf(11906));
         pgSz.setH(BigInteger.valueOf(16838));
         var mar = sec.isSetPgMar() ? sec.getPgMar() : sec.addNewPgMar();
-        int top = switch (template.id()) { case "T01" -> 1930; case "T03" -> 2320; case "T05" -> 580; case "T06" -> 1240; case "T07" -> 1510; default -> 760; };
-        mar.setTop(BigInteger.valueOf(top));
-        mar.setBottom(BigInteger.valueOf(740));
-        mar.setLeft(BigInteger.valueOf("T03".equals(template.id()) ? 1720 : "T06".equals(template.id()) ? 1470 : 780));
-        mar.setRight(BigInteger.valueOf("T06".equals(template.id()) ? 1260 : 780));
+        mar.setTop(BigInteger.valueOf(800));
+        mar.setBottom(BigInteger.valueOf(800));
+        mar.setLeft(BigInteger.valueOf(800));
+        mar.setRight(BigInteger.valueOf(800));
+        mar.setHeader(BigInteger.valueOf(200));
+        mar.setFooter(BigInteger.valueOf(200));
         // T04 deliberately has one flowing column: the source's fragmented column
         // sections caused compressed text and an empty trailing page.
         var cols = sec.isSetCols() ? sec.getCols() : sec.addNewCols();
@@ -153,9 +155,9 @@ public class ResumeRenderService {
         var normal = doc.getStyles().getStyle("Normal");
         if (normal != null) {
             var rpr = normal.getCTStyle().isSetRPr() ? normal.getCTStyle().getRPr() : normal.getCTStyle().addNewRPr();
-            var fonts = rpr.addNewRFonts();
+            var fonts = rpr.sizeOfRFontsArray() > 0 ? rpr.getRFontsArray(0) : rpr.addNewRFonts();
             fonts.setAscii(FONT); fonts.setHAnsi(FONT); fonts.setEastAsia(FONT);
-            var size = rpr.addNewSz();
+            var size = rpr.sizeOfSzArray() > 0 ? rpr.getSzArray(0) : rpr.addNewSz();
             size.setVal(BigInteger.valueOf(20));
         }
     }
@@ -164,6 +166,19 @@ public class ResumeRenderService {
         var body = doc.getDocument().getBody();
         for (int i = body.sizeOfPArray() - 1; i >= 0; i--) body.removeP(i);
         for (int i = body.sizeOfTblArray() - 1; i >= 0; i--) body.removeTbl(i);
+    }
+
+    private void clearHeaderDrawings(XWPFDocument doc) {
+        for (XWPFHeader header : doc.getHeaderList()) {
+            for (XWPFParagraph paragraph : header.getParagraphs()) {
+                paragraph.getRuns().forEach(run -> {
+                    for (int i = run.getCTR().sizeOfDrawingArray() - 1; i >= 0; i--) run.getCTR().removeDrawing(i);
+                    for (int i = run.getCTR().sizeOfPictArray() - 1; i >= 0; i--) run.getCTR().removePict(i);
+                });
+                paragraph.setSpacingBefore(0);
+                paragraph.setSpacingAfter(0);
+            }
+        }
     }
 
     private void addHeader(XWPFDocument doc, BasicInfo basics, String role, String color, byte[] photo,
@@ -176,15 +191,24 @@ public class ResumeRenderService {
         String id = template.id();
         boolean photoLeft = "T05".equals(id) || "T06".equals(id);
         boolean white = "T05".equals(id);
-        XWPFTable table = doc.createTable(1, 2); table.setWidth("100%");
-        var props = table.getCTTbl().getTblPr();
-        var layout = props.isSetTblLayout() ? props.getTblLayout() : props.addNewTblLayout();
-        layout.setType(STTblLayoutType.FIXED);
+        XWPFTable table = doc.createTable(1, 2);
+        int photoWidth = photo == null || photo.length < 8 ? 300 : 1440;
+        int textWidth = pageContentWidth(doc) - photoWidth;
+        setTableColumns(table, photoLeft ? photoWidth : textWidth, photoLeft ? textWidth : photoWidth);
         table.removeBorders();
         XWPFTableCell textCell = table.getRow(0).getCell(photoLeft ? 1 : 0);
         XWPFTableCell photoCell = table.getRow(0).getCell(photoLeft ? 0 : 1);
-        photoCell.setWidth("T06".equals(id) ? "3400" : "1560");
-        textCell.setWidth("T06".equals(id) ? "5780" : "8780");
+        table.setCellMargins(110, 100, 110, 100);
+        textCell.setVerticalAlignment(XWPFTableCell.XWPFVertAlign.CENTER);
+        photoCell.setVerticalAlignment(XWPFTableCell.XWPFVertAlign.CENTER);
+        table.getRow(0).setCantSplitRow(true);
+        if ("T05".equals(id)) {
+            // Match the original navy theme with a real table background. A
+            // cell fill is stable in Word and LibreOffice and cannot overlap
+            // later paragraphs like a page-sized floating picture can.
+            shade(textCell, "1F4E79");
+            shade(photoCell, "1F4E79");
+        }
         if (nonBlank(name)) addCellText(textCell, name, 23, white ? "FFFFFF" : "T07".equals(id) ? "40546F" : "T06".equals(id) ? "52634D" : color, true);
         if (nonBlank(target)) addCellText(textCell, target, 10, white ? "FFFFFF" : "555555", false);
         if (nonBlank(contact)) addCellText(textCell, contact, 10, white ? "FFFFFF" : "555555", false);
@@ -193,10 +217,9 @@ public class ResumeRenderService {
         picture.setAlignment(photoLeft ? ParagraphAlignment.CENTER : ParagraphAlignment.RIGHT);
         picture.setSpacingAfter(0);
         addPhoto(picture, photo);
-        if ("T08".equals(id)) {
-            XWPFParagraph accent = doc.createParagraph(); accent.setSpacingAfter(1);
-            addDecoration(accent, id, "header-accent", 517, 14);
-        }
+        if ("T04".equals(id)) { shade(textCell, "F0F7FB"); shade(photoCell, "F0F7FB"); }
+        if ("T07".equals(id)) { shade(textCell, "EDF2FA"); shade(photoCell, "EDF2FA"); }
+        if (!white) addRule(doc, color, "T03".equals(id) || "T08".equals(id) ? 18 : 8);
     }
 
     private void addPhoto(XWPFParagraph p, byte[] bytes) throws IOException {
@@ -219,7 +242,28 @@ public class ResumeRenderService {
     private void addCellText(XWPFTableCell cell, String text, int size, String color, boolean bold) {
         XWPFParagraph first = cell.getParagraphs().get(0);
         XWPFParagraph p = first.getRuns().isEmpty() ? first : cell.addParagraph();
-        p.setSpacingAfter(0); p.setSpacingBefore(0); addRun(p, text, size, color, bold);
+        p.setSpacingAfter(size > 10 ? 60 : 20); p.setSpacingBefore(0); p.setSpacingBetween(1.1);
+        addRun(p, text, size, color, bold);
+    }
+
+    private static int pageContentWidth(XWPFDocument doc) {
+        var section = doc.getDocument().getBody().getSectPr();
+        return Integer.parseInt(section.getPgSz().getW().toString()) - Integer.parseInt(section.getPgMar().getLeft().toString()) - Integer.parseInt(section.getPgMar().getRight().toString());
+    }
+
+    private void setTableColumns(XWPFTable table, int... widths) {
+        int total = Arrays.stream(widths).sum();
+        table.setWidth(total);
+        var props = table.getCTTbl().getTblPr();
+        var layout = props.isSetTblLayout() ? props.getTblLayout() : props.addNewTblLayout();
+        layout.setType(STTblLayoutType.FIXED);
+        var grid = table.getCTTbl().getTblGrid();
+        if (grid == null) grid = table.getCTTbl().addNewTblGrid();
+        for (int i = grid.sizeOfGridColArray() - 1; i >= 0; i--) grid.removeGridCol(i);
+        for (int i = 0; i < widths.length; i++) {
+            grid.addNewGridCol().setW(BigInteger.valueOf(widths[i]));
+            table.getRow(0).getCell(i).setWidth(String.valueOf(widths[i]));
+        }
     }
 
     private void addConfirmedProfileSections(IBody left, IBody right, ProfileData profile, String color, String templateId) {
@@ -236,11 +280,7 @@ public class ResumeRenderService {
         }
         List<Experience> experiences = safe(profile.experiences()).stream().filter(Experience::confirmed).toList();
         if (!experiences.isEmpty()) {
-            if ("T07".equals(templateId) && experiences.size() > 4) {
-                int pivot = (experiences.size() + 1) / 2;
-                addExperiences(left, experiences.subList(0, pivot), color, templateId);
-                addExperiences(right, experiences.subList(pivot, experiences.size()), color, templateId);
-            } else addExperiences(right, experiences, color, templateId);
+            addExperiences(right, experiences, color, templateId);
         }
         List<Credential> credentials = safe(profile.credentials()).stream().filter(this::confirmed).toList();
         if (!credentials.isEmpty()) {
@@ -260,11 +300,15 @@ public class ResumeRenderService {
 
     private void addBlock(IBody doc, DraftBlock block, String color, String templateId) {
         if ("basic".equalsIgnoreCase(value(block.type())) || "basics".equalsIgnoreCase(value(block.type()))) return;
+        List<DraftEntry> entries = safe(block.entries()).stream().filter(e -> e.visible() && e.confirmed()).toList();
+        if (entries.isEmpty()) return;
         addSectionTitle(doc, valueOr(block.title(), labelFor(block.type())), color, templateId);
-        for (DraftEntry entry : safe(block.entries())) {
-            if (entry == null || !entry.visible() || !entry.confirmed()) continue;
-            String heading = join(" | ", entry.title(), entry.subtitle());
-            if (nonBlank(heading)) addEntry(doc, heading, "", "", color);
+        for (DraftEntry entry : entries) {
+            if (nonBlank(entry.title())) addEntry(doc, entry.title(), "", "", color);
+            if (nonBlank(entry.subtitle())) {
+                XWPFParagraph detail = paragraph(doc); detail.setSpacingAfter(20);
+                addRun(detail, entry.subtitle(), 10, "666666", false);
+            }
             for (String bullet : safe(entry.bullets())) addBullet(doc, bullet, "333333");
             for (String link : safe(entry.links())) addHyperlinkBullet(doc, link, color);
         }
@@ -272,7 +316,7 @@ public class ResumeRenderService {
 
     private void addEntry(IBody doc, String heading, String date, String detail, String color) {
         if (!nonBlank(heading)) return;
-        XWPFParagraph p = paragraph(doc); p.setSpacingBefore(2); p.setSpacingAfter(0); p.setKeepNext(true);
+        XWPFParagraph p = paragraph(doc); p.setSpacingBefore(60); p.setSpacingAfter(20); p.setKeepNext(true);
         addRun(p, heading, 10, "222222", true);
         if (nonBlank(date)) addRun(p, "  " + date, 10, "777777", false);
         if (nonBlank(detail)) addBullet(doc, detail, "333333");
@@ -280,20 +324,12 @@ public class ResumeRenderService {
 
     private void addSectionTitle(IBody doc, String title, String color, String templateId) {
         if (!nonBlank(title)) return;
-        XWPFParagraph p = paragraph(doc); p.setSpacingBefore(7); p.setSpacingAfter(2); p.setKeepNext(true);
+        XWPFParagraph p = paragraph(doc); p.setSpacingBefore(160); p.setSpacingAfter(60); p.setKeepNext(true);
         if ("T02".equals(templateId) || "T05".equals(templateId)) {
             String motif = title.contains("教育") ? "education" : title.contains("技能") ? "skills"
                     : title.contains("荣誉") || title.contains("证书") ? "credential" : "experience";
             addDecoration(p, templateId, motif, "T02".equals(templateId) ? 21 : 20, 16);
             addRun(p, "  " + title, 12, color, true);
-        } else if ("T06".equals(templateId)) {
-            addRun(p, title, 12, "52634D", true);
-            XWPFParagraph accent = paragraph(doc); accent.setSpacingAfter(1); accent.setKeepNext(true);
-            addDecoration(accent, templateId, "section", doc instanceof XWPFTableCell ? 141 : 277, 9);
-        } else if ("T01".equals(templateId)) {
-            addRun(p, title, 12, color, true);
-            XWPFParagraph accent = paragraph(doc); accent.setSpacingAfter(1); accent.setKeepNext(true);
-            addDecoration(accent, templateId, "section", 517, 8);
         } else if ("T08".equals(templateId)) {
             addDecoration(p, templateId, "section", 78, 3);
             addRun(p, "  " + title, 12, color, true);
@@ -301,7 +337,7 @@ public class ResumeRenderService {
             addDecoration(p, templateId, "section", 34, 5);
             addRun(p, "  " + title, 12, "587398", true);
         } else {
-            addRun(p, title, 12, color, true);
+            addRun(p, title, 12, "T06".equals(templateId) ? "52634D" : color, true);
             CTPPr ppr = p.getCTP().isSetPPr() ? p.getCTP().getPPr() : p.getCTP().addNewPPr();
             var borders = ppr.isSetPBdr() ? ppr.getPBdr() : ppr.addNewPBdr();
             CTBorder border = borders.isSetBottom() ? borders.getBottom() : borders.addNewBottom();
@@ -318,34 +354,54 @@ public class ResumeRenderService {
 
     private void addBullet(IBody doc, String text, String color) {
         if (!nonBlank(text)) return;
-        XWPFParagraph p = paragraph(doc); p.setIndentationLeft(260); p.setIndentationHanging(140); p.setSpacingAfter(1);
+        XWPFParagraph p = paragraph(doc); p.setIndentationLeft(240); p.setIndentationHanging(160); p.setSpacingAfter(30);
         addRun(p, "• ", 10, color, false); addRun(p, text.trim(), 10, color, false);
     }
 
     private void addHyperlinkBullet(IBody doc, String link, String color) {
         if (!nonBlank(link)) return;
-        XWPFParagraph p = paragraph(doc); p.setIndentationLeft(260); p.setIndentationHanging(140); p.setSpacingAfter(1);
+        XWPFParagraph p = paragraph(doc); p.setIndentationLeft(240); p.setIndentationHanging(160); p.setSpacingAfter(30);
         addRun(p, "• ", 10, color, false);
-        XWPFHyperlinkRun run = p.createHyperlinkRun(link.trim()); run.setFontFamily(FONT); run.setFontSize(10); run.setColor(color); run.setUnderline(UnderlinePatterns.SINGLE); run.setText(link.trim());
+        XWPFHyperlinkRun run = p.createHyperlinkRun(link.trim()); run.setFontFamily(FONT);
+        run.setFontFamily(FONT, XWPFRun.FontCharRange.eastAsia);
+        run.setFontSize(10); run.setColor(linkTextColor(color)); run.setUnderline(UnderlinePatterns.SINGLE); run.setText(link.trim());
+    }
+
+    private static String linkTextColor(String themeColor) {
+        return switch (themeColor) {
+            case "B4C7E7" -> "40546F";
+            case "9DC393" -> "52634D";
+            case "3B8CB8" -> "286888";
+            case "C3692A" -> "9A4D1C";
+            default -> themeColor;
+        };
     }
 
     private XWPFParagraph paragraph(IBody body) {
-        if (body instanceof XWPFDocument document) return document.createParagraph();
-        if (body instanceof XWPFTableCell cell) {
+        XWPFParagraph paragraph;
+        if (body instanceof XWPFDocument document) paragraph = document.createParagraph();
+        else if (body instanceof XWPFTableCell cell) {
             XWPFParagraph first = cell.getParagraphs().get(0);
-            return first.getRuns().isEmpty() ? first : cell.addParagraph();
-        }
-        throw new IllegalArgumentException("unsupported resume content container");
+            paragraph = first.getRuns().isEmpty() ? first : cell.addParagraph();
+        } else throw new IllegalArgumentException("unsupported resume content container");
+        paragraph.setSpacingBefore(0); paragraph.setSpacingAfter(0); paragraph.setSpacingBetween(1.15);
+        return paragraph;
     }
 
     private void addRule(XWPFDocument doc, String color, int size) {
-        XWPFParagraph p = doc.createParagraph(); p.setSpacingAfter(1);
+        XWPFParagraph p = doc.createParagraph(); p.setSpacingAfter(20); p.setSpacingBefore(0); p.setSpacingBetween(0.3);
         CTPPr ppr = p.getCTP().addNewPPr(); var borders = ppr.addNewPBdr(); CTBorder border = borders.addNewBottom();
         border.setVal(STBorder.SINGLE); border.setSz(BigInteger.valueOf(size)); border.setColor(color); border.setSpace(BigInteger.ONE);
     }
 
     private void addRun(XWPFParagraph p, String text, int size, String color, boolean bold) {
-        XWPFRun r = p.createRun(); r.setFontFamily(FONT); r.setFontSize(Math.max(10, size)); r.setColor(color); r.setBold(bold); r.setText(text == null ? "" : text);
+        XWPFRun r = p.createRun();
+        r.setFontFamily(FONT);
+        r.setFontFamily(FONT, XWPFRun.FontCharRange.eastAsia);
+        r.setFontFamily(FONT, XWPFRun.FontCharRange.hAnsi);
+        r.setFontSize(Math.max(10, size)); r.setColor(color); r.setBold(bold);
+        String[] lines = (text == null ? "" : text).split("\\R", -1);
+        for (int i = 0; i < lines.length; i++) { if (i > 0) r.addBreak(); r.setText(lines[i]); }
     }
 
     private void convertToPdf(Path docx, Path work, List<String> issues) throws IOException, InterruptedException {

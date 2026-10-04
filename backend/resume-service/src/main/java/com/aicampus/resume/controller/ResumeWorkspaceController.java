@@ -5,10 +5,14 @@ import com.aicampus.common.resume.ResumeWorkspaceModels.*;
 import com.aicampus.resume.workspace.WorkspaceException;
 import com.aicampus.resume.workspace.WorkspaceService;
 import io.swagger.v3.oas.annotations.Operation;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @RestController
@@ -61,12 +65,29 @@ public class ResumeWorkspaceController {
     @Operation(summary="Restore a draft revision")
     @PostMapping("/drafts/{id}/restore")
     public ApiResponse<ResumeDraft> restore(@RequestHeader("X-User-Id") String uid,@RequestHeader("X-User-Role") String role,@PathVariable String id,@RequestBody RestoreDraftRequest req){return ApiResponse.ok(service.restore(student(uid,role),id,req));}
-    @Operation(summary="Create or retry confirmed draft export")
+    @Operation(summary="Create or retry an export of confirmed visible content")
     @PostMapping("/drafts/{id}/exports")
     public ApiResponse<ExportStatus> export(@RequestHeader("X-User-Id") String uid,@RequestHeader("X-User-Role") String role,@PathVariable String id,@RequestBody ExportRequest req){return ApiResponse.ok(service.createExport(student(uid,role),id,req));}
     @Operation(summary="Get owned export status and refreshed URL")
     @GetMapping("/exports/{id}")
     public ApiResponse<ExportStatus> exportStatus(@RequestHeader("X-User-Id") String uid,@RequestHeader("X-User-Role") String role,@PathVariable String id){return ApiResponse.ok(service.export(student(uid,role),id));}
+    @Operation(summary="Read an owned immutable PDF or Word export")
+    @GetMapping("/exports/{id}/files/{format}")
+    public ResponseEntity<byte[]> exportFile(@RequestHeader(value="X-User-Id", required=false) String uid,
+            @RequestHeader(value="X-User-Role", required=false) String role,
+            @PathVariable String id, @PathVariable String format) {
+        WorkspaceService.ExportContent file = service.exportContent(student(uid, role), id, format);
+        ContentDisposition disposition = ("pdf".equals(format) ? ContentDisposition.inline() : ContentDisposition.attachment())
+                .filename(file.fileName(), StandardCharsets.UTF_8).build();
+        byte[] bytes = file.bytes();
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(file.contentType()))
+                .contentLength(bytes.length)
+                .cacheControl(CacheControl.noStore().cachePrivate())
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header("X-Content-Type-Options", "nosniff")
+                .body(bytes);
+    }
     @ExceptionHandler(WorkspaceException.class)
     public ResponseEntity<ApiResponse<Void>> workspaceError(WorkspaceException e){return ResponseEntity.status(e.status()).body(ApiResponse.fail(e.getMessage()));}
 }

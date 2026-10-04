@@ -59,6 +59,10 @@ public class WorkspaceService {
         @Override protected boolean removeEldestEntry(Map.Entry<String, CachedGeneration> eldest) { return size() > 256; }
     });
     private record CachedGeneration(DraftData data, long expiresAt) {}
+    public record ExportContent(byte[] bytes, String contentType, String fileName, long draftRevision) {
+        public ExportContent { bytes = bytes.clone(); }
+        @Override public byte[] bytes() { return bytes.clone(); }
+    }
     private final String localUser;
 
     @Autowired
@@ -263,18 +267,48 @@ public class WorkspaceService {
     public ResumeDraft restore(String owner,String id,RestoreDraftRequest req){owner=requireOwner(owner);ResumeDraft old=ownedDraft(owner,id);if(req==null||old.revision()!=req.expectedRevision())throw WorkspaceException.conflict();DraftRevision target=store.revisions(id).stream().filter(r->r.revision()==req.revision()).findFirst().orElseThrow(()->WorkspaceException.invalid("Draft revision does not exist"));return updateDraftInternal(owner,id,new DraftUpdateRequest(old.revision(),target.templateId(),target.data(),target.confirmed()),true);}
 
     public ExportStatus createExport(String owner,String id,ExportRequest req){
-        owner=requireOwner(owner);ResumeDraft draft=ownedDraft(owner,id);if(!draft.confirmed())throw WorkspaceException.invalid("Confirm the draft before exporting");if(req==null||req.expectedRevision()!=draft.revision())throw WorkspaceException.conflict();
+        owner=requireOwner(owner);ResumeDraft draft=ownedDraft(owner,id);if(req==null||req.expectedRevision()!=draft.revision())throw WorkspaceException.conflict();
         assertTemplateVersion(draft);
-        if(draft.data().blocks().stream().filter(DraftBlock::visible).flatMap(b->b.entries().stream()).noneMatch(e->e.visible()&&e.confirmed()))throw WorkspaceException.invalid("No visible confirmed content to export");
-        Optional<ExportJob> prior=store.exportForRevision(id,draft.revision()); if(prior.isPresent()){String status=prior.get().status().status(); if(!"FAILED".equals(status))return refreshExport(prior.get()); ExportStatus q=new ExportStatus(prior.get().status().id(),id,draft.revision(),"QUEUED",draft.templateId(),List.of(),0,null,null,null,prior.get().status().createdAt(),Instant.now()); ExportJob retry=new ExportJob(owner,q,draft,exportKey(owner,q.id(),"docx"),exportKey(owner,q.id(),"pdf")); if(store.replaceExport(retry,"FAILED")){schedule(retry);return q;} return refreshExport(store.export(prior.get().status().id()).orElse(prior.get()));}
-        Instant now=Instant.now();ExportStatus status=new ExportStatus(UUID.randomUUID().toString(),id,draft.revision(),"QUEUED",draft.templateId(),List.of(),0,null,null,null,now,now);ExportJob job=new ExportJob(owner,status,draft,exportKey(owner,status.id(),"docx"),exportKey(owner,status.id(),"pdf"));if(!store.createExport(job))return refreshExport(store.exportForRevision(id,draft.revision()).orElseThrow());schedule(job);return status;
+        List<DraftEntry> visible = draft.data().blocks().stream().filter(DraftBlock::visible).flatMap(b->b.entries().stream()).filter(DraftEntry::visible).toList();
+        if(visible.isEmpty())throw WorkspaceException.invalid("No visible confirmed content to export");
+        if(visible.stream().anyMatch(e->!e.confirmed()))throw WorkspaceException.invalid("Confirm the visible content before exporting");
+        String renderVersion = currentRenderVersion(draft);
+        Optional<ExportJob> prior=store.exportForRevision(id,draft.revision(),renderVersion); if(prior.isPresent()){String status=prior.get().status().status(); if(!"FAILED".equals(status))return refreshExport(prior.get()); ExportStatus q=new ExportStatus(prior.get().status().id(),id,draft.revision(),"QUEUED",draft.templateId(),List.of(),0,null,null,null,prior.get().status().createdAt(),Instant.now()); ExportJob retry=new ExportJob(owner,q,draft,exportKey(owner,q.id(),"docx"),exportKey(owner,q.id(),"pdf"),renderVersion); if(store.replaceExport(retry,"FAILED")){schedule(retry);return q;} return refreshExport(store.export(prior.get().status().id()).orElse(prior.get()));}
+        Instant now=Instant.now();ExportStatus status=new ExportStatus(UUID.randomUUID().toString(),id,draft.revision(),"QUEUED",draft.templateId(),List.of(),0,null,null,null,now,now);ExportJob job=new ExportJob(owner,status,draft,exportKey(owner,status.id(),"docx"),exportKey(owner,status.id(),"pdf"),renderVersion);if(!store.createExport(job))return refreshExport(store.exportForRevision(id,draft.revision(),renderVersion).orElseThrow());schedule(job);return status;
     }
     public ExportStatus export(String owner,String id){owner=requireOwner(owner);ExportJob job=store.export(id).orElseThrow(WorkspaceException::notFound);if(!owner.equals(job.owner()))throw WorkspaceException.notFound();return refreshExport(job);}
+    public ExportContent exportContent(String owner, String id, String format) {
+        owner = requireOwner(owner);
+        if (!Set.of("pdf", "docx").contains(format == null ? "" : format)) throw WorkspaceException.notFound();
+        ExportJob job = store.export(id).orElseThrow(WorkspaceException::notFound);
+        ExportStatus status = job.status();
+        ResumeDraft snapshot = job.snapshot();
+        if (!owner.equals(job.owner()) || status == null || !"SUCCEEDED".equals(status.status())
+                || snapshot == null || !owner.equals(snapshot.userId())
+                || !Objects.equals(status.id(), id) || !Objects.equals(status.draftId(), snapshot.id())
+                || status.draftRevision() != snapshot.revision()) throw WorkspaceException.notFound();
+        boolean pdf = "pdf".equals(format);
+        ExportFile file = pdf ? status.pdf() : status.docx();
+        String key = pdf ? job.pdfKey() : job.docxKey();
+        if (file == null) throw WorkspaceException.notFound();
+        if (key == null) key = exportKey(owner, id, format);
+        if (!key.startsWith("exports/" + owner + "/")) throw WorkspaceException.notFound();
+        byte[] bytes = storage.readBytes(key);
+        if (bytes == null || bytes.length == 0 || blank(file.sha256())
+                || !digest(bytes).equalsIgnoreCase(file.sha256())) throw WorkspaceException.notFound();
+        String name = snapshot.profileSnapshot() == null || snapshot.profileSnapshot().basics() == null
+                ? "" : snapshot.profileSnapshot().basics().name();
+        name = name == null ? "" : name.replaceAll("[\\p{Cc}\\p{Cf}\\\\/:*?\"<>|]", "").strip();
+        if (name.isEmpty()) name = "resume";
+        if (name.codePointCount(0, name.length()) > 80) name = name.substring(0, name.offsetByCodePoints(0, 80));
+        String contentType = pdf ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        return new ExportContent(bytes, contentType, name + "." + format, status.draftRevision());
+    }
     private void schedule(ExportJob job){exportExecutor.execute(()->processExport(job));}
-    @EventListener(ApplicationReadyEvent.class) public void recoverExports(){for(ExportJob e:store.unfinishedExports()){if("RUNNING".equals(e.status().status())){ExportStatus s=e.status();ExportStatus q=new ExportStatus(s.id(),s.draftId(),s.draftRevision(),"QUEUED",s.templateId(),s.layoutIssues(),s.pageCount(),s.docx(),s.pdf(),s.error(),s.createdAt(),Instant.now());if(!store.replaceExport(new ExportJob(e.owner(),q,e.snapshot(),e.docxKey(),e.pdfKey()),"RUNNING"))continue;e=new ExportJob(e.owner(),q,e.snapshot(),e.docxKey(),e.pdfKey());}schedule(e);}}
-    private void processExport(ExportJob job){ExportStatus old=job.status();String docxKey=job.docxKey()==null?exportKey(job.owner(),old.id(),"docx"):job.docxKey();String pdfKey=job.pdfKey()==null?exportKey(job.owner(),old.id(),"pdf"):job.pdfKey();ExportJob normalizedJob=new ExportJob(job.owner(),job.status(),job.snapshot(),docxKey,pdfKey);if(!store.replaceExport(jobWithStatus(normalizedJob,"RUNNING"),"QUEUED"))return;Path temp=null;try{assertTemplateVersion(job.snapshot());if(renderer.isEmpty())throw new IllegalStateException("Renderer is unavailable");temp=Files.createTempDirectory("resume-export-");byte[] photo=photoBytes(job.owner(),job.snapshot().profileSnapshot());ResumeRenderService.RenderedResume r=renderer.get().render(job.snapshot(),temp,photo);byte[] docx=Files.readAllBytes(r.docx()),pdf=Files.readAllBytes(r.pdf());String status=r.layoutIssues().isEmpty()?"SUCCEEDED":"NEEDS_EDIT";ExportFile df=null,pf=null;if(r.layoutIssues().isEmpty()){storage.storeBytes(docxKey,docx,"application/vnd.openxmlformats-officedocument.wordprocessingml.document");storage.storeBytes(pdfKey,pdf,"application/pdf");df=new ExportFile("resume.docx","application/vnd.openxmlformats-officedocument.wordprocessingml.document",storage.signedUrl(docxKey),digest(docx));pf=new ExportFile("resume.pdf","application/pdf",storage.signedUrl(pdfKey),digest(pdf));}store.replaceExport(new ExportJob(job.owner(),new ExportStatus(old.id(),old.draftId(),old.draftRevision(),status,old.templateId(),r.layoutIssues(),r.pageCount(),df,pf,null,old.createdAt(),Instant.now()),job.snapshot(),docxKey,pdfKey),"RUNNING");}catch(Exception e){store.replaceExport(new ExportJob(job.owner(),new ExportStatus(old.id(),old.draftId(),old.draftRevision(),"FAILED",old.templateId(),List.of(),0,null,null,String.valueOf(e.getMessage()),old.createdAt(),Instant.now()),job.snapshot(),docxKey,pdfKey),"RUNNING");}finally{deleteTree(temp);}}
+    @EventListener(ApplicationReadyEvent.class) public void recoverExports(){for(ExportJob e:store.unfinishedExports()){if("RUNNING".equals(e.status().status())){ExportStatus s=e.status();ExportStatus q=new ExportStatus(s.id(),s.draftId(),s.draftRevision(),"QUEUED",s.templateId(),s.layoutIssues(),s.pageCount(),s.docx(),s.pdf(),s.error(),s.createdAt(),Instant.now());if(!store.replaceExport(new ExportJob(e.owner(),q,e.snapshot(),e.docxKey(),e.pdfKey(),e.renderVersion()),"RUNNING"))continue;e=new ExportJob(e.owner(),q,e.snapshot(),e.docxKey(),e.pdfKey(),e.renderVersion());}schedule(e);}}
+    private void processExport(ExportJob job){ExportStatus old=job.status();String docxKey=job.docxKey()==null?exportKey(job.owner(),old.id(),"docx"):job.docxKey();String pdfKey=job.pdfKey()==null?exportKey(job.owner(),old.id(),"pdf"):job.pdfKey();ExportJob normalizedJob=new ExportJob(job.owner(),job.status(),job.snapshot(),docxKey,pdfKey,job.renderVersion());if(!store.replaceExport(jobWithStatus(normalizedJob,"RUNNING"),"QUEUED"))return;Path temp=null;try{assertTemplateVersion(job.snapshot());if(renderer.isEmpty())throw new IllegalStateException("Renderer is unavailable");temp=Files.createTempDirectory("resume-export-");byte[] photo=photoBytes(job.owner(),job.snapshot().profileSnapshot());ResumeRenderService.RenderedResume r=renderer.get().render(job.snapshot(),temp,photo);byte[] docx=Files.readAllBytes(r.docx()),pdf=Files.readAllBytes(r.pdf());String status=r.layoutIssues().isEmpty()?"SUCCEEDED":"NEEDS_EDIT";ExportFile df=null,pf=null;if(r.layoutIssues().isEmpty()){storage.storeBytes(docxKey,docx,"application/vnd.openxmlformats-officedocument.wordprocessingml.document");storage.storeBytes(pdfKey,pdf,"application/pdf");df=new ExportFile("resume.docx","application/vnd.openxmlformats-officedocument.wordprocessingml.document",storage.signedUrl(docxKey),digest(docx));pf=new ExportFile("resume.pdf","application/pdf",storage.signedUrl(pdfKey),digest(pdf));}store.replaceExport(new ExportJob(job.owner(),new ExportStatus(old.id(),old.draftId(),old.draftRevision(),status,old.templateId(),r.layoutIssues(),r.pageCount(),df,pf,null,old.createdAt(),Instant.now()),job.snapshot(),docxKey,pdfKey,job.renderVersion()),"RUNNING");}catch(Exception e){store.replaceExport(new ExportJob(job.owner(),new ExportStatus(old.id(),old.draftId(),old.draftRevision(),"FAILED",old.templateId(),List.of(),0,null,null,String.valueOf(e.getMessage()),old.createdAt(),Instant.now()),job.snapshot(),docxKey,pdfKey,job.renderVersion()),"RUNNING");}finally{deleteTree(temp);}}
     private ExportStatus refreshExport(ExportJob j){ExportStatus s=j.status();if(!"SUCCEEDED".equals(s.status()))return new ExportStatus(s.id(),s.draftId(),s.draftRevision(),s.status(),s.templateId(),s.layoutIssues(),s.pageCount(),null,null,s.error(),s.createdAt(),s.updatedAt());if(s.docx()==null&&s.pdf()==null)return s;ExportFile d=s.docx()==null?null:new ExportFile(s.docx().fileName(),s.docx().contentType(),storage.signedUrl(j.docxKey()==null?exportKey(j.owner(),s.id(),"docx"):j.docxKey()),s.docx().sha256());ExportFile p=s.pdf()==null?null:new ExportFile(s.pdf().fileName(),s.pdf().contentType(),storage.signedUrl(j.pdfKey()==null?exportKey(j.owner(),s.id(),"pdf"):j.pdfKey()),s.pdf().sha256());return new ExportStatus(s.id(),s.draftId(),s.draftRevision(),s.status(),s.templateId(),s.layoutIssues(),s.pageCount(),d,p,s.error(),s.createdAt(),s.updatedAt());}
-    private ExportJob jobWithStatus(ExportJob j,String status){ExportStatus s=j.status();return new ExportJob(j.owner(),new ExportStatus(s.id(),s.draftId(),s.draftRevision(),status,s.templateId(),s.layoutIssues(),s.pageCount(),s.docx(),s.pdf(),s.error(),s.createdAt(),Instant.now()),j.snapshot(),j.docxKey(),j.pdfKey());}
+    private ExportJob jobWithStatus(ExportJob j,String status){ExportStatus s=j.status();return new ExportJob(j.owner(),new ExportStatus(s.id(),s.draftId(),s.draftRevision(),status,s.templateId(),s.layoutIssues(),s.pageCount(),s.docx(),s.pdf(),s.error(),s.createdAt(),Instant.now()),j.snapshot(),j.docxKey(),j.pdfKey(),j.renderVersion());}
     private byte[] photoBytes(String owner,ProfileData profile){if(profile==null||profile.basics()==null||blank(profile.basics().photoObjectKey()))return null;String key=profile.basics().photoObjectKey();if(!key.startsWith("profiles/"+owner+"/"))throw WorkspaceException.notFound();PhotoRecord p=store.photo(key).orElseThrow(WorkspaceException::notFound);if(!owner.equals(p.owner()))throw WorkspaceException.notFound();return storage.readBytes(key);}
     @PreDestroy public void shutdown(){exportExecutor.shutdownNow();}
 
@@ -319,8 +353,11 @@ public class WorkspaceService {
     private void assertTemplateVersion(ResumeDraft draft) {
         if(templates.isPresent()) {
             TemplateInfo current;try{current=templates.get().get(draft.templateId());}catch(IllegalArgumentException e){throw WorkspaceException.invalid("Template is unavailable; select a current template before exporting");}
-            if(!Objects.equals(current.version(),draft.templateVersion()))throw WorkspaceException.invalid("Template version changed; save the draft with the current template before exporting");
         }
+    }
+    private String currentRenderVersion(ResumeDraft draft) {
+        String templateVersion = templates.map(registry -> registry.get(draft.templateId()).version()).orElse("default");
+        return ResumeRenderService.RENDER_VERSION + ":" + templateVersion;
     }
     private ResumeDraft withStale(ResumeDraft d,String owner){MasterProfile p=getProfile(owner);return new ResumeDraft(d.id(),d.resumeId(),d.userId(),d.revision(),d.profileRevision(),d.profileSnapshot(),d.templateId(),d.templateVersion(),d.targetRole(),d.jobSnapshot(),d.inputFingerprint(),d.data(),d.confirmed(),p.revision()!=d.profileRevision(),d.createdAt(),d.updatedAt());}
     private ResumeDraft ownedDraft(String owner,String id){owner=requireOwner(owner);ResumeDraft d=store.draft(id).orElseThrow(WorkspaceException::notFound);if(!owner.equals(d.userId()))throw WorkspaceException.notFound();return withStale(d,owner);}

@@ -15,6 +15,7 @@ import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 
 import javax.sql.DataSource;
@@ -64,10 +65,45 @@ public class ResumeStoreConfiguration {
                         "resume_summary_record",
                         "diagnosis_history",
                         "diagnosis_history LONGTEXT NOT NULL");
+                migrateExportSchema(dataSource);
             } catch (RuntimeException ex) {
                 throw new IllegalStateException("Resume schema initialization failed", ex);
             }
         };
+    }
+
+    static void migrateExportSchema(DataSource dataSource) {
+        addColumnIfMissing(dataSource, "resume_workspace_export", "docx_key", "docx_key VARCHAR(512) NULL");
+        addColumnIfMissing(dataSource, "resume_workspace_export", "pdf_key", "pdf_key VARCHAR(512) NULL");
+        addColumnIfMissing(dataSource, "resume_workspace_export", "render_version", "render_version VARCHAR(64) NOT NULL DEFAULT 'legacy'");
+        migrateExportUniqueKey(dataSource);
+    }
+
+    private static void migrateExportUniqueKey(DataSource dataSource) {
+        try (Connection connection = dataSource.getConnection()) {
+            boolean oldIndex = false, newIndex = false;
+            try (ResultSet indexes = connection.getMetaData().getIndexInfo(connection.getCatalog(), null,
+                    "resume_workspace_export", true, false)) {
+                while (indexes.next()) {
+                    String name = indexes.getString("INDEX_NAME");
+                    if (name == null) continue;
+                    String normalized = name.toLowerCase(java.util.Locale.ROOT);
+                    if (normalized.equals("uk_resume_workspace_export_revision") || normalized.startsWith("uk_resume_workspace_export_revision_index")) oldIndex = true;
+                    if (normalized.equals("uk_resume_workspace_export_revision_render") || normalized.startsWith("uk_resume_workspace_export_revision_render_index")) newIndex = true;
+                }
+            }
+            try (Statement statement = connection.createStatement()) {
+                if (!newIndex) statement.execute("ALTER TABLE resume_workspace_export ADD UNIQUE KEY uk_resume_workspace_export_revision_render (draft_id, draft_revision, render_version)");
+                if (oldIndex) {
+                    String drop = "H2".equalsIgnoreCase(connection.getMetaData().getDatabaseProductName())
+                            ? "ALTER TABLE resume_workspace_export DROP CONSTRAINT uk_resume_workspace_export_revision"
+                            : "ALTER TABLE resume_workspace_export DROP INDEX uk_resume_workspace_export_revision";
+                    statement.execute(drop);
+                }
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to migrate resume export render version", ex);
+        }
     }
 
     private static void addColumnIfMissing(

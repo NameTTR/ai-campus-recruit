@@ -34,6 +34,8 @@ Desktop.ini
 
 # Browser verification artifacts
 output/playwright/
+output/pdf/
+scripts/__pycache__/
 
 # Original user supplied resume materials (adapted assets are tracked separately)
 /jianli/

@@ -80,6 +80,29 @@ class JdbcWorkspaceStoreTest {
         assertFalse(restored.replaceExport(export(snapshot,"FAILED","stale update"),"RUNNING"));
     }
 
+    @Test void renderVersionsDeduplicateSeparatelyAndPreserveSuccessfulHistoryAndKeys() {
+        ResumeDraft snapshot = draft("draft1", 2, "T01", "v1");
+        WorkspaceStore.ExportJob old = export(snapshot, "QUEUED", null);
+        assertTrue(store.createExport(old));
+        assertTrue(store.replaceExport(export(snapshot, "SUCCEEDED", null), "QUEUED"));
+        WorkspaceStore.ExportJob newer = new WorkspaceStore.ExportJob(old.owner(),
+                new ExportStatus("export2", snapshot.id(), snapshot.revision(), "QUEUED", "T01", List.of(), 0, null, null, null, Instant.now(), Instant.now()),
+                snapshot, "exports/student/export2.docx", "exports/student/export2.pdf", "render-v3");
+        assertTrue(store.createExport(newer));
+        WorkspaceStore.ExportJob duplicate = new WorkspaceStore.ExportJob(newer.owner(),
+                new ExportStatus("export3", snapshot.id(), snapshot.revision(), "QUEUED", "T01", List.of(), 0, null, null, null, Instant.now(), Instant.now()),
+                snapshot, null, null, "render-v3");
+        assertFalse(store.createExport(duplicate));
+        JdbcWorkspaceStore restored = new JdbcWorkspaceStore(jdbc, mapper);
+        assertEquals("SUCCEEDED", restored.export("export1").orElseThrow().status().status());
+        assertEquals("legacy", restored.export("export1").orElseThrow().renderVersion());
+        WorkspaceStore.ExportJob loaded = restored.exportForRevision(snapshot.id(), 2, "render-v3").orElseThrow();
+        assertEquals("export2", loaded.status().id());
+        assertEquals("exports/student/export2.docx", loaded.docxKey());
+        assertEquals("exports/student/export2.pdf", loaded.pdfKey());
+        assertEquals(snapshot, loaded.snapshot());
+    }
+
     private static WorkspaceStore.ExportJob export(ResumeDraft snapshot,String state,String error){Instant now=Instant.parse("2026-10-04T00:00:00Z");return new WorkspaceStore.ExportJob("student",new ExportStatus("export1",snapshot.id(),snapshot.revision(),state,snapshot.templateId(),List.of(),0,null,null,error,now,now),snapshot,null,null);}
     private static DraftRevision revision(ResumeDraft d,String reason){return new DraftRevision(d.revision(),d.templateId(),d.data(),d.confirmed(),reason,d.updatedAt());}
     private static ResumeDraft draft(String id,long revision,String template,String version){Instant now=Instant.parse("2026-10-04T00:00:00Z");DraftData data=new DraftData(List.of(),List.of(),List.of(),List.of(),"RULES:v2");return new ResumeDraft(id,"resume-"+id,"student",revision,1,profile(),template,version,"Java",null,"fingerprint",data,true,false,now,now);}

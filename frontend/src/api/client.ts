@@ -4878,5 +4878,49 @@ export function uploadResumePhoto(file: File) {
 }
 export function createResumeExport(id: string, expectedRevision: number) { return strictRequest<ResumeExportStatus>(`/api/resumes/drafts/${encodeURIComponent(id)}/exports`, { method: 'POST', body: JSON.stringify({ expectedRevision }) }, { id: '', draftId: id, draftRevision: expectedRevision, status: 'QUEUED', templateId: '', layoutIssues: [], pageCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }) }
 export function getResumeExport(id: string) { return strictRequest<ResumeExportStatus>(`/api/resumes/exports/${encodeURIComponent(id)}`, { method: 'GET' }, { id, draftId: '', draftRevision: 0, status: 'FAILED', templateId: '', layoutIssues: [], pageCount: 0, error: '演示模式未生成文件', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }) }
+// Use the authenticated file endpoint so preview and downloads share the export snapshot.
+export async function getResumeExportFile(id: string, format: 'pdf' | 'docx'): Promise<Blob> {
+  const path = `/api/resumes/exports/${encodeURIComponent(id)}/files/${format}`
+  if (!shouldUseApi(path)) {
+    throw new Error('当前演示模式没有可下载的简历文件')
+  }
+  let response: Response
+  try {
+    response = await fetch(resolveRequestPath(path), {
+      method: 'GET',
+      headers: requestHeaders({ method: 'GET' }),
+      cache: 'no-store'
+    })
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
+    throw new Error('无法连接服务，请检查网络或服务状态后重试；本次操作未确认成功')
+  }
+  if (!response.ok) {
+    if (response.status === 401) {
+      clearAuthSession()
+      throw new Error('登录已失效，请重新登录')
+    }
+    throw new Error(await responseErrorMessage(response, `HTTP ${response.status}`))
+  }
+  const bytes = await response.arrayBuffer()
+  if (bytes.byteLength < 4) throw new Error('下载文件为空，请稍后重试')
+  const contentType = response.headers.get('content-type')?.toLowerCase() || ''
+  const view = new Uint8Array(bytes)
+  const looksJson = contentType.includes('application/json') || String.fromCharCode(...view.slice(0, 1)) === '{'
+  if (looksJson) {
+    let message = '文件下载失败，请稍后重试'
+    try {
+      const payload = JSON.parse(new TextDecoder().decode(view)) as Partial<ApiResponse<unknown>>
+      message = readableApiError(payload.message || message)
+    } catch { /* Keep a readable error for malformed error responses. */ }
+    throw new Error(message)
+  }
+  const validHeader = format === 'pdf'
+    ? new TextDecoder().decode(view.slice(0, 5)) === '%PDF-'
+    : view[0] === 0x50 && view[1] === 0x4b && view[2] === 0x03 && view[3] === 0x04
+  if (!validHeader) throw new Error('服务返回了无效的简历文件，请重新生成后重试')
+  const expectedType = format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  return new Blob([bytes], { type: contentType.includes('pdf') || contentType.includes('word') ? contentType : expectedType })
+}
 function emptyResumeProfile(): ResumeWorkspaceProfileData { return { basics: { name: '', phone: '', email: '', city: '', portfolioUrl: '' }, education: [], skills: [], experiences: [], credentials: [], availability: { cities: [], earliestStartDate: '', graduationDate: '' } } }
 function demoResumeDraft(payload: { templateId: string; targetRole: string }): ResumeDraft { return { id: `demo-${payload.templateId}`, userId: getAuthSession()?.userId || 'S001', revision: 1, profileRevision: 0, profileSnapshot: emptyResumeProfile(), templateId: payload.templateId, templateVersion: 'demo', targetRole: payload.targetRole, inputFingerprint: 'demo', data: { blocks: [], questions: [], suggestions: [], warnings: ['请填写并确认主资料后生成简历'], generationSource: 'RULE_FALLBACK' }, confirmed: false, sourceStale: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }

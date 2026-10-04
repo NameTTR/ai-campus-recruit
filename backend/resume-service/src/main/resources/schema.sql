@@ -83,8 +83,11 @@ CREATE TABLE IF NOT EXISTS resume_workspace_export (
     pdf_json TEXT NULL,
     error_message VARCHAR(1000) NULL,
     draft_snapshot_json LONGTEXT NOT NULL,
+    docx_key VARCHAR(512) NULL,
+    pdf_key VARCHAR(512) NULL,
+    render_version VARCHAR(64) NOT NULL DEFAULT 'legacy',
     created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-    UNIQUE KEY uk_resume_workspace_export_revision (draft_id, draft_revision),
+    UNIQUE KEY uk_resume_workspace_export_revision_render (draft_id, draft_revision, render_version),
     KEY idx_resume_workspace_export_status (status, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -27,6 +27,7 @@ import {
   getDeploymentGuide,
   getProfile,
   getResume,
+  getResumeExportFile,
   getDeliveryStatistics,
   getDeploymentTopology,
   getSystemStatus,
@@ -76,6 +77,42 @@ describe('api fallback behavior', () => {
     vi.stubEnv('VITE_API_PROXY_TARGET', '')
     vi.stubEnv('VITE_AI_PROXY_TARGET', '')
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))))
+  })
+
+  it('downloads an immutable resume file with authentication and a checked file signature', async () => {
+    vi.stubEnv('VITE_DEMO_MODE', 'false')
+    localStorage.setItem('token', 'resume-download-token')
+    const bytes = new TextEncoder().encode('%PDF-1.7\nfixture')
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true, headers: new Headers({ 'Content-Type': 'application/pdf' }),
+      arrayBuffer: () => Promise.resolve(bytes.buffer)
+    } as Response)
+    const file = await getResumeExportFile('export/one', 'pdf')
+    expect(file.size).toBe(bytes.length)
+    expect(file.type).toBe('application/pdf')
+    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe('/api/resumes/exports/export%2Fone/files/pdf')
+    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer resume-download-token')
+    expect(init?.cache).toBe('no-store')
+  })
+
+  it('does not download a JSON error or an HTML page as a resume file', async () => {
+    vi.stubEnv('VITE_DEMO_MODE', 'false')
+    const json = new TextEncoder().encode('{"code":409,"message":"请先完成导出"}')
+    const html = new TextEncoder().encode('<html>login</html>')
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: true, headers: new Headers({ 'Content-Type': 'application/json' }), arrayBuffer: () => Promise.resolve(json.buffer) } as Response)
+      .mockResolvedValueOnce({ ok: true, headers: new Headers({ 'Content-Type': 'text/html' }), arrayBuffer: () => Promise.resolve(html.buffer) } as Response)
+    await expect(getResumeExportFile('one', 'docx')).rejects.toThrow('请先完成导出')
+    await expect(getResumeExportFile('one', 'pdf')).rejects.toThrow('无效的简历文件')
+  })
+
+  it('clears an expired session during binary download', async () => {
+    vi.stubEnv('VITE_DEMO_MODE', 'false')
+    localStorage.setItem('token', 'expired')
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 401 } as Response)
+    await expect(getResumeExportFile('one', 'pdf')).rejects.toThrow('登录已失效')
+    expect(localStorage.getItem('token')).toBeNull()
   })
 
   it('uses fallback data without calling an unconfigured development gateway', async () => {

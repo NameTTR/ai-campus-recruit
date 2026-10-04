@@ -40,8 +40,12 @@ public class InMemoryWorkspaceStore implements WorkspaceStore {
     @Override public Optional<ExportJob> exportForRevision(String draftId, long revision) {
         return exports.values().stream().filter(e -> e.status().draftId().equals(draftId) && e.status().draftRevision() == revision).findFirst();
     }
+    @Override public Optional<ExportJob> exportForRevision(String draftId, long revision, String renderVersion) {
+        return exports.values().stream().filter(e -> e.status().draftId().equals(draftId) && e.status().draftRevision() == revision
+                && Objects.equals(e.renderVersion(), renderVersion)).findFirst();
+    }
     @Override public synchronized boolean createExport(ExportJob job) {
-        if (exportForRevision(job.status().draftId(), job.status().draftRevision()).isPresent()) return false;
+        if (exports.containsKey(job.status().id()) || exportForRevision(job.status().draftId(), job.status().draftRevision(), job.renderVersion()).isPresent()) return false;
         exports.put(job.status().id(), job); return true;
     }
     @Override public synchronized boolean replaceExport(ExportJob job, String expected) {

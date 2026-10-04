@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LearningPlan, ResumeDraftData, ResumeWorkspaceProfileData } from '../../api/client'
-import { confirmedResumeProfile, copyResumeProfile, isResumeRevisionConflict, mergeResumeCandidate, moveResumeItem, resumeLearningCandidates, suggestionMatchesDraft, suggestionNeedsProfile, editableResumeLines, editableResumeValues } from './resumeWorkspace'
+import { confirmedResumeProfile, copyResumeProfile, isResumeRevisionConflict, mergeResumeCandidate, moveResumeItem, resumeDraftCanAutoPreview, resumeLearningCandidates, suggestionMatchesDraft, suggestionNeedsProfile, editableResumeLines, editableResumeValues } from './resumeWorkspace'
 
 function profile(): ResumeWorkspaceProfileData {
   return {
@@ -61,6 +61,19 @@ describe('resume workspace data preservation', () => {
   })
 })
 describe('resume source and suggestion checks', () => {
+  it('automatically previews only nonempty visible confirmed content', () => {
+    const data: ResumeDraftData = { blocks: [{ id: 'b', type: 'PROJECT', title: '项目', visible: true, entries: [{ id: 'e', title: '课程项目', subtitle: '', bullets: ['实现了真实功能'], links: [], factIds: ['fact'], visible: true, confirmed: true }] }], questions: [], suggestions: [], warnings: [], generationSource: 'RULE_FALLBACK' }
+    expect(resumeDraftCanAutoPreview({ data })).toBe(true)
+    data.blocks[0]!.entries[0]!.confirmed = false
+    expect(resumeDraftCanAutoPreview({ data })).toBe(false)
+    data.blocks[0]!.entries[0]!.visible = false
+    expect(resumeDraftCanAutoPreview({ data })).toBe(false)
+    data.blocks[0]!.entries.push({ ...data.blocks[0]!.entries[0]!, id: 'confirmed', visible: true, confirmed: true })
+    expect(resumeDraftCanAutoPreview({ data })).toBe(true)
+    data.blocks[0]!.visible = false
+    expect(resumeDraftCanAutoPreview({ data })).toBe(false)
+    expect(resumeDraftCanAutoPreview({ data: { ...data, blocks: [] } })).toBe(false)
+  })
   it('requires the current exact bullet and forbids applying an already applied suggestion', () => {
     const data: ResumeDraftData = { blocks: [{ id: 'b', type: 'PROJECT', title: '项目', visible: true, entries: [{ id: 'e', title: '课程项目', subtitle: '', bullets: ['实现了真实功能'], links: [], factIds: ['fact'], visible: true, confirmed: true }] }], questions: [], suggestions: [], warnings: [], generationSource: 'RULE_FALLBACK' }
     const suggestion = { id: 's', blockId: 'b', entryId: 'e', originalQuote: '实现了真实功能', suggestedText: '清晰表达', problem: '', basis: '', factIds: ['fact'], status: 'PENDING' }

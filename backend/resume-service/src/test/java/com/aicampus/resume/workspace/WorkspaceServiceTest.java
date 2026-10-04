@@ -240,12 +240,24 @@ class WorkspaceServiceTest {
         TransactionTemplate tx=mock(TransactionTemplate.class);when(tx.execute(any())).thenAnswer(call->((TransactionCallback<?>)call.getArgument(0)).doInTransaction(new SimpleTransactionStatus()));Harness h=harness(null,null,null,tx);h.service.saveProfile("u1",new ProfileSaveRequest(0,profile(),null,true));ResumeDraft d=h.service.createDraft("u1",new DraftCreateRequest("T01","Java",null,1L));ResumeDraft updated=h.service.updateDraft("u1",d.id(),new DraftUpdateRequest(d.revision(),"T01",d.data(),true));assertEquals(2,updated.revision());assertEquals(2,h.service.revisions("u1",d.id()).size());assertTrue(h.records.findById(d.resumeId()).isPresent());
     }
 
-    @Test void changedTemplateVersionRequiresSaveBeforeExport() {
-        ResumeTemplateRegistry registry=mock(ResumeTemplateRegistry.class);when(registry.get("T01")).thenReturn(template("v1"));Harness h=harness(null,registry,null,null);h.service.saveProfile("u1",new ProfileSaveRequest(0,profile(),null,true));ResumeDraft d=h.service.createDraft("u1",new DraftCreateRequest("T01","Java",null,1L));d=h.service.updateDraft("u1",d.id(),new DraftUpdateRequest(d.revision(),"T01",d.data(),true));when(registry.get("T01")).thenReturn(template("v2"));ResumeDraft exportDraft=d;assertThrows(WorkspaceException.class,()->h.service.createExport("u1",exportDraft.id(),new ExportRequest(exportDraft.revision())));
+    @Test void changedTemplateVersionExportsOldDraftWithoutChangingItsContents() throws Exception {
+        ResumeTemplateRegistry registry=mock(ResumeTemplateRegistry.class);
+        when(registry.get("T01")).thenReturn(template("v1"));
+        Harness h=harness(null,registry,successfulRenderer(),null);
+        h.service.saveProfile("u1",new ProfileSaveRequest(0,profile(),null,true));
+        ResumeDraft d=h.service.createDraft("u1",new DraftCreateRequest("T01","Java",null,1L));
+        when(registry.get("T01")).thenReturn(template("v2"));
+        ExportStatus status=h.service.createExport("u1",d.id(),new ExportRequest(d.revision()));
+        assertEquals("SUCCEEDED",awaitExport(h.service,status.id()).status());
+        ResumeDraft unchanged=h.service.getDraft("u1",d.id());
+        assertEquals(d.revision(),unchanged.revision());
+        assertEquals("v1",unchanged.templateVersion());
+        assertEquals(d.data(),unchanged.data());
+        assertEquals(ResumeRenderService.RENDER_VERSION+":v2",h.store.export(status.id()).orElseThrow().renderVersion());
     }
 
     @Test void persistedRunningExportRecoversAndUsesStableKeysAndRealDigests() throws Exception {
-        ResumeRenderService renderer=mock(ResumeRenderService.class);when(renderer.render(any(),any(),nullable(byte[].class))).thenAnswer(call->{Path root=call.getArgument(1);Path docx=Files.write(root.resolve("resume.docx"),"word content".getBytes());Path pdf=Files.write(root.resolve("resume.pdf"),"searchable pdf".getBytes());return new ResumeRenderService.RenderedResume(docx,pdf,List.of(),1);});Harness h=harness(null,null,renderer,null);h.service.saveProfile("u1",new ProfileSaveRequest(0,profile(),null,true));ResumeDraft d=h.service.createDraft("u1",new DraftCreateRequest("T01","Java",null,1L));d=h.service.updateDraft("u1",d.id(),new DraftUpdateRequest(d.revision(),"T01",d.data(),true));Instant now=Instant.now();ExportStatus running=new ExportStatus("export1",d.id(),d.revision(),"RUNNING","T01",List.of(),0,null,null,null,now,now);h.store.createExport(new ExportJob("u1",running,d,null,null));h.service.recoverExports();ExportStatus done=awaitExport(h.service,"export1");assertEquals("SUCCEEDED",done.status());assertEquals(64,done.docx().sha256().length());assertEquals(64,done.pdf().sha256().length());verify(h.storage).storeBytes(eq("exports/u1/export1.docx"),any(),anyString());verify(h.storage).storeBytes(eq("exports/u1/export1.pdf"),any(),anyString());assertEquals("export1",h.service.createExport("u1",d.id(),new ExportRequest(d.revision())).id());assertThrows(WorkspaceException.class,()->h.service.export("u2","export1"));verify(renderer,times(1)).render(any(),any(),nullable(byte[].class));
+        ResumeRenderService renderer=mock(ResumeRenderService.class);when(renderer.render(any(),any(),nullable(byte[].class))).thenAnswer(call->{Path root=call.getArgument(1);Path docx=Files.write(root.resolve("resume.docx"),"word content".getBytes());Path pdf=Files.write(root.resolve("resume.pdf"),"searchable pdf".getBytes());return new ResumeRenderService.RenderedResume(docx,pdf,List.of(),1);});Harness h=harness(null,null,renderer,null);h.service.saveProfile("u1",new ProfileSaveRequest(0,profile(),null,true));ResumeDraft d=h.service.createDraft("u1",new DraftCreateRequest("T01","Java",null,1L));d=h.service.updateDraft("u1",d.id(),new DraftUpdateRequest(d.revision(),"T01",d.data(),true));Instant now=Instant.now();ExportStatus running=new ExportStatus("export1",d.id(),d.revision(),"RUNNING","T01",List.of(),0,null,null,null,now,now);h.store.createExport(new ExportJob("u1",running,d,null,null));h.service.recoverExports();ExportStatus done=awaitExport(h.service,"export1");assertEquals("SUCCEEDED",done.status());assertEquals(64,done.docx().sha256().length());assertEquals(64,done.pdf().sha256().length());verify(h.storage).storeBytes(eq("exports/u1/export1.docx"),any(),anyString());verify(h.storage).storeBytes(eq("exports/u1/export1.pdf"),any(),anyString());ExportStatus newer=h.service.createExport("u1",d.id(),new ExportRequest(d.revision()));assertNotEquals("export1",newer.id());awaitExport(h.service,newer.id());assertEquals(newer.id(),h.service.createExport("u1",d.id(),new ExportRequest(d.revision())).id());assertThrows(WorkspaceException.class,()->h.service.export("u2","export1"));verify(renderer,times(2)).render(any(),any(),nullable(byte[].class));
     }
 
     @Test void diagnosisKeepsAiExpressionSuggestionAndRanksRelevantKnownFactsFirst() {
@@ -269,11 +281,140 @@ class WorkspaceServiceTest {
         Harness h=harness(null,null,null,null);String schoolA="\u793a\u4f8b\u5927\u5b66".repeat(40),schoolB="\u7b2c\u4e8c\u5927\u5b66".repeat(40);ProfileData p=new ProfileData(profile().basics(),List.of(new Education("a",schoolA,"Software Engineering","Bachelor","2020","2024","2024",List.of(),"",ref("a")),new Education("b",schoolB,"Computer Science","Master","2024","2027","2027",List.of(),"",ref("b"))),List.of(),List.of(),List.of(),profile().availability());h.service.saveProfile("u1",new ProfileSaveRequest(0,p,null,true));ResumeDraft d=h.service.createDraft("u1",new DraftCreateRequest("T01","Java",null,1L));d=h.service.updateDraft("u1",d.id(),new DraftUpdateRequest(d.revision(),"T01",d.data(),true));ResumeRecord projected=h.records.findById(d.resumeId()).orElseThrow();assertEquals(255,projected.summary().education().codePointCount(0,projected.summary().education().length()));assertTrue(projected.summary().education().endsWith("\u2026"));assertTrue(projected.parsedText().contains(schoolA));assertTrue(projected.parsedText().contains(schoolB));assertEquals(2,h.service.getDraft("u1",d.id()).profileSnapshot().education().size());
     }
 
+    @Test void exportContentReadsSuccessfulSnapshotWithFixedTypeAndImmutableBytes() throws Exception {
+        Harness h = harness(null, null, null, null);
+        ProfileData p = profile();
+        ProfileData named = new ProfileData(new BasicInfo("\u5f20\u540c\u5b66\r\n/../\u7b80\u5386", "138", "s@example.com", "Shanghai", "", null),
+                p.education(), p.skills(), p.experiences(), p.credentials(), p.availability());
+        h.service.saveProfile("u1", new ProfileSaveRequest(0, named, null, true));
+        ResumeDraft snapshot = h.service.createDraft("u1", new DraftCreateRequest("T01", "Java", null, 1L));
+        byte[] pdf = new byte[] {1, 2, 3}, word = new byte[] {80, 75, 3, 4};
+        putExport(h, "saved", snapshot, "SUCCEEDED", pdf, word, snapshot.revision());
+        when(h.storage.readBytes("exports/u1/saved.pdf")).thenReturn(pdf);
+        when(h.storage.readBytes("exports/u1/saved.docx")).thenReturn(word);
+        h.service.saveProfile("u1", new ProfileSaveRequest(1, p, null, true));
+        WorkspaceService.ExportContent file = h.service.exportContent("u1", "saved", "pdf");
+        assertArrayEquals(new byte[] {1, 2, 3}, file.bytes());
+        assertEquals("application/pdf", file.contentType());
+        assertEquals("\u5f20\u540c\u5b66..\u7b80\u5386.pdf", file.fileName());
+        assertEquals(snapshot.revision(), file.draftRevision());
+        pdf[0] = 9;
+        byte[] received = file.bytes();
+        received[1] = 9;
+        assertArrayEquals(new byte[] {1, 2, 3}, file.bytes());
+        WorkspaceService.ExportContent docx = h.service.exportContent("u1", "saved", "docx");
+        assertEquals("application/vnd.openxmlformats-officedocument.wordprocessingml.document", docx.contentType());
+        assertArrayEquals(word, docx.bytes());
+        verify(h.storage, never()).signedUrl(anyString());
+    }
+
+    @Test void automaticPreviewExportsConfirmedFactsWithoutConfirmingDraftOrAddingResumeEvidence() throws Exception {
+        Harness h=harness(null,null,successfulRenderer(),null);
+        h.service.saveProfile("u1",new ProfileSaveRequest(0,profile(),null,true));
+        ResumeDraft draft=h.service.createDraft("u1",new DraftCreateRequest("T01","Java",null,1L));
+        assertFalse(draft.confirmed());
+        assertTrue(draft.data().blocks().stream().filter(DraftBlock::visible).flatMap(b->b.entries().stream()).filter(DraftEntry::visible).allMatch(DraftEntry::confirmed));
+        ExportStatus status=h.service.createExport("u1",draft.id(),new ExportRequest(draft.revision()));
+        assertEquals("SUCCEEDED",awaitExport(h.service,status.id()).status());
+        ResumeDraft after=h.service.getDraft("u1",draft.id());
+        assertFalse(after.confirmed());
+        assertEquals(draft.revision(),after.revision());
+        assertEquals(draft.data(),after.data());
+        assertEquals(1,h.service.revisions("u1",draft.id()).size());
+        assertTrue(h.records.findById(draft.resumeId()).isEmpty());
+        assertEquals(status.id(),h.service.createExport("u1",draft.id(),new ExportRequest(draft.revision())).id());
+    }
+
+    @Test void unconfirmedVisibleContentBlocksPreviewButHiddenUnconfirmedContentDoesNot() throws Exception {
+        Harness h=harness(null,null,successfulRenderer(),null);
+        h.service.saveProfile("u1",new ProfileSaveRequest(0,profile(),null,true));
+        ResumeDraft original=h.service.createDraft("u1",new DraftCreateRequest("T01","Java",null,1L));
+        DraftEntry unsupported=new DraftEntry("manual","Unverified company","",List.of("Improved metrics by 99%"),List.of(),List.of(),true,false);
+        List<DraftBlock> blocks=new ArrayList<>(original.data().blocks());
+        blocks.add(new DraftBlock("custom","CUSTOM","Custom",List.of(unsupported),true));
+        ResumeDraft unconfirmed=h.service.updateDraft("u1",original.id(),new DraftUpdateRequest(original.revision(),"T01",new DraftData(blocks,List.of(),List.of(),List.of(),"TEST"),false));
+        assertEquals(400,assertThrows(WorkspaceException.class,()->h.service.createExport("u1",unconfirmed.id(),new ExportRequest(unconfirmed.revision()))).status().value());
+        verifyNoInteractions(h.storage);
+        blocks.set(blocks.size()-1,new DraftBlock("custom","CUSTOM","Custom",List.of(unsupported),false));
+        ResumeDraft hidden=h.service.updateDraft("u1",unconfirmed.id(),new DraftUpdateRequest(unconfirmed.revision(),"T01",new DraftData(blocks,List.of(),List.of(),List.of(),"TEST"),false));
+        ExportStatus status=h.service.createExport("u1",hidden.id(),new ExportRequest(hidden.revision()));
+        assertEquals("SUCCEEDED",awaitExport(h.service,status.id()).status());
+        assertFalse(h.service.getDraft("u1",hidden.id()).confirmed());
+    }
+
+    @Test void newRendererDoesNotReuseOrOverwriteExistingSuccessfulExport() throws Exception {
+        Harness h=harness(null,null,successfulRenderer(),null);
+        h.service.saveProfile("u1",new ProfileSaveRequest(0,profile(),null,true));
+        ResumeDraft snapshot=h.service.createDraft("u1",new DraftCreateRequest("T01","Java",null,1L));
+        byte[] oldPdf=new byte[]{1,2,3};
+        putExport(h,"old-export",snapshot,"SUCCEEDED",oldPdf,new byte[]{4,5},snapshot.revision());
+        when(h.storage.readBytes("exports/u1/old-export.pdf")).thenReturn(oldPdf);
+        ExportJob historical=h.store.export("old-export").orElseThrow();
+        ExportStatus fresh=h.service.createExport("u1",snapshot.id(),new ExportRequest(snapshot.revision()));
+        assertNotEquals("old-export",fresh.id());
+        assertEquals("SUCCEEDED",awaitExport(h.service,fresh.id()).status());
+        assertEquals(historical,h.store.export("old-export").orElseThrow());
+        assertArrayEquals(oldPdf,h.service.exportContent("u1","old-export","pdf").bytes());
+        assertEquals(ResumeRenderService.RENDER_VERSION+":default",h.store.export(fresh.id()).orElseThrow().renderVersion());
+        assertEquals(fresh.id(),h.service.createExport("u1",snapshot.id(),new ExportRequest(snapshot.revision())).id());
+        assertEquals(snapshot.revision(),h.service.getDraft("u1",snapshot.id()).revision());
+    }
+
+    @Test void exportContentRejectsForeignOwnerInvalidFormatAndMissingFileBeforeReadingStorage() throws Exception {
+        Harness h = harness(null, null, null, null);
+        ResumeDraft snapshot = h.service.createDraft("u1", new DraftCreateRequest("T01", "Java", null, null));
+        putExport(h, "saved", snapshot, "SUCCEEDED", new byte[] {1}, new byte[] {2}, snapshot.revision());
+        for (String[] request : List.of(new String[] {"u2", "saved", "pdf"}, new String[] {"u1", "saved", "txt"},
+                new String[] {"u1", "missing", "pdf"}, new String[] {"u1", "saved", "PDF"})) {
+            WorkspaceException denied = assertThrows(WorkspaceException.class, () -> h.service.exportContent(request[0], request[1], request[2]));
+            assertEquals(404, denied.status().value());
+        }
+        assertThrows(WorkspaceException.class, () -> h.service.exportContent("", "saved", "pdf"));
+        verifyNoInteractions(h.storage);
+    }
+
+    @Test void exportContentRejectsUnfinishedLayoutFailedAndMismatchedSnapshotVersions() throws Exception {
+        for (String state : List.of("QUEUED", "RUNNING", "NEEDS_EDIT", "FAILED", "SUCCEEDED")) {
+            Harness h = harness(null, null, null, null);
+            ResumeDraft snapshot = h.service.createDraft("u1", new DraftCreateRequest("T01", "Java", null, null));
+            long revision = "SUCCEEDED".equals(state) ? snapshot.revision() + 1 : snapshot.revision();
+            putExport(h, "saved", snapshot, state, new byte[] {1}, new byte[] {2}, revision);
+            WorkspaceException denied = assertThrows(WorkspaceException.class, () -> h.service.exportContent("u1", "saved", "pdf"));
+            assertEquals(404, denied.status().value());
+            verifyNoInteractions(h.storage);
+        }
+    }
+
+    @Test void exportContentRejectsUnavailableAndCorruptedBytes() throws Exception {
+        Harness h = harness(null, null, null, null);
+        ResumeDraft snapshot = h.service.createDraft("u1", new DraftCreateRequest("T01", "Java", null, null));
+        putExport(h, "saved", snapshot, "SUCCEEDED", new byte[] {1}, new byte[] {2}, snapshot.revision());
+        for (byte[] bytes : new byte[][] {null, new byte[0], new byte[] {9}}) {
+            when(h.storage.readBytes("exports/u1/saved.pdf")).thenReturn(bytes);
+            assertEquals(404, assertThrows(WorkspaceException.class, () -> h.service.exportContent("u1", "saved", "pdf")).status().value());
+        }
+    }
+
+    private static void putExport(Harness h, String id, ResumeDraft snapshot, String state, byte[] pdf, byte[] word, long revision) throws Exception {
+        Instant now = Instant.now();
+        ExportFile pdfFile = new ExportFile("ignored.pdf", "ignored/type", "ignored-url", java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(pdf)));
+        ExportFile wordFile = new ExportFile("ignored.docx", "ignored/type", "ignored-url", java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(word)));
+        ExportStatus status = new ExportStatus(id, snapshot.id(), revision, state, snapshot.templateId(), List.of(), 1, wordFile, pdfFile, null, now, now);
+        assertTrue(h.store.createExport(new ExportJob("u1", status, snapshot, "exports/u1/" + id + ".docx", "exports/u1/" + id + ".pdf")));
+    }
+
     private static ExportStatus awaitExport(WorkspaceService service,String id) throws Exception {
         long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(3);ExportStatus status;
         do{status=service.export("u1",id);if(!List.of("QUEUED","RUNNING").contains(status.status()))return status;Thread.sleep(10);}while(System.nanoTime()<deadline);fail("Export remained unfinished");return status;
     }
     private static TemplateInfo template(String version){return new TemplateInfo("T01","Template","General",List.of(),1,version,"","source");}
+    private static ResumeRenderService successfulRenderer() {
+        ResumeRenderService renderer=mock(ResumeRenderService.class);
+        try {
+            when(renderer.render(any(),any(),nullable(byte[].class))).thenAnswer(call->{Path root=call.getArgument(1);Path docx=Files.write(root.resolve("resume.docx"),"word content".getBytes());Path pdf=Files.write(root.resolve("resume.pdf"),"searchable pdf".getBytes());return new ResumeRenderService.RenderedResume(docx,pdf,List.of(),1);});
+        } catch (Exception e) { throw new IllegalStateException(e); }
+        return renderer;
+    }
     private static DraftData successData(){return new DraftData(List.of(new DraftBlock("education","EDUCATION","\u6559\u80b2\u7ecf\u5386",List.of(new DraftEntry("e1","School","CS Bachelor",List.of(),List.of(),List.of("e1"),true,true)),true)),List.of(),List.of(),List.of(),"AI");}
     private static SourceRef ref(String id){return new SourceRef("USER",id,"",true,"USER_CONFIRMED");}
     private static Experience experience(String id,String type,String actions,String methods,String results){return new Experience(id,type,"Campus project","School","","","Contributor",actions,methods,results,List.of("Java"),List.of(),ref(id),true);}

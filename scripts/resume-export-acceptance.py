@@ -1,5 +1,5 @@
 """Live resume workspace acceptance against the existing Docker gateway.
-Requires requests, python-docx, pypdf, Pillow. Uses dedicated synthetic accounts.
+Requires requests, python-docx, pypdf, Pillow, PyMuPDF. Uses dedicated synthetic accounts.
 Never logs tokens, signed URLs or original personal resume material.
 """
 from __future__ import annotations
@@ -7,6 +7,7 @@ import argparse, hashlib, io, json, os, re, subprocess, time, uuid, zipfile
 from pathlib import Path
 import requests
 from PIL import Image, ImageDraw
+import fitz
 from pypdf import PdfReader
 from docx import Document
 
@@ -17,6 +18,83 @@ BASE = os.getenv("RESUME_ACCEPTANCE_API", "http://localhost:18080").rstrip("/")
 PASSWORD = os.getenv("RESUME_ACCEPTANCE_PASSWORD", "ResumeVerify123!")
 REPORT = {"cases": [], "checks": [], "baseUrl": BASE}
 PHOTO_SHA = None
+
+def verify_pdf_geometry(path):
+    pages=[]
+    with fitz.open(path) as pdf:
+        for page in pdf:
+            lines=[];chars=[];white_spans=[]
+            for block in page.get_text('rawdict')['blocks']:
+                for line in block.get('lines',[]):
+                    nonempty=[]
+                    for span in line['spans']:
+                        span_chars=[c for c in span['chars'] if not c['c'].isspace()]
+                        chars.extend(span_chars);nonempty.extend(span_chars)
+                        if span['color']==0xFFFFFF and span_chars:white_spans.append(span)
+                    if nonempty:lines.append(nonempty)
+            assert chars, f'{path.name}: blank page {page.number+1}'
+            for char in chars:
+                x0,y0,x1,y1=char['bbox']
+                assert x0>=38 and x1<=page.rect.width-38 and y0>=30 and y1<=page.rect.height-35, f'{path.name}: text clips page margins on page {page.number+1}'
+            # Font ascent/descent boxes slightly overlap within one line. Only
+            # compare different baselines, using non-space character geometry.
+            for i,first in enumerate(lines):
+                for second in lines[i+1:]:
+                    for a in first:
+                        for b in second:
+                            if abs(a['origin'][1]-b['origin'][1])<2:continue
+                            x_overlap=min(a['bbox'][2],b['bbox'][2])-max(a['bbox'][0],b['bbox'][0])
+                            y_overlap=min(a['bbox'][3],b['bbox'][3])-max(a['bbox'][1],b['bbox'][1])
+                            assert not (x_overlap>1 and y_overlap>1), f'{path.name}: text lines overlap on page {page.number+1}'
+            images=page.get_image_info()
+            for image in images:
+                image_box=fitz.Rect(image['bbox'])
+                for char in chars:
+                    intersection=image_box & fitz.Rect(char['bbox'])
+                    assert intersection.is_empty or intersection.width<=1 or intersection.height<=1, f'{path.name}: image overlaps text on page {page.number+1}'
+            if path.name.startswith('T05-') and page.number==0:
+                assert white_spans, f'{path.name}: navy header lost its white text'
+                pix=page.get_pixmap(matrix=fitz.Matrix(2,2),alpha=False)
+                image=Image.frombytes('RGB',(pix.width,pix.height),pix.samples)
+                for span in white_spans:
+                    x0,y0,x1,y1=span['bbox']
+                    rgb=image.getpixel((max(0,int((x0-2)*2)),int((y0+y1))))
+                    assert max(rgb)<190, f'{path.name}: white header text is outside its navy background'
+            pages.append({'page':page.number+1,'characters':len(chars),'lines':len(lines),'images':len(images),
+                          'bounds':[round(min(c['bbox'][0] for c in chars),2),round(min(c['bbox'][1] for c in chars),2),round(max(c['bbox'][2] for c in chars),2),round(max(c['bbox'][3] for c in chars),2)],
+                          'whiteHeaderSpans':len(white_spans),'overlapCount':0,'clippedCharacters':0})
+    return {'file':path.name,'pages':pages,'passed':True}
+
+def verify_existing_exports():
+    acceptance=json.loads((ROOT/'logs/resume-export-acceptance.json').read_text(encoding='utf-8'))
+    expected=[case['label'] for case in acceptance['cases'] if case['status']=='SUCCEEDED']
+    if 'Docker重启主资料/草稿/未完成导出恢复' in acceptance.get('checks',[]):expected.append('restart-recovered')
+    report={'source':'Docker LibreOffice exports','cases':[],'passed':False}
+    report_path=ROOT/'output/playwright/resume-fix-export-geometry.json'
+    try:
+        for label in expected:
+            path=OUT/(label+'.pdf')
+            assert path.is_file(),f'Missing exported PDF: {path.name}'
+            report['cases'].append(verify_pdf_geometry(path))
+        # All eight themes plus both pages of the two detailed templates.
+        selected=[(f'T{i:02d}-short-photo',0) for i in range(1,9)]
+        selected += [(f'{tid}-long-photo',page) for tid in ('T07','T08') for page in (0,1)]
+        contact=Image.new('RGB',(1440,1620),'#e5e7eb');draw=ImageDraw.Draw(contact)
+        render_out=ROOT/'output/playwright/resume-fix-export-pages';render_out.mkdir(exist_ok=True)
+        for index,(label,page_number) in enumerate(selected):
+            with fitz.open(OUT/(label+'.pdf')) as pdf:
+                page=pdf[page_number];pix=page.get_pixmap(matrix=fitz.Matrix(1.5,1.5),alpha=False)
+                pix.save(render_out/(label+f'-page-{page_number+1}.png'))
+                image=Image.frombytes('RGB',(pix.width,pix.height),pix.samples)
+                image.thumbnail((340,500))
+                x=(index%4)*360+10;y=(index//4)*540+25
+                contact.paste(image,(x,y));draw.text((x,y-18),f'{label} / page {page_number+1}',fill='#111827')
+        contact_path=ROOT/'output/playwright/resume-fix-export-contact.png';contact.save(contact_path)
+        report['contactSheet']=str(contact_path.relative_to(ROOT)).replace('\\','/')
+        report['passed']=True
+    finally:
+        report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+    print(f'Geometry verified: {len(report["cases"])} PDFs; report: {report_path}',flush=True)
 
 def call(method, path, token=None, body=None, files=None, expected=200):
     headers = {"Authorization": "Bearer " + token} if token else {}
@@ -81,7 +159,8 @@ def verify_files(task,label,photo):
         assert all(v>=20 for v in sizes), "Body font below 10pt"
         uploaded_photo=any(hashlib.sha256(z.read(name)).hexdigest()==PHOTO_SHA for name in z.namelist() if name.startswith('word/media/'))
         assert uploaded_photo==photo, 'Uploaded photo presence mismatch (decorations are separate)'
-    return {"pages":len(pdf.pages),"docxBytes":paths['docx'].stat().st_size,"pdfBytes":paths['pdf'].stat().st_size,"textLength":len(text)}
+    geometry=verify_pdf_geometry(paths['pdf'])
+    return {"pages":len(pdf.pages),"docxBytes":paths['docx'].stat().st_size,"pdfBytes":paths['pdf'].stat().st_size,"textLength":len(text),'geometryPassed':geometry['passed']}
 
 def main(restart):
     global PHOTO_SHA
@@ -166,7 +245,9 @@ def main(restart):
     REPORT['fixture']={'studentUsername':username,'resumeId':restored['resumeId'],'draftId':restored['id'],'jobIds':[j['jobId'] for j in jobs]}
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--restart',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--restart',action='store_true');parser.add_argument('--verify-existing',action='store_true');args=parser.parse_args()
+    if args.verify_existing:
+        verify_existing_exports();raise SystemExit(0)
     try:main(args.restart);REPORT['passed']=True
     except Exception as ex:REPORT['passed']=False;REPORT['failure']=str(ex);raise
     finally:

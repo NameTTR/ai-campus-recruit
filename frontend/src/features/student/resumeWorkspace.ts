@@ -81,6 +81,11 @@ export function moveResumeItem<T>(items: T[], index: number, delta: number): voi
 export function resumeDraftFingerprint(draft: Pick<ResumeDraft, 'data' | 'templateId'>): string {
   return JSON.stringify({ templateId: draft.templateId, data: draft.data })
 }
+export function resumeDraftCanAutoPreview(draft: Pick<ResumeDraft, 'data'>): boolean {
+  const entries = draft.data.blocks.filter(block => block.visible).flatMap(block => block.entries.filter(entry => entry.visible))
+  return entries.length > 0 && entries.every(entry => entry.confirmed)
+    && entries.some(entry => entry.title.trim() || entry.bullets.some(line => line.trim()))
+}
 export function isResumeRevisionConflict(error: unknown): boolean {
   return error instanceof Error && /conflict|revision|版本|冲突|409/i.test(error.message)
 }

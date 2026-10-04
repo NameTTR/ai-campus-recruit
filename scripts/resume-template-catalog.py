@@ -176,7 +176,7 @@ def main():
             tid,name,cat,source,target,roles,max_pages,color = spec
             src=ARCHIVE/cat/source; dst=DOC_OUT/(tid+'.docx'); decorations=OUT/'decorations'/tid
             extracted=source_decorations(tid,pdf_dir/(tid+'.pdf'),decorations); make_doc(dst,spec,decorations)
-            entries.append({'id':tid,'name':name,'category':cat,'target':target,'roleHints':roles,'maxPages':max_pages,'version':'1.1.0','sourceId':f'{cat}/{source}','sourceSha256':sha256(src),'adaptedSha256':sha256(dst),'status':'ENABLED','previewUrl':f'/resume-templates/{tid}.png','font':'Noto Sans CJK SC','sampleDataRemoved':True,'photoDefault':'hidden'})
+            entries.append({'id':tid,'name':name,'category':cat,'target':target,'roleHints':roles,'maxPages':max_pages,'version':'1.2.0','sourceId':f'{cat}/{source}','sourceSha256':sha256(src),'adaptedSha256':sha256(dst),'status':'ENABLED','previewUrl':f'/resume-templates/{tid}.png','font':'Microsoft YaHei','sampleDataRemoved':True,'photoDefault':'hidden'})
             provenance.append({'id':tid,'sourceId':f'{cat}/{source}','sourceSha256':sha256(src),'exactSourceColor':color,**extracted})
     (OUT/'catalog.json').write_text(json.dumps(entries,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     (OUT/'decoration-provenance.json').write_text(json.dumps(provenance,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
