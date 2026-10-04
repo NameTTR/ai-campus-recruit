@@ -30,6 +30,7 @@ const emit = defineEmits<{ confirmed: [resumeId: string] }>()
 const step = ref<'profile' | 'template' | 'resume'>('profile')
 const profileSection = ref<'basics' | 'experience' | 'optional'>('basics')
 const workspaceElement = ref<HTMLElement>()
+const previewPaneElement = ref<HTMLElement>()
 const diagnosisOpen = ref(false)
 const previewError = ref('')
 const profile = ref<ResumeMasterProfile>()
@@ -96,7 +97,8 @@ const hasDraftContent = computed(() => Boolean(selectedDraft.value?.data.blocks.
 async function goToStep(value: 'profile' | 'template' | 'resume') {
   step.value = value
   await nextTick()
-  workspaceElement.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  const target = value === 'resume' ? previewPaneElement.value || workspaceElement.value : workspaceElement.value
+  target?.scrollIntoView({ block: 'start', behavior: 'smooth' })
 }
 async function continueFromProfile() {
   if ((!profile.value?.revision || profileDirty.value) && !await saveProfile(false)) return
@@ -883,7 +885,7 @@ onBeforeUnmount(() => {
 <el-button data-testid="resume-new-version" @click="goToStep('template')"><Plus :size="15" />新建岗位版本</el-button>
 </div>
     <div v-if="selectedDraft" class="resume-layout">
-    <aside class="resume-preview-pane" data-testid="resume-preview-pane">
+    <aside ref="previewPaneElement" class="resume-preview-pane" data-testid="resume-preview-pane">
       <div class="preview-heading"><h3>成品预览</h3><span class="hint">{{ templateName(selectedDraft.templateId) }}</span></div>
       <div class="preview-actions">
         <el-button type="success" data-testid="resume-update-preview" :loading="exportLoading" :disabled="draftSaving || diagnosing || !hasDraftContent" @click="exportDraft"><RefreshCw :size="15" />{{ draftDirty || selectedDraft.revision !== exportStatus?.draftRevision ? '保存并更新预览' : '刷新预览' }}</el-button>
@@ -1093,7 +1095,7 @@ onBeforeUnmount(() => {
 .stage-footer{border-top:1px solid #e5ebe7;padding-top:18px;margin-top:20px}
 .section-next{justify-content:flex-end;padding-top:16px}
 .resume-layout{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:24px;align-items:start}
-.resume-preview-pane{min-width:0;position:sticky;top:12px;overflow:hidden}
+.resume-preview-pane{min-width:0;min-height:0;position:sticky;top:12px;scroll-margin-top:12px}
 .resume-edit-pane{min-width:0;border-left:1px solid #e5ebe7;padding-left:22px}
 .editor-heading h3,.preview-heading h3{font-size:16px;margin:0}
 .editor-tools,.preview-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0}

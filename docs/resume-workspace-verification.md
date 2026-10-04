@@ -17,9 +17,11 @@
 - 后端完整 `clean verify` 成功: 390 项测试，无失败及错误，1 项可选缩略图生成测试跳过。
 - 最终渲染器专项测试包含实际 PDF 转换，另运行过全部 10 项并生成正式缩略图。
 - 前端 134 项单元测试及生产构建成功。
-- 真实有界面浏览器 41 项检查通过，产生 13 张截图，未出现 JavaScript 或 CSP 错误。
+- 真实有界面浏览器 79 项检查通过，产生 21 张截图，未出现 JavaScript 或 CSP 错误。
 - 浏览器完整执行资料确认、真实岗位选择、生成、编辑、下载、刷新恢复及导入确认。
-- 390px 手机页面无横向溢出，PDF 放大后仍在预览区域内。
+- 390px 和 360px 手机页面无横向溢出，PDF 预览默认适应整页；放大后的左右、上下边缘均可通过预览内部滚动到达。
+- 预览区使用固定的响应式高度和独立滚动，工具栏始终可见；支持适应整页、适应宽度、展开查看、Escape 收起，缩放不会重复请求 PDF。
+- 双页简历可切换到第二页并看到末尾内容；窗口尺寸变化、展开查看和手机窄屏会保留当前页。
 - DOCX 导入候选在学生保存主资料前不会写入已确认资料。
 - Java、前端、运营的真实 DashScope 内容组织、规则岗位比较及 Docker 重启恢复通过。
 
@@ -35,6 +37,7 @@ T05 白字始终位于深色背景内。
 - `output/playwright/resume-fix-export-contact.png`
 - `output/playwright/resume-fix-live-downloads.json`
 - `output/playwright/resume-workspace/2026-10-04T11-47-54-439Z/report.json`
+- `output/playwright/resume-workspace/2026-10-04T12-29-08-645Z/report.json`
 
 ## 复验命令
 

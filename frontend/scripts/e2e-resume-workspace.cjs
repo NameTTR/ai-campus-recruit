@@ -18,6 +18,7 @@ const username = `resume_e2e_${Date.now().toString(36)}_${crypto.randomBytes(3).
 const password = `ResumeE2e!${crypto.randomBytes(12).toString('hex')}`
 const report = { runId, startedAt: new Date().toISOString(), mode: 'live-browser', frontend: baseUrl, gateway: gatewayUrl, account: { username, role: 'STUDENT' }, checks: [], screenshots: [], status: 'RUNNING' }
 const browserErrors = []
+let pdfBlobRequests = 0
 const downloadDir = path.join(artifactsDir, 'downloads')
 let session
 let browser
@@ -51,7 +52,7 @@ async function waitFor(expression, label, timeout = 30000) {
 async function click(selector, label) {
   const deadline = Date.now() + 15000
   while (Date.now() < deadline) {
-    const box = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e || !e.getClientRects().length || e.disabled) return null; e.scrollIntoView({ block: 'center' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`)
+    const box = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e || !e.getClientRects().length || e.disabled) return null; e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`)
     if (box) {
       await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: box.x, y: box.y, button: 'left', clickCount: 1 })
       await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: box.x, y: box.y, button: 'left', clickCount: 1 })
@@ -72,6 +73,111 @@ const canvasReady = `(() => { const c = document.querySelector('[data-resume-pdf
 async function waitCanvas(label) {
   await waitFor(canvasReady, label, 180000)
   check(label, true)
+}
+async function fitAndCheckViewer(label) {
+  await evaluate("document.querySelector('[data-testid=\"resume-pdf-preview\"]')?.scrollIntoView({block: 'nearest'})")
+  await click(byId('resume-pdf-fit-page'), 'fit whole page')
+  await waitFor(`(() => {
+    const area = document.querySelector('[data-testid="resume-pdf-pages"]');
+    const viewer = document.querySelector('[data-testid="resume-pdf-preview"]');
+    const canvas = document.querySelector('[data-resume-pdf-page="' + (viewer?.dataset.currentPage || '1') + '"]');
+    if (!area || !canvas) return false;
+    const a = area.getBoundingClientRect(), c = canvas.getBoundingClientRect();
+    return c.width > 100 && c.height > 100 && c.left >= a.left - 1 && c.right <= a.right + 1 && c.top >= a.top - 1 && c.bottom <= a.bottom + 1;
+  })()`, label)
+  const geometry = await evaluate(`(() => {
+    const viewer = document.querySelector('[data-testid="resume-pdf-preview"]');
+    const area = document.querySelector('[data-testid="resume-pdf-pages"]');
+    const canvas = document.querySelector('[data-resume-pdf-page="' + (viewer.dataset.currentPage || '1') + '"]');
+    const toolbar = viewer.querySelector('.resume-pdf-toolbar').getBoundingClientRect();
+    const a = area.getBoundingClientRect(), c = canvas.getBoundingClientRect();
+    const v = viewer.getBoundingClientRect();
+    return { pageWidth: c.width, pageHeight: c.height, viewportWidth: a.width, viewportHeight: a.height,
+      toolbarVisible: toolbar.top >= 0 && toolbar.bottom <= innerHeight,
+      viewerVisible: v.top >= -1 && v.bottom <= innerHeight + 1 && v.left >= -1 && v.right <= innerWidth + 1,
+      canvasVisible: c.top >= -1 && c.bottom <= innerHeight + 1 && c.left >= -1 && c.right <= innerWidth + 1,
+      overflow: document.documentElement.scrollWidth > innerWidth + 1 };
+  })()`)
+  check(label, geometry.toolbarVisible && geometry.viewerVisible && geometry.canvasVisible && !geometry.overflow, geometry)
+}
+async function checkZoomAndPan(label) {
+  await click(byId('resume-pdf-fit-width'), 'fit page width')
+  const width = await evaluate("document.querySelector('[data-resume-pdf-page]').getBoundingClientRect().width")
+  const requests = pdfBlobRequests
+  for (let i = 0; i < 5; i++) await click('[aria-label="放大"]', 'zoom PDF')
+  await waitFor(`document.querySelector('[data-resume-pdf-page]').getBoundingClientRect().width > ${width + 5}`, 'zoomed page width')
+  const geometry = await evaluate(`(() => {
+    const area = document.querySelector('[data-testid="resume-pdf-pages"]');
+    area.scrollLeft = 0; area.scrollTop = 0;
+    const origin = area.querySelector('canvas').getBoundingClientRect(), originArea = area.getBoundingClientRect();
+    const leftReachable = origin.left >= originArea.left - 1, topReachable = origin.top >= originArea.top - 1;
+    area.scrollLeft = area.scrollWidth; area.scrollTop = area.scrollHeight;
+    const a = area.getBoundingClientRect(), c = area.querySelector('canvas:last-child').getBoundingClientRect();
+    const t = document.querySelector('.resume-pdf-toolbar').getBoundingClientRect();
+    return { scrollLeft: area.scrollLeft, scrollTop: area.scrollTop, leftReachable, topReachable, rightReachable: c.right <= a.right + 1,
+      bottomReachable: c.bottom <= a.bottom + 1, toolbarVisible: t.top >= 0 && t.bottom <= innerHeight,
+      overflow: document.documentElement.scrollWidth > innerWidth + 1 };
+  })()`)
+  check(label, geometry.scrollLeft > 0 && geometry.scrollTop > 0 && geometry.leftReachable && geometry.topReachable && geometry.rightReachable && geometry.bottomReachable && geometry.toolbarVisible && !geometry.overflow, geometry)
+  check(label + ' reuses loaded PDF', pdfBlobRequests === requests, { additionalRequests: pdfBlobRequests - requests })
+}
+async function checkExpandedViewer(label) {
+  const selectedPage = await evaluate("document.querySelector('[data-testid=\"resume-pdf-preview\"]').dataset.currentPage")
+  await click(byId('resume-pdf-expand'), 'expand PDF viewer')
+  await waitFor(`document.querySelector(${JSON.stringify(byId('resume-pdf-close'))})?.getClientRects().length > 0`, 'expanded viewer')
+  await fitAndCheckViewer(label + ' fits whole page')
+  check(label + ' keeps selected page', await evaluate(`document.querySelector('[data-testid="resume-pdf-preview"]').dataset.currentPage === ${JSON.stringify(selectedPage)}`))
+  const geometry = await evaluate(`(() => {
+    const r = document.querySelector('[data-testid="resume-pdf-preview"]').getBoundingClientRect();
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: innerWidth, height: innerHeight };
+  })()`)
+  check(label + ' stays inside screen', geometry.left >= -1 && geometry.right <= geometry.width + 1 && geometry.top >= -1 && geometry.bottom <= geometry.height + 1, geometry)
+  await screenshot(label.replace(/[^a-z0-9]/gi, '-') + '.png')
+  await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  await waitFor(`!document.querySelector(${JSON.stringify(byId('resume-pdf-close'))})?.getClientRects().length`, 'close expanded viewer with Escape')
+  await waitFor(`document.activeElement === document.querySelector(${JSON.stringify(byId('resume-pdf-expand'))})`, 'focus restored after layout settles')
+  check(label + ' Escape restores focus', true)
+}
+async function checkTwoPagePreview(draft) {
+  const data = JSON.parse(JSON.stringify(draft.data))
+  const project = data.blocks.find(block => block.type === 'PROJECT')
+  if (!project?.entries.length) throw new Error('Project fixture is missing')
+  const original = project.entries[0]
+  project.entries = Array.from({ length: 4 }, (_, index) => ({ ...original, id: 'pagination-' + index,
+    title: '课程项目排版验收 ' + (index + 1), visible: true, confirmed: true,
+    bullets: [
+      '个人使用 Java 实现课程查询接口，编写输入校验测试并提交课程作品。',
+      '逐项核对输入、处理过程和实际结果，记录异常情况并修正已有实现。' + '通过课程要求和现有材料对照检查，保留过程说明及验证记录。'.repeat(3),
+      '完成课程验收并提交作品说明，实际结果和个人职责可在提交记录中核对。' + '复盘发现的问题并说明处理方式，没有测得的数据不写提升比例。'.repeat(2)
+    ] }))
+  const latest = await api(`/api/resumes/drafts/${draft.id}`)
+  await api(`/api/resumes/drafts/${draft.id}`, { method: 'PATCH', body: JSON.stringify({ expectedRevision: latest.revision, templateId: 'T08', data, confirm: true }) })
+  await navigate('/student/resume')
+  await waitCanvas('two-page exported PDF renders')
+  await waitFor("document.querySelectorAll('[data-resume-pdf-page]').length === 2", 'two-page PDF fixture')
+  await fitAndCheckViewer('two-page first page fits all four edges')
+  await click('[aria-label="下一页"]', 'next PDF page')
+  await waitFor("document.querySelector('.resume-pdf-toolbar').textContent.includes('2 / 2')", 'second page selected')
+  check('page navigation keeps window position', await evaluate("document.querySelector('.resume-pdf-toolbar').getBoundingClientRect().top >= 0"))
+  await evaluate("document.querySelector('[data-testid=\"resume-pdf-pages\"]').scrollTop = 0")
+  await waitFor("document.querySelector('.resume-pdf-toolbar').textContent.includes('1 / 2')", 'manual scroll updates page number')
+  await evaluate("const area = document.querySelector('[data-testid=\"resume-pdf-pages\"]'); area.scrollTop = area.scrollHeight")
+  await waitFor("document.querySelector('.resume-pdf-toolbar').textContent.includes('2 / 2')", 'manual scroll selects last page')
+  check('second page final edge is visible', await evaluate(`(() => {
+    const a = document.querySelector('[data-testid="resume-pdf-pages"]').getBoundingClientRect();
+    const c = document.querySelector('[data-resume-pdf-page="2"]').getBoundingClientRect();
+    return c.bottom <= a.bottom + 1 && c.bottom > a.top && c.left >= a.left - 1 && c.right <= a.right + 1;
+  })()`))
+  await screenshot('06-two-page-bottom.png')
+  await checkZoomAndPan('two-page zoom reaches right and bottom edges')
+  await checkExpandedViewer('two-page expanded preview')
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  await fitAndCheckViewer('mobile second page fits screen and viewer')
+  check('mobile resize retains second page', await evaluate("document.querySelector('[data-testid=\"resume-pdf-preview\"]').dataset.currentPage === '2'"))
+  await screenshot('07-mobile-second-page.png')
+  await checkExpandedViewer('mobile two-page expanded preview')
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 980, deviceScaleFactor: 1, mobile: false })
 }
 async function download(format, testId) {
   await click(byId(testId), format + ' download')
@@ -127,6 +233,7 @@ async function connect(wsUrl) {
     const message = JSON.parse(event.data)
     if (message.method === 'Runtime.exceptionThrown') browserErrors.push(message.params.exceptionDetails.text)
     if (message.method === 'Log.entryAdded' && message.params.entry.level === 'error') browserErrors.push(message.params.entry.text)
+    if (message.method === 'Network.requestWillBeSent' && message.params.request.url.startsWith('blob:')) pdfBlobRequests++
     if (!message.id || !pending.has(message.id)) return
     const request = pending.get(message.id)
     pending.delete(message.id)
@@ -161,6 +268,7 @@ async function main() {
     await client.send('Page.enable')
     await client.send('Runtime.enable')
     await client.send('Log.enable')
+    await client.send('Network.enable')
     fs.mkdirSync(downloadDir, { recursive: true })
     await client.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDir })
     await client.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 980, deviceScaleFactor: 1, mobile: false })
@@ -206,6 +314,14 @@ async function main() {
     await waitCanvas('generated PDF preview contains rendered pixels')
     check('result stage only is visible', await evaluate(`document.querySelector(${JSON.stringify(byId('resume-result'))}).getClientRects().length > 0 && !document.querySelector(${JSON.stringify(byId('resume-profile-form'))}).getClientRects().length && !document.querySelector(${JSON.stringify(byId('resume-template-form'))}).getClientRects().length`))
     check('preview uses canvas rather than external iframe', await evaluate("!document.querySelector('.resume-builder iframe')"))
+    await fitAndCheckViewer('desktop whole-page preview fits all four edges')
+    await checkZoomAndPan('desktop zoom reaches right and bottom edges')
+    await fitAndCheckViewer('desktop fit restores complete page')
+    await checkExpandedViewer('desktop expanded preview')
+    await client.send('Emulation.setDeviceMetricsOverride', { width: 1366, height: 768, deviceScaleFactor: 1, mobile: false })
+    await fitAndCheckViewer('laptop whole-page preview fits all four edges')
+    await screenshot('laptop-whole-page.png')
+    await client.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 980, deviceScaleFactor: 1, mobile: false })
     await screenshot('02-generated-preview-desktop.png')
     await fill(inputById('resume-entry-title-0-0'), '教育背景核对')
     await waitFor(`document.querySelector(${JSON.stringify(byId('resume-download-pdf'))})?.disabled`, 'stale download disabled')
@@ -229,6 +345,7 @@ async function main() {
         await waitCanvas(templateId + ' actual PDF canvas renders')
         await waitFor(`document.querySelector('[data-testid="resume-pdf-preview"]')?.dataset.templateId === ${JSON.stringify(templateId)}`, 'current template PDF')
         check(templateId + ' preview matches requested template', true)
+        await fitAndCheckViewer(templateId + ' whole page fits preview')
         await screenshot('template-' + templateId + '.png')
       }
     }
@@ -240,11 +357,12 @@ async function main() {
     await waitFor("document.querySelector('.side-nav').getBoundingClientRect().right <= 1", 'mobile navigation transition completed')
     check('mobile has no horizontal page overflow', await evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
     await screenshot('04-mobile-preview.png')
-    const pdfWidth = await evaluate("document.querySelector('[data-resume-pdf-page]').getBoundingClientRect().width")
-    await click('[aria-label="放大"]', 'zoom mobile PDF')
-    await waitCanvas('zoomed mobile PDF renders')
-    check('zoom increases actual canvas display width', await evaluate(`document.querySelector('[data-resume-pdf-page]').getBoundingClientRect().width > ${pdfWidth + 5}`))
-    check('PDF zoom stays within viewer', await evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
+    await fitAndCheckViewer('mobile whole-page preview fits all four edges')
+    await checkZoomAndPan('mobile zoom reaches right and bottom edges')
+    await checkExpandedViewer('mobile expanded preview')
+    await client.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 640, deviceScaleFactor: 1, mobile: true })
+    await fitAndCheckViewer('small mobile whole page fits screen and viewer')
+    await screenshot('small-mobile-whole-page.png')
     await client.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 980, deviceScaleFactor: 1, mobile: false })
     await click(byId('resume-diagnose'), 'diagnose actual draft')
     await waitFor(`document.querySelector(${JSON.stringify(byId('resume-diagnose'))})?.classList.contains('is-loading') === false`, 'diagnosis complete', 180000)
@@ -262,6 +380,7 @@ async function main() {
     await click(byId('resume-import-confirm'), 'confirm candidate merge')
     await click(byId('resume-import-accept'), 'merge candidate into editor')
     check('candidate merge still requires explicit source save', (await api('/api/resumes/master-profile')).revision === master.revision)
+    await checkTwoPagePreview(draft)
     check('no browser JavaScript or CSP errors', browserErrors.length === 0, { errors: browserErrors })
     report.status = 'PASSED'
     report.finishedAt = new Date().toISOString()
