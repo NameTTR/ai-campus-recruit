@@ -538,12 +538,7 @@ onBeforeUnmount(() => {
 <template>
   <el-config-provider :locale="zhCn">
   <section ref="workspaceElement" class="panel resume-builder" data-testid="resume-workspace" v-loading="loading">
-    <div class="section-heading">
-<div>
-<h2>{{ step === 'resume' ? '我的简历' : step === 'template' ? '选择岗位与模板' : '填写简历资料' }}</h2>
-</div>
-<el-button v-if="!profileDirty && !draftDirty" circle :loading="loading" title="刷新" aria-label="刷新工作区" @click="load"><RefreshCw :size="16" /></el-button>
-</div>
+    <div class="builder-topbar">
     <nav class="workflow-steps" aria-label="简历制作步骤">
       <button type="button" data-testid="resume-step-profile" :class="{ active: step === 'profile' }" :aria-current="step === 'profile' ? 'step' : undefined" @click="goToStep('profile')"><span>1</span>填写资料</button>
       <ArrowRight :size="15" class="step-arrow" />
@@ -551,6 +546,8 @@ onBeforeUnmount(() => {
       <ArrowRight :size="15" class="step-arrow" />
       <button type="button" data-testid="resume-step-result" :class="{ active: step === 'resume' }" :disabled="!drafts.length" :aria-current="step === 'resume' ? 'step' : undefined" @click="goToStep('resume')"><span>3</span>编辑与下载</button>
     </nav>
+    <el-tooltip v-if="!profileDirty && !draftDirty" content="刷新工作区" placement="top"><el-button circle :loading="loading" aria-label="刷新工作区" @click="load"><RefreshCw :size="16" /></el-button></el-tooltip>
+    </div>
     <div class="builder-grid">
       <div v-show="step === 'profile'" class="builder-source" data-testid="resume-profile-form">
         <div class="subheading">
@@ -1080,15 +1077,17 @@ onBeforeUnmount(() => {
   </el-config-provider>
 </template>
 <style scoped>
-.workflow-steps{display:flex;align-items:center;gap:12px;border-bottom:1px solid #e5ebe7;padding:6px 0 18px;margin-bottom:20px}
-.workflow-steps button{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 12px;color:#68756e;border:0;background:transparent;font:inherit;font-size:13px;cursor:pointer;min-height:40px;border-radius:6px}
-.workflow-steps button.active{background:#e9f3ec;color:#28664f;font-weight:600}
+.builder-topbar{display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid var(--line,#dce3df);margin-bottom:18px;min-width:0}
+.workflow-steps{display:flex;align-items:center;gap:8px;min-width:0}
+.workflow-steps button{display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 8px;color:var(--muted,#64716b);border:0;border-bottom:2px solid transparent;background:transparent;font:inherit;font-size:13px;cursor:pointer;min-height:44px;border-radius:0}
+.workflow-steps button.active{border-bottom-color:var(--accent,#28664f);color:var(--accent,#28664f);font-weight:600}
+.workflow-steps button:focus-visible{outline:2px solid var(--accent,#28664f);outline-offset:-2px}
 .workflow-steps button:disabled{cursor:default;opacity:.5}
-.workflow-steps button span{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid #cbd8cf;font-size:12px;flex:none}
+.workflow-steps button span{display:grid;place-items:center;width:22px;height:22px;border-radius:4px;border:1px solid var(--line,#dce3df);font:500 12px/1 "IBM Plex Mono",Consolas,monospace;flex:none}
 .workflow-steps button.active span{background:#28664f;color:#fff;border-color:#28664f}
 .step-arrow{color:#a4b2a9;flex:none}
-.profile-tabs{display:flex;gap:20px;border-bottom:1px solid #e5ebe7;margin:4px 0 20px}
-.profile-tabs button{padding:12px 0;font:inherit;font-size:13px;color:#68756e;border:0;border-bottom:2px solid transparent;background:transparent;cursor:pointer}
+.profile-tabs{display:flex;gap:24px;border-bottom:1px solid var(--line,#dce3df);margin:4px 0 18px}
+.profile-tabs button{padding:10px 0;font:inherit;font-size:13px;line-height:1.5;color:var(--muted,#64716b);border:0;border-bottom:2px solid transparent;background:transparent;cursor:pointer;min-height:42px}
 .profile-tabs button.active{color:#28664f;border-color:#28664f;font-weight:600}
 .profile-summary,.stage-footer,.section-next,.editor-heading,.preview-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .profile-summary{padding:8px 0 16px;border-bottom:1px solid #e5ebe7;margin-bottom:20px;color:#58645e;font-size:13px}
@@ -1102,9 +1101,9 @@ onBeforeUnmount(() => {
 .resume-builder :deep(.el-button){gap:5px}
 .resume-builder :deep(.el-button+.el-button){margin-left:0}
 .preview-notice{font-size:12px;color:#97602d;line-height:1.6;margin:8px 0}
-.draft-preview{padding:16px;background:#eef1ef;min-height:540px;margin-top:14px}
+.draft-preview{padding:16px;background:#eef1ef;height:clamp(360px,65dvh,740px);overflow:auto;margin-top:14px;box-sizing:border-box}
 .preview-progress{display:flex;align-items:center;gap:7px;font-size:12px;color:#58645e;margin:0 0 12px}
-.resume-paper{padding:30px 26px;min-height:500px;background:#fff;color:#272e2a;box-shadow:0 2px 8px #17291d10;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.resume-paper{padding:30px 26px;min-height:500px;background:#fff;color:#272e2a;box-shadow:0 2px 8px #17291d10;font-size:13px;line-height:1.65;overflow-wrap:anywhere}
 .resume-paper h2{font-size:22px;margin:0 0 6px;color:#28664f}
 .paper-contact{font-size:11px;margin:0;color:#58645e}
 .paper-section{margin-top:20px}
@@ -1121,9 +1120,9 @@ onBeforeUnmount(() => {
 .draft-block>summary span{margin-left:auto;font-size:12px;color:#68756e;font-weight:400}
 .draft-block-title{margin-top:14px}
 .backup-notice{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding:10px;background:#fff5df;border-radius:8px;font-size:12px}
-.resume-builder{padding:20px}
+.resume-builder{padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:14px;min-width:0}
 .resume-builder h3{margin:0 0 12px}
-.resume-builder h4{margin:18px 0 8px;color:#58645e}
+.resume-builder h4{margin:18px 0 8px;color:var(--ink,#20302b);font-size:14px}
 .builder-grid{display:block}
 .builder-source,.builder-generate{padding:0;border:0;background:transparent;min-width:0;max-width:900px;margin:0 auto}
 .builder-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
@@ -1139,10 +1138,10 @@ onBeforeUnmount(() => {
 .item-toolbar strong{font-size:13px}
 .profile-item{padding:14px 0;margin-top:10px;border:0;border-bottom:1px solid #e3ebe5;background:transparent}
 .profile-item p,.selected-job p{white-space:pre-wrap;overflow-wrap:anywhere}
-.hint,.empty-hint,.fact-trace,.generic-role small,.draft-context small{font-size:12px;line-height:1.65;color:#68756e;margin:8px 0}
-.empty-hint{padding:12px;background:#f3f7f4;border-radius:8px}
+.hint,.empty-hint,.fact-trace,.generic-role small,.draft-context small{font-size:13px;line-height:1.65;color:var(--muted,#64716b);margin:8px 0}
+.empty-hint{padding:12px 0;border-top:1px solid var(--line,#dce3df);background:transparent;border-radius:0}
 .file-input{display:none}
-.import-panel{border:1px solid #dfe8e1;border-radius:8px;padding:10px;margin-bottom:12px;background:#fff}
+.import-panel{border:0;border-bottom:1px solid var(--line,#dce3df);border-radius:0;padding:10px 0 14px;margin-bottom:16px;background:transparent}
 .import-panel summary,.source-details summary,.history-preview summary{cursor:pointer;color:#28664f;font-size:13px}
 .import-panel pre,.history-panel pre{white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto;background:#f5f8f6;padding:10px;font-size:12px}
 .import-review{padding-top:8px}
@@ -1150,22 +1149,22 @@ onBeforeUnmount(() => {
 .photo-panel img{width:66px;height:84px;object-fit:cover;border:1px solid #dfe8e1;border-radius:4px}
 .skill-row{display:flex;gap:6px;align-items:center;margin:8px 0;flex-wrap:wrap}
 .skill-row :deep(.el-input){flex:1;min-width:130px}
-.source-details{margin-top:10px;background:#f7faf8;padding:8px;border-radius:6px}
-.source-details p{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.source-details{margin-top:10px;background:transparent;padding:8px 0;border-radius:0}
+.source-details p{font-size:13px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
 .confirm-profile{padding-top:16px;margin-top:14px;border-top:1px solid #e5ebe7}
 .confirm-profile :deep(.el-checkbox){white-space:normal;height:auto;align-items:flex-start}
 .confirm-profile :deep(.el-checkbox__label){white-space:normal;line-height:1.6}
 .builder-generate>:deep(.el-select){width:100%}
 .generic-role{display:grid;gap:4px;margin:12px 0}
-.selected-job{background:#edf5ef;padding:12px;border-radius:8px;margin-top:12px;font-size:13px}
-.selected-job details{font-size:12px;line-height:1.7}
+.selected-job{background:transparent;padding:12px 0;border-bottom:1px solid var(--line,#dce3df);border-radius:0;margin-top:12px;font-size:14px}
+.selected-job details{font-size:13px;line-height:1.7}
 .template-list{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0 14px}
 .template-card{display:grid;gap:5px;text-align:left;padding:9px;border:1px solid #e2e9e4;border-radius:6px;background:#fff;cursor:pointer;min-width:0}
-.template-card.selected{border-color:#28664f;box-shadow:0 0 0 2px #d7eee1}
+.template-card.selected{border-color:var(--accent,#28664f);box-shadow:0 0 0 1px var(--accent,#28664f)}
 .template-card:focus-visible{outline:2px solid #28664f;outline-offset:2px}
-.template-card img{width:100%;height:150px;object-fit:contain;border-radius:4px;background:#f4f6f4}
+.template-card img{width:100%;height:150px;object-fit:contain;border-radius:3px;background:#f1f3f2}
 .template-card strong{font-size:13px}
-.template-card small{font-size:11px;line-height:1.5;color:#68756e}
+.template-card small{font-size:12px;line-height:1.5;color:var(--muted,#64716b)}
 .workflow-help{padding:8px 12px;margin-top:16px;background:#f1f6f2;border-radius:8px}
 .workflow-help ol{font-size:12px;line-height:1.9;padding-left:19px;color:#58645e}
 .draft-toolbar{padding:0 0 20px;gap:8px;justify-content:space-between}
@@ -1183,7 +1182,7 @@ onBeforeUnmount(() => {
 .draft-entry.hidden,.draft-block.hidden{background:#f5f7f5;opacity:.78}
 .fact-trace{margin:8px 0 0}
 .clarification-list,.suggestion-list,.history-panel{padding:14px 0;border-top:1px solid #e5ebe7;background:transparent}
-.clarification-list article,.suggestion-list article{padding:10px;background:#fff;border:1px solid #e3ebe5;border-radius:8px;margin-top:8px}
+.clarification-list article,.suggestion-list article{padding:12px 0;background:transparent;border:0;border-top:1px solid var(--line,#dce3df);border-radius:0;margin-top:8px}
 .clarification-list p,.suggestion-list p{margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.75}
 .clarification-list small,.suggestion-list small{font-size:12px;color:#68756e}
 .history-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;padding:10px 0;border-top:1px solid #e3ebe5;flex-wrap:wrap}
@@ -1209,18 +1208,19 @@ onBeforeUnmount(() => {
 .draft-toolbar>label{min-width:0;width:100%}
 .draft-toolbar :deep(.el-select){width:100%}
 .pdf-preview{height:580px}}
-@media(max-width:560px){.resume-builder{padding:14px}
-.workflow-steps{gap:2px;justify-content:space-between}
-.workflow-steps button{padding:7px 4px;font-size:12px;gap:4px}
-.workflow-steps button span{width:19px;height:19px;font-size:11px}
-.step-arrow{width:12px}
-.profile-tabs{gap:16px}
-.profile-tabs button{font-size:12px}
+@media(max-width:560px){.resume-builder{padding:0}
+.builder-topbar{gap:6px;margin-bottom:14px}
+.workflow-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px;flex:1}
+.workflow-steps button{display:grid;padding:8px 3px;font-size:13px;gap:5px;line-height:1.4;justify-items:center}
+.workflow-steps button span{width:21px;height:21px;font-size:12px}
+.step-arrow{display:none}
+.profile-tabs{display:grid;grid-template-columns:1.2fr 1fr .8fr;gap:10px}
+.profile-tabs button{font-size:13px}
 .template-list{grid-template-columns:repeat(2,minmax(0,1fr))}
 .builder-source,.builder-generate{padding:0}
 .preview-actions{gap:6px}
 .preview-actions :deep(.el-button){padding:8px 10px;font-size:12px}
-.resume-paper{padding:24px 18px;font-size:11px}
-.draft-preview{padding:10px;min-height:450px}
+.resume-paper{padding:24px 18px;font-size:13px}
+.draft-preview{padding:10px;min-height:0}
 .template-card img{height:150px}}
 </style>

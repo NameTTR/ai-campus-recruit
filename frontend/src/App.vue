@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowUpRight, Bot, BriefcaseBusiness, CalendarDays, ChevronRight, FileText, Library, LogOut, Menu, Route, Search, ShieldCheck, Sparkles, X } from 'lucide-vue-next'
+import { ArrowUpRight, Bot, BriefcaseBusiness, CalendarDays, ChevronRight, FileText, Library, LogOut, Menu, Route, Search, ShieldCheck, X } from 'lucide-vue-next'
 import { clearAuthSession, getAuthSession } from './api/client'
 
 const route = useRoute()
@@ -12,11 +12,18 @@ const role = computed(() => session.value?.role || '')
 const authed = computed(() => Boolean(session.value) && route.path !== '/login')
 const section = computed(() => route.path.split('/')[1] || 'student')
 const mobileNavOpen = ref(false)
+const isMobile = ref(false)
+const mobileNav = ref<HTMLElement>()
+const pageLabel = ref<HTMLElement>()
 const searchOpen = ref(false)
 const searchQuery = ref('')
 const searchInput = ref<HTMLInputElement>()
 const searchDialog = ref<HTMLElement>()
 let searchTrigger: HTMLElement | null = null
+let navTrigger: HTMLElement | null = null
+let mobileQuery: MediaQueryList | undefined
+let bodyOverflowBeforeLock = ''
+let bodyScrollLocked = false
 const dateLabel = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' }).format(new Date())
 const roleLabel = computed(() => role.value === 'COMPANY' ? '企业空间' : role.value === 'ADMIN' ? '管理空间' : '学生空间')
 const userInitial = computed(() => Array.from(userName.value || 'C')[0])
@@ -41,12 +48,6 @@ const navGroup = computed(() => navGroups[section.value as keyof typeof navGroup
 const navItems = computed(() => navGroup.value.items)
 const currentPage = computed(() => navItems.value.find(item => item.path === route.path)?.label || navGroup.value.title)
 const filteredNavItems = computed(() => navItems.value.filter(item => item.label.includes(searchQuery.value.trim())))
-const workspaceTip = computed(() => section.value === 'company'
-  ? { label: '让机会遇见合适的人', description: '清晰的岗位要求，是理想匹配的开始。', action: '发布一个岗位', path: '/company/publish' }
-  : section.value === 'admin'
-    ? { label: '让知识成为助力', description: '管理可信资料，为每一次提问提供依据。', action: '管理知识库', path: '/admin/ai' }
-    : { label: '下一步，更有方向', description: '把能力差距变成一项项可完成的学习任务。', action: '规划学习路径', path: '/student/plan' })
-
 function logout() { clearAuthSession(); router.push('/login') }
 async function openSearch() {
   searchTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -54,61 +55,120 @@ async function openSearch() {
   await nextTick()
   searchInput.value?.focus()
 }
-function closeSearch() {
+function closeSearch(restoreFocus = true) {
   searchOpen.value = false
   searchQuery.value = ''
-  nextTick(() => searchTrigger?.focus())
+  if (restoreFocus) nextTick(() => searchTrigger?.focus())
+}
+async function openMobileNav() {
+  navTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  mobileNavOpen.value = true
+  await nextTick()
+  // The visibility transition must be painted before a hidden link can focus.
+  await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+  if (mobileNavOpen.value) mobileNav.value?.querySelector<HTMLElement>('.nav-link.active')?.focus()
+}
+function closeMobileNav(restoreFocus = true) {
+  mobileNavOpen.value = false
+  if (restoreFocus) nextTick(() => navTrigger?.focus())
+}
+function updateViewport() {
+  isMobile.value = Boolean(mobileQuery?.matches)
+  if (!isMobile.value) mobileNavOpen.value = false
+}
+function trapFocus(event: KeyboardEvent, container?: HTMLElement) {
+  const controls = Array.from(container?.querySelectorAll<HTMLElement>('a[href], input, button:not([disabled])') || [])
+    .filter(control => control.getClientRects().length > 0)
+  const first = controls[0]
+  const last = controls[controls.length - 1]
+  if (!first || !last) return
+  if (event.shiftKey && (document.activeElement === first || !container?.contains(document.activeElement))) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (document.activeElement === last || !container?.contains(document.activeElement))) {
+    event.preventDefault()
+    first.focus()
+  }
 }
 function handleKeydown(event: KeyboardEvent) {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && authed.value) { event.preventDefault(); openSearch() }
-  if (event.key === 'Escape') { if (searchOpen.value) closeSearch(); mobileNavOpen.value = false }
-  if (event.key === 'Tab' && searchOpen.value) {
-    const controls = searchDialog.value?.querySelectorAll<HTMLElement>('input, button')
-    if (!controls?.length) return
-    const first = controls[0]
-    const last = controls[controls.length - 1]
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+  if (event.key === 'Escape') {
+    if (searchOpen.value) closeSearch()
+    else if (mobileNavOpen.value) closeMobileNav()
+  }
+  if (event.key === 'Tab') {
+    if (searchOpen.value) trapFocus(event, searchDialog.value)
+    else if (isMobile.value && mobileNavOpen.value) trapFocus(event, mobileNav.value)
   }
 }
-function visitSearchResult(path?: string) { if (path) { router.push(path); closeSearch() } }
-watch(() => route.fullPath, () => { mobileNavOpen.value = false; searchOpen.value = false })
-onMounted(() => window.addEventListener('keydown', handleKeydown))
-onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
+function visitSearchResult(path?: string) {
+  if (!path) return
+  closeSearch(false)
+  closeMobileNav(false)
+  router.push(path)
+  nextTick(() => pageLabel.value?.focus())
+}
+watch(() => route.fullPath, () => {
+  const overlayWasOpen = mobileNavOpen.value || searchOpen.value
+  closeMobileNav(false)
+  closeSearch(false)
+  if (overlayWasOpen) nextTick(() => pageLabel.value?.focus())
+})
+watch([mobileNavOpen, searchOpen], ([navOpen, dialogOpen]) => {
+  if (navOpen || dialogOpen) {
+    if (!bodyScrollLocked) {
+      bodyOverflowBeforeLock = document.body.style.overflow
+      bodyScrollLocked = true
+      document.body.style.overflow = 'hidden'
+    }
+  } else if (bodyScrollLocked) {
+    document.body.style.overflow = bodyOverflowBeforeLock
+    bodyScrollLocked = false
+  }
+})
+onMounted(() => {
+  mobileQuery = window.matchMedia('(max-width: 900px)')
+  updateViewport()
+  mobileQuery.addEventListener('change', updateViewport)
+  window.addEventListener('keydown', handleKeydown)
+})
+onUnmounted(() => {
+  mobileQuery?.removeEventListener('change', updateViewport)
+  window.removeEventListener('keydown', handleKeydown)
+  if (bodyScrollLocked) document.body.style.overflow = bodyOverflowBeforeLock
+})
 </script>
 
 <template>
   <div class="app-shell" :class="{ 'is-authenticated': authed }" :data-section="section">
-    <button v-if="authed && mobileNavOpen" class="nav-backdrop" aria-label="关闭导航" @click="mobileNavOpen = false" />
-    <aside v-if="authed" class="side-nav" :class="{ 'is-open': mobileNavOpen }" :inert="searchOpen">
+    <button v-if="authed && mobileNavOpen" class="nav-backdrop" aria-label="关闭导航" tabindex="-1" @click="closeMobileNav()" />
+    <aside v-if="authed" id="workspace-navigation" ref="mobileNav" class="side-nav" :class="{ 'is-open': mobileNavOpen }" :inert="searchOpen || (isMobile && !mobileNavOpen)" :role="isMobile ? 'dialog' : undefined" :aria-modal="isMobile && mobileNavOpen ? true : undefined" aria-label="工作台导航">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true"><Sparkles :size="23" :stroke-width="1.8" /></div>
-        <div class="brand-copy"><strong>Campus Recruit</strong><span>每一步，向理想靠近</span></div>
-        <button class="icon-button mobile-close" aria-label="关闭导航" @click="mobileNavOpen = false"><X :size="18" /></button>
+        <div class="brand-mark" aria-hidden="true"><Route :size="21" :stroke-width="1.9" /></div>
+        <div class="brand-copy"><strong>Campus Recruit</strong></div>
+        <button class="icon-button mobile-close" title="关闭导航" aria-label="关闭导航" @click="closeMobileNav()"><X :size="18" /></button>
       </div>
       <div class="workspace-picker"><span class="workspace-avatar">{{ userInitial }}</span><div><strong>{{ roleLabel }}</strong><span>{{ userName }}</span></div><ShieldCheck :size="16" /></div>
       <nav aria-label="主要功能">
         <span class="nav-section-title">{{ navGroup.title }}</span>
-        <RouterLink v-for="item in navItems" :key="item.path" :to="item.path" class="nav-link" :class="{ active: route.path === item.path }">
-          <component :is="item.icon" :size="18" :stroke-width="1.7" /><span>{{ item.label }}</span><span v-if="route.path === item.path" class="nav-active-dot" />
+        <RouterLink v-for="(item, index) in navItems" :key="item.path" :to="item.path" class="nav-link" :class="{ active: route.path === item.path }" :aria-current="route.path === item.path ? 'page' : undefined">
+          <span class="nav-step" aria-hidden="true"><span class="nav-node" />{{ String(index + 1).padStart(2, '0') }}</span><component :is="item.icon" :size="17" :stroke-width="1.7" /><span class="nav-label">{{ item.label }}</span><ChevronRight v-if="route.path === item.path" class="nav-active-arrow" :size="14" aria-hidden="true" />
         </RouterLink>
       </nav>
       <div class="sidebar-bottom">
-        <div class="workspace-tip"><div class="tip-icon"><Sparkles :size="20" /></div><strong>{{ workspaceTip.label }}</strong><p>{{ workspaceTip.description }}</p><RouterLink :to="workspaceTip.path">{{ workspaceTip.action }}<ArrowUpRight :size="16" /></RouterLink></div>
-        <button class="ghost-button logout-button" type="button" @click="logout"><LogOut :size="17" /><span>退出登录</span></button>
-        <div class="sidebar-footnote">AI Campus Recruitment <span>✦</span></div>
+        <button class="ghost-button logout-button" type="button" title="退出登录" @click="logout"><LogOut :size="17" /><span>退出登录</span></button>
       </div>
     </aside>
-    <main class="main-view" :class="{ centered: !authed }" :inert="searchOpen">
+    <main class="main-view" :class="{ centered: !authed }" :inert="searchOpen || (isMobile && mobileNavOpen)">
       <header v-if="authed" class="workspace-topbar">
-        <div class="topbar-location"><button class="icon-button mobile-menu" aria-label="打开导航" :aria-expanded="mobileNavOpen" @click="mobileNavOpen = !mobileNavOpen"><Menu :size="20" /></button><span>{{ roleLabel }}</span><ChevronRight :size="14" /><strong>{{ currentPage }}</strong></div>
-        <div class="topbar-tools"><button class="global-search" aria-label="搜索功能" @click="openSearch"><Search :size="16" /><span>搜索功能</span><kbd>Ctrl K</kbd></button><span class="topbar-date"><CalendarDays :size="15" />{{ dateLabel }}</span><span class="user-avatar" :title="userName">{{ userInitial }}</span></div>
+        <div class="topbar-location"><button class="icon-button mobile-menu" title="打开导航" aria-label="打开导航" aria-controls="workspace-navigation" :aria-expanded="mobileNavOpen" @click="openMobileNav"><Menu :size="20" /></button><span>{{ roleLabel }}</span><ChevronRight :size="13" /><strong ref="pageLabel" tabindex="-1">{{ currentPage }}</strong></div>
+        <div class="topbar-tools"><span class="topbar-date"><CalendarDays :size="14" />{{ dateLabel }}</span><button class="icon-button global-search" title="搜索功能" aria-label="搜索功能" @click="openSearch"><Search :size="18" /></button><span class="user-avatar" :title="userName">{{ userInitial }}</span></div>
       </header>
       <div :class="authed ? 'workspace-content' : 'login-container'"><RouterView /></div>
     </main>
-    <div v-if="searchOpen" class="search-overlay" @click.self="closeSearch">
+    <div v-if="searchOpen" class="search-overlay" @click.self="closeSearch()">
       <section ref="searchDialog" class="command-search" role="dialog" aria-modal="true" aria-label="搜索功能">
-        <div class="command-search-input"><Search :size="20" /><input ref="searchInput" v-model="searchQuery" placeholder="输入功能名称，例如学习路径" aria-label="搜索功能名称" @keydown.enter="visitSearchResult(filteredNavItems[0]?.path)" /><button class="icon-button" aria-label="关闭搜索" @click="closeSearch"><X :size="18" /></button></div>
+        <div class="command-search-input"><Search :size="20" /><input ref="searchInput" v-model="searchQuery" placeholder="搜索功能" aria-label="搜索功能名称" @keydown.enter="visitSearchResult(filteredNavItems[0]?.path)" /><button class="icon-button" title="关闭搜索" aria-label="关闭搜索" @click="closeSearch()"><X :size="18" /></button></div>
         <span class="command-label">快速前往</span>
         <button v-for="item in filteredNavItems" :key="item.path" class="command-result" @click="visitSearchResult(item.path)"><component :is="item.icon" :size="18" /><span>{{ item.label }}</span><ArrowUpRight :size="16" /></button>
         <p v-if="!filteredNavItems.length" class="command-empty">没有找到相关功能，请试试其他关键词。</p>

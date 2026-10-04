@@ -18,9 +18,7 @@ import {
   GraduationCap,
   Library,
   MapPin,
-  PencilLine,
   RefreshCw,
-  Route,
   Search,
   Sparkles,
   Target,
@@ -1229,7 +1227,7 @@ watch(targetRole, (value) => {
 
       <section class="resume-hero panel" v-loading="resumeLoading">
         <div class="section-heading">
-          <div><span class="eyebrow">RESUME LIBRARY</span><h2>我的简历</h2></div>
+          <div><h2>原件资料</h2></div>
           <label class="upload-control">
             <Upload :size="16" />
             <span>上传简历</span>
@@ -1246,7 +1244,7 @@ watch(targetRole, (value) => {
           </div>
           <template v-if="selectedResume">
             <div class="resume-score"><span>原诊断评分</span><strong>{{ selectedResume.score }}</strong><small>/ 100</small></div>
-            <div class="resume-summary"><strong>{{ selectedResume.fileName }}</strong><p>完善技能与项目经历，让岗位匹配更准确。</p></div>
+            <div class="resume-summary"><strong>{{ selectedResume.fileName }}</strong></div>
             <div class="resume-status">
               <span>文件解析</span>
               <div class="tag-row"><el-tag type="info">{{ selectedResume.sourceFormat || '未知格式' }}</el-tag><el-tag type="success">{{ selectedResume.parseStatus || '待解析' }}</el-tag><el-tag>{{ selectedResume.parsedTextLength || 0 }} 字符</el-tag></div>
@@ -1263,7 +1261,7 @@ watch(targetRole, (value) => {
 
       <section class="resume-workspace">
         <article class="panel profile-panel">
-          <div class="section-heading"><div><span class="eyebrow">PROFILE EVIDENCE</span><h2>简历资料与诊断</h2></div><PencilLine :size="20" /></div>
+          <div class="section-heading"><div><h2>简历资料与诊断</h2></div></div>
           <div class="profile-form">
             <label class="form-field"><span>学历与专业</span><el-input v-model="resumeForm.education" placeholder="学历与专业" /></label>
             <label class="form-field"><span>实际岗位（优先）</span><el-select v-model="diagnosisJobId" clearable filterable placeholder="选择实际岗位；留空使用通用建议"><el-option v-for="job in jobs" :key="job.jobId" :label="`${job.title} · ${job.companyName}`" :value="job.jobId" /></el-select></label>
@@ -1283,7 +1281,7 @@ watch(targetRole, (value) => {
           </div>
         </article>
         <aside class="panel diagnosis-panel">
-          <div class="section-heading"><div><span class="eyebrow">ANALYSIS HISTORY</span><h2>诊断记录</h2></div><RefreshCw :size="20" /></div>
+          <div class="section-heading"><div><h2>诊断记录</h2></div></div>
           <el-empty v-if="!diagnoses.length" description="完成诊断后将在这里展示" :image-size="84" />
           <div v-else class="diagnosis-list">
             <article v-for="diagnosis in diagnoses" :key="diagnosis.diagnosisId" class="diagnosis-item">
@@ -1308,7 +1306,7 @@ watch(targetRole, (value) => {
 
       <section class="jobs-layout" v-loading="jobsLoading">
         <article class="panel job-browser">
-          <div class="section-heading"><div><span class="eyebrow">ROLE EXPLORER</span><h2>岗位与匹配</h2></div><span class="result-count">{{ filteredJobs.length }} 个结果</span></div>
+          <div class="section-heading"><div><h2>岗位与匹配</h2></div><span class="result-count">{{ filteredJobs.length }} 个结果</span></div>
           <el-input v-model="jobSearch" class="job-search" placeholder="搜索岗位、公司、城市或技能">
             <template #prefix><Search :size="17" /></template>
           </el-input>
@@ -1334,7 +1332,7 @@ watch(targetRole, (value) => {
 
         <div class="job-detail-stack">
           <article v-if="compareResult" class="panel comparison-panel">
-            <div class="section-heading"><div><span class="eyebrow">JOB COMPARISON</span><h2>岗位条件与证据比较</h2></div><el-button text @click="compareResult = undefined">关闭</el-button></div>
+            <div class="section-heading"><div><h2>岗位条件与证据比较</h2></div><el-button text @click="compareResult = undefined">关闭</el-button></div>
             <p class="form-dirty-note">各岗位使用同一份选定简历。覆盖率表示要求覆盖情况；缺少安排或岗位条件时保留“信息不足”。</p>
             <div class="comparison-grid">
               <article v-for="item in compareResult.jobs" :key="item.job.jobId">
@@ -1355,7 +1353,7 @@ watch(targetRole, (value) => {
           </article>
           <article class="panel job-detail">
             <template v-if="selectedJob">
-              <div class="section-heading"><div><span class="eyebrow">SELECTED ROLE</span><h2>{{ selectedJob.title }}</h2></div><el-tag type="success">{{ selectedJob.status || 'OPEN' }}</el-tag></div>
+              <div class="section-heading"><div><h2>{{ selectedJob.title }}</h2></div><el-tag type="success">{{ selectedJob.status || 'OPEN' }}</el-tag></div>
               <div class="job-detail-meta"><span><BriefcaseBusiness :size="15" />{{ selectedJob.companyName }}</span><span><MapPin :size="15" />{{ selectedJob.city }}</span><strong>{{ selectedJob.salaryRange }}</strong></div>
               <p>{{ selectedJob.description }}</p>
               <div class="tag-row"><el-tag v-for="skill in selectedJob.requiredSkills" :key="skill">{{ skill }}</el-tag></div>
@@ -1363,7 +1361,7 @@ watch(targetRole, (value) => {
             <el-empty v-else description="请选择一个岗位" :image-size="84" />
           </article>
           <article class="panel match-launcher">
-            <div><span class="eyebrow">SKILL COVERAGE</span><h2>开始匹配</h2><p>选择简历与岗位，查看已具备的技能证据和下一步建议。</p></div>
+            <div><h2>开始匹配</h2></div>
             <div class="match-controls">
               <el-select v-model="selectedResumeId" placeholder="选择简历" @change="selectResume"><el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" /></el-select>
               <el-select v-model="selectedJobId" placeholder="选择岗位"><el-option v-for="job in jobs" :key="job.jobId" :label="`${job.title} · ${job.companyName}`" :value="job.jobId" /></el-select>
@@ -1375,7 +1373,7 @@ watch(targetRole, (value) => {
 
       <section class="match-history-grid">
         <article v-if="currentMatch" class="panel match-result">
-          <div class="section-heading"><div><span class="eyebrow">LATEST RESULT</span><h2>本次匹配结果</h2></div><CheckCircle2 :size="21" /></div>
+          <div class="section-heading"><div><h2>本次匹配结果</h2></div></div>
           <MatchEvidencePanel v-if="currentMatch.details" :details="currentMatch.details" />
           <div v-else class="coverage-score"><strong>{{ matchScoreLabel(currentMatch) }}</strong><div><b>技能覆盖率</b><span>{{ currentMatch.analysisSource === 'RULE_INSUFFICIENT_JOB_SKILLS' ? '岗位要求缺少可比技能，暂不生成覆盖率。' : '根据岗位要求与简历技能计算' }}</span></div></div>
           <div class="tag-row"><el-tag :type="sourceTagType(currentMatch.analysisSource)">{{ matchSourceLabel(currentMatch.analysisSource) }}</el-tag></div>
@@ -1386,7 +1384,7 @@ watch(targetRole, (value) => {
           <div class="match-next-actions"><el-button :disabled="currentMatchStale" @click="openMatchWorkspace('plan')">生成学习计划 <ArrowUpRight :size="15" /></el-button><el-button type="primary" :disabled="currentMatchStale" @click="openMatchWorkspace('interview')">进入模拟面试 <ArrowUpRight :size="15" /></el-button></div>
         </article>
         <article class="panel match-history">
-          <div class="section-heading"><div><span class="eyebrow">MATCH ARCHIVE</span><h2>匹配覆盖</h2></div><Sparkles :size="20" /></div>
+          <div class="section-heading"><div><h2>匹配覆盖</h2></div></div>
           <el-empty v-if="!matches.length" description="尚无匹配记录" :image-size="76" />
           <div v-else class="match-records"><button v-for="match in matches" :key="match.matchId" class="match-record" :data-match-id="match.matchId" @click="restoreMatch(match)"><div><strong>{{ jobs.find((job) => job.jobId === match.jobId)?.title || match.jobId }}</strong><span>{{ matchSourceLabel(match.analysisSource) }}</span></div><b>{{ matchScoreLabel(match) }}</b></button></div>
         </article>
@@ -1402,7 +1400,7 @@ watch(targetRole, (value) => {
       </section>
 
       <section class="plan-builder panel" v-loading="planLoading">
-        <div class="section-heading"><div><span class="eyebrow">PERSONAL ROADMAP</span><h2>学习计划</h2><p>按可投入时间生成与目标岗位关联的练习节奏。</p></div><Route :size="22" /></div>
+        <div class="section-heading"><div><h2>学习计划</h2></div></div>
         <div class="plan-builder-fields">
           <label class="form-field"><span>简历来源</span><el-select v-model="selectedResumeId" placeholder="选择简历" @change="selectResume"><el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" /></el-select></label>
           <label class="form-field"><span>岗位来源</span><el-select v-model="selectedJobId" placeholder="选择岗位"><el-option v-for="job in jobs" :key="job.jobId" :label="`${job.title} · ${job.companyName}`" :value="job.jobId" /></el-select></label>
@@ -1416,7 +1414,7 @@ watch(targetRole, (value) => {
       <p class="plan-context">{{ selectedContextMatch ? `已关联匹配：${matchScoreLabel(selectedContextMatch)} · ${selectedContextMatch.matchId}` : '无当前技能对应的匹配记录，计划将基于已选简历、岗位和目标岗位生成。' }}</p>
       <section v-if="plans.length" class="plan-layout">
         <aside class="panel plan-sidebar">
-          <div class="section-heading"><div><span class="eyebrow">PLAN VERSION</span><h2>计划版本</h2></div><RefreshCw :size="20" /></div>
+          <div class="section-heading"><div><h2>计划版本</h2></div></div>
           <el-select v-model="selectedPlanId" placeholder="选择学习计划" @change="loadPlanVersions"><el-option v-for="plan in plans" :key="plan.planId" :label="`${plan.targetRole} · V${plan.version} · ${planStatusLabel(plan.status)}`" :value="plan.planId" /></el-select>
           <div v-if="selectedPlan" class="plan-summary-card">
             <div><span>{{ selectedPlan.targetRole }}</span><strong>V{{ selectedPlan.version }}</strong></div>
@@ -1432,7 +1430,7 @@ watch(targetRole, (value) => {
         </aside>
         <article class="panel task-panel">
           <el-alert title="完成状态为自报进度；成果评价单独记录，不会自动更新已掌握技能。" type="info" :closable="false" />
-          <div class="section-heading"><div><span class="eyebrow">WEEKLY ACTIONS</span><h2>任务进度</h2></div><div class="progress-text"><strong>{{ selectedPlanProgress }}%</strong><span>{{ selectedPlanCompletedTasks }}/{{ selectedPlan?.tasks.length || 0 }} 已完成</span></div></div>
+          <div class="section-heading"><div><h2>任务进度</h2></div><div class="progress-text"><strong>{{ selectedPlanProgress }}%</strong><span>{{ selectedPlanCompletedTasks }}/{{ selectedPlan?.tasks.length || 0 }} 已完成</span></div></div>
           <el-empty v-if="!selectedPlan" description="请选择学习计划" :image-size="88" />
           <div v-else class="task-list">
             <div v-for="task in selectedPlan.tasks" :key="task.taskId" class="task-row">
@@ -1458,26 +1456,26 @@ watch(targetRole, (value) => {
       </section>
 
       <section class="interview-launch panel" v-loading="interviewLoading">
-        <div><span class="eyebrow">AI INTERVIEW STUDIO</span><h2>模拟面试会话</h2><p>围绕目标岗位生成问题，逐题保存作答并在完成后查看报告。</p></div>
+        <div><h2>模拟面试会话</h2></div>
         <div class="interview-launch-actions"><label class="target-role-editor"><span>本次目标岗位</span><el-input v-model="interviewTargetRole" placeholder="例如 Java 后端" /></label><label><span>题目数量</span><el-input-number v-model="interviewQuestionCount" :min="1" :max="8" controls-position="right" aria-label="面试题数" /></label><el-button type="primary" :loading="interviewActionLoading" @click="startInterview"><Bot :size="16" />开始模拟面试</el-button><el-button @click="router.push({ path: '/student/interview', query: { tab: 'history' } })">会话历史</el-button><el-button @click="router.push('/student/interview')">当前会话</el-button></div>
       </section>
 
       <section v-if="interviewHistoryOpen" class="panel interview-history">
-        <div class="section-heading"><div><span class="eyebrow">SESSION ARCHIVE</span><h2>面试记录</h2></div><RefreshCw :size="20" /></div>
+        <div class="section-heading"><div><h2>面试记录</h2></div></div>
         <el-empty v-if="!interviewSessions.length" description="暂无模拟面试记录" :image-size="92" />
         <div v-else class="session-grid"><button v-for="session in interviewSessions" :key="session.sessionId" class="session-card" :data-session-id="session.sessionId" :class="{ selected: session.sessionId === selectedSessionId }" @click="selectedSessionId = session.sessionId; selectSession(); router.push('/student/interview')"><div><span class="session-icon"><Bot :size="18" /></span><strong>{{ session.targetRole }}</strong></div><span>{{ session.status }} · {{ session.answers.length }}/{{ session.questions.length }} 题</span><div class="session-card-foot"><el-tag :type="sourceTagType(undefined, session.mocked)">{{ sourceTagLabel(undefined, session.mocked) }}</el-tag><ArrowUpRight :size="17" /></div></button></div>
       </section>
       <section v-else-if="selectedSession && activeQuestion" class="interview-workspace">
         <article class="panel interview-question-card">
           <div class="question-topline"><span>问题 {{ activeQuestionIndex + 1 }} / {{ selectedSession.questions.length }}</span><span>{{ selectedSessionProgress }}% 已作答</span></div>
-          <div class="section-heading"><div><span class="eyebrow">QUESTION ROOM</span><h2>模拟面试</h2></div><BrainCircuit :size="22" /></div>
+          <div class="section-heading"><div><h2>模拟面试</h2></div></div>
           <div class="tag-row"><el-tag type="info">{{ activeQuestion.category || '综合' }}</el-tag><el-tag>{{ activeQuestion.difficulty || '普通' }}</el-tag><el-tag :type="sourceTagType(activeQuestion.source || activeQuestion.generationSource, selectedSession.mocked)">{{ sourceTagLabel(activeQuestion.source || activeQuestion.generationSource, selectedSession.mocked) }}</el-tag></div>
           <p class="question-text">{{ activeQuestion.question }}</p>
           <div v-if="activeQuestion.referencePoints?.length" class="reference-points"><span>答题参考</span><ul class="plain-list"><li v-for="point in activeQuestion.referencePoints" :key="point">{{ point }}</li></ul></div>
           <div class="question-nav"><el-button v-for="(_, index) in selectedSession.questions" :key="index" size="small" :type="index === activeQuestionIndex ? 'primary' : 'default'" @click="activeQuestionIndex = index">第 {{ index + 1 }} 题</el-button></div>
         </article>
         <article class="panel answer-card">
-          <div class="section-heading"><div><span class="eyebrow">YOUR RESPONSE</span><h2>我的回答</h2></div><PencilLine :size="21" /></div>
+          <div class="section-heading"><div><h2>我的回答</h2></div></div>
           <el-input v-model="currentAnswer" class="answer-input" type="textarea" :rows="13" :readonly="activeQuestionLocked || interviewActionLoading" :placeholder="activeQuestionLocked ? '该题已保存或当前会话只读' : '输入回答，保存后可在会话中恢复'" />
           <p v-if="!activeQuestionLocked" class="form-dirty-note">草稿会在当前浏览器标签页保留，保存回答后才会提交至面试会话。</p>
           <InterviewFeedbackPanel v-if="activeQuestionFeedback" :feedback="activeQuestionFeedback" />
@@ -1488,7 +1486,7 @@ watch(targetRole, (value) => {
       </section>
       <el-empty v-else-if="!interviewHistoryOpen" description="开始一次模拟面试后可在此继续作答" :image-size="92" />
       <section v-if="sessionReport" class="panel interview-report">
-        <div class="report-score"><div><span class="eyebrow">SESSION REPORT</span><h2>面试报告</h2><el-tag :type="sourceTagType(undefined, sessionReport.mocked)">{{ sourceTagLabel(undefined, sessionReport.mocked) }}</el-tag></div><strong>{{ sessionReport.overallScore }}<small>分</small></strong></div>
+        <div class="report-score"><div><h2>面试报告</h2><el-tag :type="sourceTagType(undefined, sessionReport.mocked)">{{ sourceTagLabel(undefined, sessionReport.mocked) }}</el-tag></div><strong>{{ sessionReport.overallScore }}<small>分</small></strong></div>
         <p class="form-dirty-note">{{ sessionReport.comparisonNote || '历史记录缺少评价版本，暂不进行分数比较。' }}</p>
         <p v-if="sessionReport.difficultyNote" class="form-dirty-note">{{ sessionReport.difficultyNote }}</p>
         <div v-if="comparisonSessions.length" class="version-actions"><span>同岗位、同评价版本的历史表现：</span><span v-for="session in comparisonSessions" :key="session.sessionId">{{ session.completedAt || session.updatedAt }} · {{ session.report?.overallScore }} 分</span></div>
@@ -1501,12 +1499,11 @@ watch(targetRole, (value) => {
       <section class="overview-grid knowledge-overview">
         <article class="overview-card accent-mint"><span>检索结果</span><strong>{{ knowledgeResultCount ?? '—' }}</strong><Search :size="22" /></article>
         <article class="overview-card accent-lavender"><span>引用片段</span><strong>{{ knowledgeAnswer?.citations.length || 0 }}</strong><Library :size="22" /></article>
-        <article class="overview-card accent-peach"><span>回答来源</span><strong class="provider-value">{{ knowledgeAnswer?.provider || '—' }}</strong><Sparkles :size="22" /></article>
+        <article class="overview-card accent-peach"><span>回答来源</span><strong class="provider-value">{{ knowledgeAnswer ? knowledgeAnswerLabel() : '—' }}</strong><Sparkles :size="22" /></article>
         <article class="overview-card accent-plain"><span>生成状态</span><strong>{{ knowledgeLoading ? '生成中' : knowledgeAnswer ? '已就绪' : '待提问' }}</strong><Compass :size="22" /></article>
       </section>
       <section class="panel knowledge-shell">
-        <div class="knowledge-intro"><div><span class="eyebrow">RAG KNOWLEDGE BASE</span><p>检索岗位技能、面试问题和简历证据，并查看可追溯的引用来源。</p></div><span class="knowledge-orb"><Library :size="28" /></span></div>
-        <h2 class="panel-title"><span>RAG 知识库问答</span><Library :size="19" /></h2>
+        <h2 class="panel-title"><span>知识库问答</span></h2>
         <div class="knowledge-mode"><span>回答模式</span><el-switch v-model="knowledgeUseAi" active-text="AI 回答" inactive-text="仅检索" /></div>
         <div class="knowledge-search">
           <el-input v-model="knowledgeQuery" placeholder="搜索 Java、Redis、面试或简历证据" @keyup.enter="runKnowledgeSearch" />
@@ -1514,11 +1511,12 @@ watch(targetRole, (value) => {
         </div>
         <div v-if="knowledgeRecentQueries.length" class="knowledge-history"><span>最近查询</span><el-button v-for="query in knowledgeRecentQueries" :key="query" text @click="knowledgeQuery = query; runKnowledgeSearch()">{{ query }}</el-button></div>
         <el-alert v-if="knowledgeError" class="knowledge-error" type="warning" :title="knowledgeError" :closable="false" show-icon><template #default><el-button link type="primary" @click="runKnowledgeSearch">重试</el-button></template></el-alert>
-        <div v-if="knowledgeAnswer" class="knowledge-history"><el-tag type="info">{{ retrievalModeLabel(knowledgeAnswer.retrievalMode) }}</el-tag><el-tag>{{ knowledgeAnswer.generationMode === 'AI' ? 'AI 回答' : '检索资料' }}</el-tag><span>{{ knowledgeAnswer.algorithmVersion }}</span></div>
+        <div v-if="knowledgeAnswer" class="knowledge-history"><el-tag type="info">{{ retrievalModeLabel(knowledgeAnswer.retrievalMode) }}</el-tag><el-tag>{{ knowledgeAnswerUsedAi ? 'AI 回答' : '检索资料' }}</el-tag></div>
+        <details v-if="knowledgeAnswer" class="knowledge-source-details"><summary>来源详情</summary><p>回答来源: {{ knowledgeAnswer.provider || '未记录' }} · 分析版本: {{ knowledgeAnswer.algorithmVersion || '历史记录' }}</p></details>
         <el-alert v-if="knowledgeAnswer && ['NO_EVIDENCE', 'INSUFFICIENT_EVIDENCE', 'INSUFFICIENT'].includes(knowledgeAnswer.evidenceStatus || '')" title="现有资料不足以支持完整回答，请核对检索资料或补充知识库。" type="info" :closable="false" />
         <section v-if="knowledgeRetrieval" class="knowledge-retrieval"><header><strong>检索摘要</strong><span>{{ knowledgeRetrieval.results.length }} 条</span></header><el-empty v-if="!knowledgeRetrieval.results.length" description="未检索到可引用资料" :image-size="64" /><article v-for="result in knowledgeRetrieval.results" v-else :key="result.id" class="retrieval-result"><div><strong>{{ result.title }}</strong><span>{{ result.type }} · {{ result.owner }} · {{ result.score }} 分</span></div><p>{{ result.summary }}</p><small v-if="result.citation">{{ citationLocation(result.citation) }} · {{ result.citation.source }}</small><div class="tag-row"><el-tag v-for="highlight in result.highlights" :key="highlight" type="info">{{ highlight }}</el-tag></div></article></section>
         <div v-if="knowledgeAnswer" class="rag-answer">
-          <header><strong>{{ knowledgeAnswerLabel() }}</strong><el-tag :type="knowledgeAnswer.mocked ? 'warning' : 'success'">{{ knowledgeAnswer.provider }}</el-tag></header>
+          <header><strong>{{ knowledgeAnswerLabel() }}</strong><el-tag :type="knowledgeAnswer.mocked ? 'warning' : 'success'">{{ knowledgeAnswerUsedAi ? 'AI 回答' : '仅检索' }}</el-tag></header>
           <div class="knowledge-answer" v-html="renderMarkdown(knowledgeAnswer.answer)" />
           <div v-if="knowledgeAnswer.claims?.length" class="claim-list"><strong>可核对的事实项</strong><article v-for="(claim, index) in knowledgeAnswer.claims" :key="`${claim.text}-${index}`"><p>{{ claim.text }}</p><small>引用：{{ claim.citationIds?.join('、') || '未关联引用' }}</small><blockquote v-if="claim.supportQuote">{{ claim.supportQuote }}</blockquote></article></div>
           <div v-if="knowledgeAnswer.citations.length" class="citation-list">
@@ -1540,588 +1538,243 @@ watch(targetRole, (value) => {
 </template>
 
 <style scoped>
-.legacy-resume-history{margin-top:20px;border-top:1px solid var(--line,#e5ebe7);padding-top:16px}
-.legacy-resume-history>summary{color:var(--muted,#66716c);font-size:13px;cursor:pointer;width:fit-content;margin-bottom:18px}
-.workspace-header.compact-workspace-header{justify-content:flex-end;align-items:center;padding:0}
-.workspace-header.compact-workspace-header .target-role-control{display:block;width:min(318px,100%)}
-.claim-list { display: grid; gap: 9px; margin: 12px 0; padding: 13px; border-radius: 10px; background: #f5f9f6; font-size: 13px; }
-.claim-list article { padding: 9px; border: 1px solid #e5ebe7; border-radius: 8px; background: #fff; }
-.claim-list p { margin: 0 0 4px; line-height: 1.7; white-space: pre-wrap; }
-.claim-list small { color: #66716c; }
-.claim-list blockquote { margin: 7px 0 0; padding-left: 10px; border-left: 3px solid #8db7a2; color: #66716c; white-space: pre-wrap; }
-.preview-task { padding: 12px; border: 1px solid #e5ebe7; border-radius: 10px; font-size: 13px; line-height: 1.7; }
-.preview-task .el-tag { margin-left: 10px; }
-.student-workspace {
-  display: grid;
-  gap: 22px;
-  min-width: 0;
-  color: var(--ink, #1f2724);
-}
-
-.workspace-header,
-.section-heading,
-.result-header,
-.job-detail-meta,
-.question-topline,
-.report-score,
-.diagnosis-item-head,
-.match-record,
-.session-card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.workspace-header {
-  align-items: end;
-  padding: 5px 2px 2px;
-}
-
-.header-copy,
-.section-heading > div,
-.knowledge-intro > div,
-.resume-summary,
-.job-card-copy,
-.task-main > div,
-.diagnosis-item-head > div,
-.report-score > div {
-  min-width: 0;
-}
-
-.eyebrow {
-  display: inline-block;
-  color: var(--accent, #28664f);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  line-height: 1.2;
-}
-
-.workspace-header h1,
-.section-heading h2,
-.knowledge-shell h2,
-.report-score h2 {
-  margin: 5px 0 0;
-  color: var(--ink, #1f2724);
-  font-size: 28px;
-  font-weight: 750;
-  letter-spacing: 0;
-  line-height: 1.2;
-}
-
-.workspace-header p,
-.section-heading p,
-.knowledge-intro p,
-.interview-launch p,
-.match-launcher p,
-.job-detail p,
-.knowledge-empty p {
-  margin: 7px 0 0;
-  color: var(--muted, #66716c);
-  font-size: 14px;
-  line-height: 1.65;
-}
-
-.target-role-control,
-.form-field,
-.interview-launch-actions label {
-  display: grid;
-  gap: 7px;
-  min-width: 0;
-}
-
-.target-role-control {
-  width: min(318px, 100%);
-}
-
-.target-role-control > span,
-.form-field > span,
-.interview-launch-actions label > span {
-  color: var(--muted, #66716c);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.overview-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.overview-card,
-.panel {
-  border: 1px solid var(--line, #e8ebea);
-  border-radius: 16px;
-  background: var(--surface, #fff);
-  box-shadow: 0 1px 2px rgba(32, 43, 38, 0.025);
-}
-
-.overview-card {
-  position: relative;
-  display: grid;
-  min-height: 126px;
-  align-content: space-between;
-  padding: 18px;
-  overflow: hidden;
-}
-
-.overview-card::after {
-  position: absolute;
-  right: -18px;
-  bottom: -24px;
-  width: 78px;
-  height: 78px;
-  border: 1px solid rgba(40, 102, 79, 0.1);
-  border-radius: 50%;
-  content: '';
-}
-
-.overview-card span {
-  color: var(--muted, #66716c);
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.overview-card strong {
-  color: var(--ink, #1f2724);
-  font-size: 31px;
-  font-weight: 760;
-  line-height: 1;
-}
-
-.overview-card strong small {
-  margin-left: 2px;
-  color: var(--muted, #66716c);
-  font-size: 14px;
-  font-weight: 650;
-}
-
-.overview-card > svg {
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  color: var(--accent, #28664f);
-}
-
-.overview-card.accent-mint { background: #c8f1df; }
-.overview-card.accent-lavender { background: #ebe8fa; }
-.overview-card.accent-peach { background: #fff0e5; }
-.overview-card.accent-plain { background: var(--surface, #fff); }
-.overview-card .provider-value { font-size: 18px; overflow-wrap: anywhere; }
-
-.resume-hero,
-.plan-builder,
-.interview-launch,
-.knowledge-shell {
-  padding: 24px;
-}
-
-.section-heading {
-  align-items: flex-start;
-}
-
-.section-heading > svg {
-  flex: 0 0 auto;
-  color: var(--accent, #28664f);
-}
-
-.section-heading h2,
-.knowledge-shell h2,
-.report-score h2 {
-  font-size: 20px;
-}
-
-.upload-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 38px;
-  padding: 0 13px;
-  border-radius: 8px;
-  background: var(--ink, #1f2724);
-  color: #fff;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
-}
-
+.student-workspace { display: grid; gap: 18px; min-width: 0; color: var(--ink, #20302b); font-size: 14px; }
+.student-workspace :where(h2, h3, p, strong, span, small) { overflow-wrap: anywhere; }
+.workspace-header, .section-heading, .result-header, .job-detail-meta, .question-topline, .report-score, .diagnosis-item-head, .match-record, .session-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.workspace-header.compact-workspace-header { justify-content: flex-end; padding: 0; }
+.workspace-header.compact-workspace-header .target-role-control { display: block; width: min(300px, 100%); }
+.section-heading { align-items: center; }
+.section-heading > div, .resume-summary, .job-card-copy, .task-main > div, .diagnosis-item-head > div, .report-score > div { min-width: 0; }
+.section-heading h2, .report-score h2, .knowledge-shell h2, .match-launcher h2, .interview-launch h2 { margin: 0; color: var(--ink, #20302b); font-size: 17px; font-weight: 700; line-height: 1.45; }
+.section-heading p, .job-detail p, .resume-summary p { margin: 7px 0 0; color: var(--muted, #64716b); font-size: 14px; line-height: 1.7; }
+.target-role-control, .form-field, .interview-launch-actions label { display: grid; gap: 6px; min-width: 0; }
+.form-field > span, .interview-launch-actions label > span { color: var(--muted, #64716b); font-size: 13px; font-weight: 600; }
+.overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 6px 0; border-block: 1px solid var(--line, #dce3df); }
+.overview-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; min-height: 48px; padding: 6px 18px; border-right: 1px solid var(--line, #dce3df); background: transparent; }
+.overview-card:first-child { padding-left: 0; }
+.overview-card:last-child { border-right: 0; padding-right: 0; }
+.overview-card span { color: var(--muted, #64716b); font-size: 13px; font-weight: 500; }
+.overview-card strong { color: var(--ink, #20302b); font: 600 21px/1.2 "IBM Plex Mono", Consolas, monospace; white-space: nowrap; }
+.overview-card strong small { margin-left: 3px; color: var(--muted, #64716b); font-family: inherit; font-size: 13px; font-weight: 500; }
+.overview-card > svg { display: none; }
+.overview-card .provider-value { font-size: 15px; white-space: normal; }
+.knowledge-overview .overview-card strong { font-size: 15px; white-space: normal; }
+.panel { min-width: 0; padding: 16px 0; border: 0; border-top: 1px solid var(--line, #dce3df); border-radius: 0; background: transparent; box-shadow: none; }
+.resume-workspace, .jobs-layout, .match-history-grid, .plan-layout, .interview-workspace { display: grid; gap: 24px; min-width: 0; }
+.resume-workspace { grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); }
+.legacy-resume-history { margin-top: 8px; border-top: 1px solid var(--line, #dce3df); padding-top: 14px; }
+.legacy-resume-history > summary { color: var(--muted, #64716b); font-size: 13px; cursor: pointer; width: fit-content; margin-bottom: 16px; }
+.upload-control { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 12px; border: 1px solid var(--line, #dce3df); border-radius: 5px; color: var(--ink, #20302b); background: #fff; cursor: pointer; font-size: 13px; font-weight: 600; }
 .upload-control input { display: none; }
-
-.resume-hero-content {
-  display: grid;
-  grid-template-columns: minmax(180px, 0.72fr) 122px minmax(260px, 1.2fr) minmax(180px, 0.72fr);
-  gap: 22px;
-  align-items: center;
-  margin-top: 22px;
-  padding-top: 20px;
-  border-top: 1px solid var(--line, #e8ebea);
-}
-
-.resume-picker { display: grid; gap: 7px; }
-.resume-picker > span,
-.resume-status > span { color: var(--muted, #66716c); font-size: 12px; font-weight: 700; }
-.resume-picker :deep(.el-button) { justify-self: start; padding: 0; color: var(--muted, #66716c); }
-
-.resume-score {
-  display: grid;
-  grid-template-columns: auto auto;
-  align-items: baseline;
-  gap: 3px;
-  padding-left: 22px;
-  border-left: 1px solid var(--line, #e8ebea);
-}
-
-.resume-score span { grid-column: 1 / -1; color: var(--muted, #66716c); font-size: 12px; font-weight: 700; }
-.resume-score strong { color: var(--accent, #28664f); font-size: 44px; line-height: 1; }
-.resume-score small { color: var(--muted, #66716c); font-size: 12px; }
-.resume-summary strong { display: block; margin-bottom: 7px; font-size: 15px; }
-.resume-summary :deep(p) { margin: 0; color: var(--muted, #66716c); font-size: 13px; line-height: 1.55; }
-.resume-diagnosis { margin-top: 18px; padding-top: 8px; border-top: 1px solid var(--line); }
-.resume-diagnosis > summary { width: fit-content; font-weight: 600; }
-.diagnosis-report-copy { padding: 16px 20px; background: #f6faf7; border-radius: 10px; color: #55655b; font-size: 13px; line-height: 1.85; }
-.diagnosis-report-copy :deep(p) { margin: 8px 0; }
-.resume-status { display: grid; gap: 10px; }
-.resume-summary,
-.resume-summary strong,
-.diagnosis-copy,
-.job-card-copy,
-.job-card-copy strong,
-.match-record span,
-.knowledge-answer,
-.citation-row,
-.citation-row summary,
-.citation-row div { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
-.tag-row :deep(.el-tag),
-.diagnosis-item :deep(.el-tag) { max-width: 100%; height: auto; }
-.tag-row :deep(.el-tag__content),
-.diagnosis-item :deep(.el-tag__content) { white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
-
-.resume-workspace,
-.jobs-layout,
-.match-history-grid,
-.plan-layout,
-.interview-workspace {
-  display: grid;
-  gap: 18px;
-}
-
-.resume-workspace { grid-template-columns: minmax(0, 1.25fr) minmax(330px, 0.75fr); }
-.profile-panel,
-.diagnosis-panel,
-.job-browser,
-.job-detail,
-.match-launcher,
-.plan-sidebar,
-.task-panel,
-.interview-question-card,
-.answer-card,
-.interview-history,
-.interview-report { padding: 22px; }
-
-.profile-form {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 22px;
-}
-
-.form-field.wide { grid-column: 1 / -1; }
-.action-bar { margin-top: 18px; }
-.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-
-.rewrite-result {
-  display: grid;
-  gap: 12px;
-  margin-top: 20px;
-  padding: 16px;
-  border: 1px solid #d7eadf;
-  border-radius: 12px;
-  background: #f5fbf7;
-}
-
-.result-header strong { font-size: 14px; }
-.rewrite-result :deep(p) { margin: 0; color: var(--muted, #66716c); line-height: 1.6; }
-.rewrite-detail { padding-top: 10px; border-top: 1px solid var(--line, #e8ebea); }
-.rewrite-detail strong { font-size: 12px; }
-.form-dirty-note, .plan-context { margin: 0; color: #a35f23; font-size: 12px; }
-.plan-context { color: var(--muted, #66716c); }
-.tag-row { display: flex; flex-wrap: wrap; gap: 7px; }
-
-.diagnosis-list { display: grid; gap: 12px; margin-top: 20px; }
-.diagnosis-item { display: grid; gap: 9px; padding: 14px 0 0; border-top: 1px solid var(--line, #e8ebea); }
+.resume-hero-content { display: grid; grid-template-columns: minmax(160px, .75fr) 105px minmax(180px, 1.2fr) minmax(170px, .8fr); gap: 18px; align-items: center; margin-top: 18px; }
+.resume-picker, .resume-status { display: grid; gap: 7px; min-width: 0; }
+.resume-picker > span, .resume-status > span { color: var(--muted, #64716b); font-size: 13px; }
+.resume-picker :deep(.el-button) { justify-self: start; padding: 0; }
+.resume-score { display: grid; grid-template-columns: auto auto; align-items: baseline; gap: 3px; padding-left: 16px; border-left: 1px solid var(--line, #dce3df); }
+.resume-score span { grid-column: 1 / -1; color: var(--muted, #64716b); font-size: 13px; }
+.resume-score strong { color: var(--accent, #28664f); font: 600 30px/1.2 "IBM Plex Mono", Consolas, monospace; }
+.resume-score small { font-size: 13px; color: var(--muted, #64716b); }
+.resume-summary strong { font-size: 14px; }
+.resume-diagnosis { margin-top: 18px; border-top: 1px solid var(--line, #dce3df); padding-top: 12px; }
+.resume-diagnosis summary { color: var(--muted, #64716b); font-size: 13px; cursor: pointer; }
+.diagnosis-report-copy { margin-top: 12px; color: var(--muted, #64716b); font-size: 14px; line-height: 1.8; }
+.profile-panel, .diagnosis-panel, .job-browser, .job-detail, .plan-sidebar, .task-panel, .interview-question-card, .answer-card, .interview-history, .interview-report { min-width: 0; }
+.profile-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin-top: 18px; }
+.profile-form .wide { grid-column: 1 / -1; }
+.action-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.rewrite-result { display: grid; gap: 12px; margin-top: 18px; padding: 14px 0; border-top: 1px solid var(--line, #dce3df); color: var(--muted, #64716b); font-size: 14px; line-height: 1.7; }
+.rewrite-result :deep(p) { margin: 0; }
+.rewrite-detail > strong { color: var(--ink, #20302b); }
+.form-dirty-note, .plan-context { margin: 0; color: #9a651b; font-size: 13px; line-height: 1.7; }
+.plan-context { color: var(--muted, #64716b); }
+.tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.diagnosis-list { display: grid; gap: 12px; margin-top: 16px; }
+.diagnosis-item { display: grid; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line, #dce3df); }
 .diagnosis-item:first-child { padding-top: 0; border-top: 0; }
 .diagnosis-item-head strong { display: block; font-size: 14px; }
-.diagnosis-item-head span { display: block; margin-top: 4px; color: var(--muted, #66716c); font-size: 11px; }
-.diagnosis-item-head b { color: var(--accent, #28664f); font-size: 20px; }
-.diagnosis-item-head b small { margin-left: 1px; font-size: 11px; }
-.diagnosis-copy { max-height: 85px; overflow: auto; color: var(--muted, #66716c); font-size: 12px; line-height: 1.6; }
+.diagnosis-item-head span { display: block; margin-top: 4px; color: var(--muted, #64716b); font-size: 12px; }
+.diagnosis-item-head b { color: var(--accent, #28664f); font-size: 20px; white-space: nowrap; }
+.diagnosis-item-head b small { margin-left: 2px; font-size: 12px; }
+.diagnosis-copy { max-height: 160px; overflow: auto; color: var(--muted, #64716b); font-size: 13px; line-height: 1.7; }
 .diagnosis-copy :deep(p) { margin: 0; }
-
-.jobs-layout { grid-template-columns: minmax(310px, 0.75fr) minmax(0, 1.25fr); }
-.job-browser { display: grid; align-content: start; gap: 15px; }
-.result-count { padding: 6px 9px; border-radius: 7px; background: #f0f3f1; color: var(--muted, #66716c); font-size: 12px; font-weight: 700; white-space: nowrap; }
-.job-card-list { display: grid; gap: 8px; max-height: 485px; overflow: auto; padding-right: 2px; }
-.job-card { display: grid; grid-template-columns: 36px minmax(0, 1fr) 18px; gap: 10px; align-items: center; width: 100%; padding: 11px; border: 1px solid transparent; border-radius: 11px; background: transparent; color: var(--ink, #1f2724); cursor: pointer; text-align: left; }
-.job-card:hover,
-.job-card.selected { border-color: #cfe7d9; background: #f2fbf5; }
-.job-card-mark { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; background: #e6f5ec; color: var(--accent, #28664f); font-size: 14px; font-weight: 800; }
-.job-card-copy { display: grid; gap: 3px; }
-.job-card-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.job-card-copy small { color: var(--muted, #66716c); font-size: 11px; }
-.job-card-copy em { color: var(--accent, #28664f); font-size: 11px; font-style: normal; font-weight: 700; }
-.job-filter-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
-.job-card > svg { color: var(--muted, #66716c); }
-.job-detail-stack { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 18px; }
-.job-detail { display: grid; align-content: start; gap: 17px; min-height: 270px; }
-.job-detail-meta { justify-content: flex-start; flex-wrap: wrap; gap: 14px; color: var(--muted, #66716c); font-size: 13px; }
+.jobs-layout { grid-template-columns: minmax(280px, .75fr) minmax(0, 1.25fr); }
+.job-browser, .job-detail, .match-result, .match-history, .plan-sidebar, .interview-question-card, .answer-card { display: grid; align-content: start; gap: 16px; }
+.result-count { color: var(--muted, #64716b); font-size: 13px; white-space: nowrap; }
+.job-card-list { display: grid; gap: 2px; max-height: 480px; overflow: auto; padding-right: 3px; }
+.job-card { display: grid; grid-template-columns: 34px minmax(0, 1fr) 16px; gap: 10px; align-items: center; width: 100%; padding: 12px 8px; border: 0; border-left: 2px solid transparent; border-bottom: 1px solid var(--line, #dce3df); border-radius: 0; background: transparent; color: var(--ink, #20302b); cursor: pointer; text-align: left; }
+.job-card:hover { background: #f3f6f4; }
+.job-card.selected { border-left-color: var(--accent, #28664f); background: #edf5f0; }
+.job-card:focus-visible { outline: 2px solid var(--accent, #28664f); outline-offset: -2px; }
+.job-card-mark { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--line, #dce3df); border-radius: 5px; background: #fff; color: var(--muted, #64716b); font-size: 14px; font-weight: 700; }
+.job-card-copy { display: grid; gap: 4px; }
+.job-card-copy strong { font-size: 14px; line-height: 1.45; }
+.job-card-copy small { color: var(--muted, #64716b); font-size: 12px; }
+.job-card-copy em { color: var(--accent, #28664f); font-size: 13px; font-style: normal; font-weight: 600; }
+.job-card > svg { color: var(--muted, #64716b); }
+.job-filter-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.job-detail-stack { display: grid; align-content: start; gap: 18px; min-width: 0; }
+.job-detail { min-height: 200px; }
+.job-detail-meta { justify-content: flex-start; flex-wrap: wrap; gap: 12px; color: var(--muted, #64716b); font-size: 13px; }
 .job-detail-meta span { display: inline-flex; align-items: center; gap: 5px; }
 .job-detail-meta strong { color: var(--accent, #28664f); }
-.job-detail p { max-width: 720px; }
-.match-launcher { display: grid; grid-template-columns: minmax(220px, 0.8fr) minmax(360px, 1.2fr); gap: 24px; align-items: center; background: #f6fbf8; }
-.match-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.match-launcher { display: grid; gap: 14px; }
+.match-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .match-history-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.match-result { display: grid; gap: 17px; }
 .coverage-score { display: flex; align-items: center; gap: 16px; }
-.coverage-score > strong { color: var(--accent, #28664f); font-size: 52px; line-height: 1; }
-.coverage-score > strong small { font-size: 18px; }
-.coverage-score b,
-.coverage-score span { display: block; }
+.coverage-score > strong { color: var(--accent, #28664f); font: 600 36px/1.2 "IBM Plex Mono", Consolas, monospace; }
+.coverage-score > strong small { font-size: 16px; }
+.coverage-score b, .coverage-score span { display: block; }
 .coverage-score b { font-size: 14px; }
-.coverage-score span { margin-top: 4px; color: var(--muted, #66716c); font-size: 12px; }
-.match-insights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.match-insights > div { padding: 13px; border-radius: 11px; background: #f7f8f7; }
-.match-insights span { color: var(--muted, #66716c); font-size: 11px; font-weight: 800; }
-.match-insights p { margin: 6px 0 0; font-size: 13px; line-height: 1.55; }
-.match-next-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-.match-history { display: grid; align-content: start; gap: 16px; }
+.coverage-score span { margin-top: 4px; color: var(--muted, #64716b); font-size: 13px; }
+.match-insights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; border-top: 1px solid var(--line, #dce3df); padding-top: 14px; }
+.match-insights > div { min-width: 0; }
+.match-insights span { color: var(--muted, #64716b); font-size: 13px; font-weight: 600; }
+.match-insights p { margin: 6px 0 0; font-size: 14px; line-height: 1.7; }
+.match-next-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .match-records { display: grid; }
-.match-record { padding: 12px 0; border-top: 1px solid var(--line, #e8ebea); }
-.match-record { width: 100%; border-right: 0; border-bottom: 0; border-left: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
-.match-record:hover { background: #f4fbf6; }
+.match-record { width: 100%; padding: 12px 0; border: 0; border-top: 1px solid var(--line, #dce3df); background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.match-record:hover { background: #f3f6f4; }
 .match-record div { display: grid; gap: 4px; }
-.match-record strong { font-size: 13px; }
-.match-record span { color: var(--muted, #66716c); font-size: 11px; }
-.match-record b { color: var(--accent, #28664f); font-size: 20px; }
-
-.plan-builder { display: grid; gap: 20px; }
+.match-record strong { font-size: 14px; }
+.match-record span { color: var(--muted, #64716b); font-size: 12px; }
+.match-record b { color: var(--accent, #28664f); font-size: 20px; white-space: nowrap; }
+.plan-builder { display: grid; gap: 16px; }
 .plan-builder-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; align-items: end; }
 .plan-builder-fields :deep(.el-input-number) { width: 100%; }
-.plan-layout { grid-template-columns: minmax(300px, 0.65fr) minmax(0, 1.35fr); }
-.plan-sidebar { display: grid; align-content: start; gap: 15px; }
-.plan-summary-card { display: grid; gap: 11px; padding: 16px; border-radius: 12px; background: #eff9f3; }
-.plan-summary-card > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.plan-summary-card span { font-size: 14px; font-weight: 750; }
+.plan-layout { grid-template-columns: minmax(260px, .65fr) minmax(0, 1.35fr); }
+.plan-summary-card { display: grid; gap: 10px; padding: 12px 0; border-block: 1px solid var(--line, #dce3df); }
+.plan-summary-card > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.plan-summary-card span { font-size: 14px; font-weight: 600; }
 .plan-summary-card strong { color: var(--accent, #28664f); }
-.plan-summary-card p { margin: 0; color: var(--muted, #66716c); font-size: 12px; }
-.version-rail { display: flex; flex-wrap: wrap; gap: 7px; }
-.version-rail span { padding: 5px 8px; border: 1px solid var(--line, #e8ebea); border-radius: 6px; color: var(--muted, #66716c); font-size: 11px; font-weight: 700; }
-.version-rail span.current { border-color: #b9dcc7; background: #e7f6ed; color: var(--accent, #28664f); }
-.version-actions { display: flex; flex-wrap: wrap; gap: 7px; }
-.replan-form { display: grid; gap: 10px; margin-top: 3px; padding-top: 15px; border-top: 1px solid var(--line, #e8ebea); }
-.replan-form > span { color: var(--muted, #66716c); font-size: 12px; font-weight: 750; }
-.task-panel { min-width: 0; }
+.plan-summary-card p { margin: 0; color: var(--muted, #64716b); font-size: 13px; }
+.version-rail, .version-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.version-rail span { padding: 5px 8px; border-bottom: 2px solid var(--line, #dce3df); color: var(--muted, #64716b); font-size: 12px; }
+.version-rail span.current { border-color: var(--accent, #28664f); color: var(--accent, #28664f); }
+.replan-form { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line, #dce3df); }
+.replan-form > span { color: var(--muted, #64716b); font-size: 13px; font-weight: 600; }
 .progress-text { display: grid; justify-items: end; gap: 2px; }
-.progress-text strong { color: var(--accent, #28664f); font-size: 22px; }
-.progress-text span { color: var(--muted, #66716c); font-size: 11px; }
+.progress-text strong { color: var(--accent, #28664f); font: 600 20px/1.2 "IBM Plex Mono", Consolas, monospace; }
+.progress-text span { color: var(--muted, #64716b); font-size: 12px; }
 .task-list { display: grid; margin-top: 14px; }
-.task-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px 128px; gap: 12px; align-items: center; padding: 17px 0; border-top: 1px solid var(--line, #e8ebea); min-width: 0; }
-.task-main { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 11px; min-width: 0; }
-.week-chip { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 9px; background: #eef7f1; color: var(--accent, #28664f); font-size: 11px; font-weight: 800; }
-.task-main strong { display: block; font-size: 13px; }
-.task-main p { margin: 4px 0 0; color: var(--muted, #66716c); font-size: 12px; line-height: 1.55; }
+.task-row { display: grid; grid-template-columns: minmax(0, 1fr) 56px 118px; gap: 12px; align-items: start; padding: 16px 0; border-top: 1px solid var(--line, #dce3df); min-width: 0; }
+.task-main { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; min-width: 0; }
+.week-chip { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid var(--line, #dce3df); border-radius: 4px; color: var(--accent, #28664f); font: 600 12px/1 "IBM Plex Mono", Consolas, monospace; }
+.task-main strong { display: block; font-size: 14px; line-height: 1.55; }
+.task-main p { margin: 4px 0 0; color: var(--muted, #64716b); font-size: 13px; line-height: 1.7; }
 .task-detail-lines { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 7px; }
-.task-detail-lines small { color: #728078; font-size: 10px; line-height: 1.45; }
-.task-hours { display: inline-flex; align-items: center; gap: 3px; color: var(--muted, #66716c); font-size: 12px; font-weight: 700; white-space: nowrap; }
-.task-row > :last-child { grid-column: 1 / -1; min-width: 0; }
-.task-row :deep(.el-select),
-.task-row :deep(.el-input) { min-width: 0; width: 100%; }
-.task-save-state { grid-column: 1 / -1; color: var(--accent, #28664f); }
-.task-save-state.error { color: #b14d4d; }
-
-.interview-launch { display: flex; align-items: center; justify-content: space-between; gap: 24px; background: #f4fbf6; }
-.interview-launch h2 { margin: 5px 0 0; font-size: 21px; }
-.interview-launch-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 10px; }
-.interview-launch-actions label { width: 116px; }
+.task-detail-lines small { color: var(--muted, #64716b); font-size: 12px; line-height: 1.6; }
+.task-hours { display: inline-flex; align-items: center; gap: 3px; color: var(--muted, #64716b); font-size: 13px; white-space: nowrap; padding-top: 5px; }
+.task-row > .el-input, .task-row > :last-child { grid-column: 1 / -1; min-width: 0; }
+.task-row :deep(.el-select), .task-row :deep(.el-input) { min-width: 0; width: 100%; }
+.task-save-state { grid-column: 1 / -1; color: var(--accent, #28664f); font-size: 13px; }
+.task-save-state.error { color: #b44339; }
+.interview-launch { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.interview-launch-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 8px; }
+.interview-launch-actions label { width: 112px; }
 .interview-launch-actions .target-role-editor { width: 190px; }
 .interview-launch-actions :deep(.el-input-number) { width: 100%; }
-.session-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
-.session-card { display: grid; gap: 13px; padding: 15px; border: 1px solid var(--line, #e8ebea); border-radius: 12px; background: #fff; color: var(--ink, #1f2724); cursor: pointer; text-align: left; }
-.session-card:hover,
-.session-card.selected { border-color: #b9dcc7; background: #f4fbf6; }
-.session-card > div:first-child { display: flex; align-items: center; gap: 9px; }
-.session-icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 9px; background: #e5f5ec; color: var(--accent, #28664f); }
-.session-card strong { font-size: 13px; }
-.session-card > span { color: var(--muted, #66716c); font-size: 12px; }
-.interview-workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 0.92fr); }
-.interview-question-card,
-.answer-card { display: grid; align-content: start; gap: 18px; }
-.question-topline { padding-bottom: 13px; border-bottom: 1px solid var(--line, #e8ebea); color: var(--muted, #66716c); font-size: 12px; font-weight: 700; }
-.question-text { margin: 0; color: var(--ink, #1f2724); font-size: 19px; font-weight: 650; line-height: 1.65; }
-.question-feedback { padding: 12px; border-left: 3px solid #8ebea4; background: #f4fbf6; }
-.reference-points { padding: 14px; border-radius: 11px; background: #f7f8f7; }
-.reference-points > span { color: var(--muted, #66716c); font-size: 11px; font-weight: 800; }
-.plain-list { display: grid; gap: 7px; margin: 10px 0 0; padding-left: 18px; color: var(--muted, #66716c); font-size: 13px; line-height: 1.55; }
-.question-nav,
-.answer-actions { display: flex; justify-content: space-between; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line, #e8ebea); }
+.session-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.session-card { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line, #dce3df); border-radius: 6px; background: #fff; color: var(--ink, #20302b); cursor: pointer; text-align: left; }
+.session-card:hover, .session-card.selected { border-color: var(--accent, #28664f); }
+.session-card > div:first-child { display: flex; align-items: center; gap: 8px; }
+.session-icon { display: grid; width: 28px; height: 28px; place-items: center; color: var(--accent, #28664f); }
+.session-card strong { font-size: 14px; }
+.session-card > span { color: var(--muted, #64716b); font-size: 13px; }
+.interview-workspace { grid-template-columns: minmax(0, 1fr) minmax(0, .92fr); }
+.question-topline { padding-bottom: 12px; border-bottom: 1px solid var(--line, #dce3df); color: var(--muted, #64716b); font-size: 13px; }
+.question-text { margin: 0; color: var(--ink, #20302b); font-size: 18px; font-weight: 600; line-height: 1.7; }
+.question-feedback { padding: 12px 0 12px 12px; border-left: 2px solid var(--accent, #28664f); }
+.reference-points { padding: 14px 0; border-top: 1px solid var(--line, #dce3df); }
+.reference-points > span { color: var(--muted, #64716b); font-size: 13px; font-weight: 600; }
+.plain-list { display: grid; gap: 6px; margin: 8px 0 0; padding-left: 18px; color: var(--muted, #64716b); font-size: 14px; line-height: 1.7; }
+.question-nav, .answer-actions { display: flex; justify-content: space-between; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line, #dce3df); }
 .answer-actions { justify-content: flex-end; }
-.answer-input :deep(textarea) { min-height: 278px !important; resize: vertical; }
-.interview-report { margin-top: 18px; }
-.report-score { align-items: start; padding-bottom: 19px; border-bottom: 1px solid var(--line, #e8ebea); }
-.report-score strong { color: var(--accent, #28664f); font-size: 55px; line-height: 1; }
-.report-score strong small { margin-left: 2px; font-size: 16px; }
-.report-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 20px; }
-.report-columns > div { padding: 14px; border-radius: 11px; background: #f7f8f7; }
-.report-columns > div > span { color: var(--muted, #66716c); font-size: 11px; font-weight: 800; }
-
-.knowledge-shell { display: grid; gap: 22px; }
-.knowledge-intro { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.knowledge-intro p { max-width: 670px; }
-.knowledge-shell .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; color: var(--ink, #1f2724); font-size: 20px; }
-.knowledge-shell .panel-title svg { color: var(--accent, #28664f); }
-.knowledge-orb,
-.knowledge-empty > span { display: grid; flex: 0 0 auto; width: 62px; height: 62px; place-items: center; border-radius: 50%; background: #c8f1df; color: var(--accent, #28664f); }
-.knowledge-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
-.knowledge-mode, .knowledge-history { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 12px 0; color: var(--muted, #66716c); font-size: 12px; }
-.knowledge-retrieval { display: grid; gap: 10px; margin-top: 16px; padding: 16px; border: 1px solid #d5e8dd; background: #fbfefc; }
-.knowledge-retrieval > header { display: flex; justify-content: space-between; color: var(--muted, #66716c); font-size: 12px; }
-.retrieval-result { padding: 12px 0; border-top: 1px solid var(--line, #e8ebea); }
+.answer-input :deep(textarea) { min-height: 260px !important; resize: vertical; }
+.report-score { align-items: start; padding-bottom: 16px; border-bottom: 1px solid var(--line, #dce3df); }
+.report-score strong { color: var(--accent, #28664f); font: 600 38px/1.2 "IBM Plex Mono", Consolas, monospace; }
+.report-score strong small { margin-left: 3px; font-size: 14px; }
+.report-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 16px; }
+.report-columns > div { min-width: 0; }
+.report-columns > div > span { color: var(--muted, #64716b); font-size: 13px; font-weight: 600; }
+.knowledge-shell { display: grid; gap: 16px; }
+.knowledge-shell .panel-title { font-size: 17px; }
+.knowledge-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.knowledge-mode, .knowledge-history { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 4px 0; color: var(--muted, #64716b); font-size: 13px; }
+.knowledge-retrieval { display: grid; gap: 10px; margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--line, #dce3df); }
+.knowledge-retrieval > header { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; color: var(--muted, #64716b); font-size: 13px; }
+.retrieval-result { padding: 12px 0; border-top: 1px solid var(--line, #dce3df); }
 .retrieval-result > div:first-child { display: flex; justify-content: space-between; gap: 10px; }
-.retrieval-result > div:first-child span { color: var(--muted, #66716c); font-size: 11px; }
-.retrieval-result p { margin: 7px 0; color: var(--muted, #66716c); line-height: 1.55; }
-.rag-answer { display: grid; gap: 18px; padding: 20px; border: 1px solid #d5e8dd; border-radius: 13px; background: #f5fbf7; }
+.retrieval-result > div:first-child span { color: var(--muted, #64716b); font-size: 12px; }
+.retrieval-result p { margin: 7px 0; color: var(--muted, #64716b); font-size: 14px; line-height: 1.7; }
+.rag-answer { display: grid; gap: 16px; padding-top: 16px; border-top: 2px solid var(--accent, #28664f); }
 .rag-answer > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.rag-answer > header strong { font-size: 18px; }
-.knowledge-result { display: grid; gap: 18px; padding: 20px; border: 1px solid #d5e8dd; border-radius: 13px; background: #f5fbf7; }
-.knowledge-result header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.knowledge-result h3 { margin: 4px 0 0; font-size: 18px; }
-.knowledge-answer { color: var(--ink, #1f2724); font-size: 14px; line-height: 1.72; }
+.rag-answer > header strong { font-size: 16px; }
+.knowledge-answer { color: var(--ink, #20302b); font-size: 14px; line-height: 1.8; }
 .knowledge-answer :deep(p) { margin: 0 0 10px; }
-.citation-list { display: grid; gap: 9px; padding-top: 5px; }
-.citation-title { color: var(--muted, #66716c); font-size: 11px; font-weight: 800; }
-.citation-row { display: grid; gap: 7px; padding: 13px 0 0; border-top: 1px solid #dcece2; }
-.citation-row summary { display: flex; align-items: center; gap: 8px; color: var(--ink, #1f2724); cursor: pointer; font-size: 13px; font-weight: 700; list-style: none; }
-.citation-row summary::-webkit-details-marker { display: none; }
-.citation-row summary b { color: var(--accent, #28664f); }
-.citation-row summary svg { margin-left: auto; }
-.citation-row p { margin: 0; color: var(--muted, #66716c); font-size: 11px; }
-.citation-row div { color: var(--muted, #66716c); font-size: 12px; line-height: 1.6; }
+.claim-list { display: grid; gap: 10px; font-size: 14px; }
+.claim-list article { padding: 10px 0; border-top: 1px solid var(--line, #dce3df); }
+.claim-list p { margin: 0 0 5px; line-height: 1.7; white-space: pre-wrap; }
+.claim-list small { color: var(--muted, #64716b); font-size: 12px; }
+.claim-list blockquote { margin: 8px 0 0; padding-left: 10px; border-left: 2px solid var(--accent, #28664f); color: var(--muted, #64716b); white-space: pre-wrap; }
+.citation-list { display: grid; gap: 9px; }
+.citation-row { padding-top: 12px; border-top: 1px solid var(--line, #dce3df); }
+.citation-row summary { color: var(--ink, #20302b); cursor: pointer; font-size: 14px; font-weight: 600; line-height: 1.65; }
+.citation-row p { margin: 6px 0; color: var(--muted, #64716b); font-size: 12px; }
+.citation-row div { color: var(--muted, #64716b); font-size: 14px; line-height: 1.7; }
 .citation-row div :deep(p) { margin: 0; }
-.knowledge-empty { display: flex; align-items: center; gap: 15px; padding: 20px; border: 1px dashed #cbd7cf; border-radius: 13px; background: #fbfcfb; }
-.knowledge-empty > span { width: 46px; height: 46px; }
-.knowledge-empty strong { font-size: 14px; }
-
-:deep(.el-input__wrapper),
-:deep(.el-textarea__inner),
-:deep(.el-select__wrapper) { border-radius: 8px; box-shadow: 0 0 0 1px var(--line, #e8ebea) inset !important; }
-:deep(.el-input__wrapper.is-focus),
-:deep(.el-select__wrapper.is-focused) { box-shadow: 0 0 0 1px var(--accent, #28664f) inset !important; }
-:deep(.el-button) { border-radius: 8px; font-weight: 700; }
-:deep(.el-tag) { border-radius: 6px; font-size: 11px; font-weight: 650; }
-
-@media (max-width: 1180px) {
-  .resume-hero-content { grid-template-columns: minmax(180px, 1fr) 112px minmax(230px, 1.1fr); }
-  .resume-status { grid-column: 1 / -1; grid-template-columns: auto 1fr; align-items: center; padding-top: 15px; border-top: 1px solid var(--line, #e8ebea); }
-  .jobs-layout,
-  .plan-layout { grid-template-columns: minmax(280px, 0.7fr) minmax(0, 1.3fr); }
-  .session-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-@media (max-width: 1450px) {
-  .match-launcher { grid-template-columns: 1fr; }
-}
-
-@media (max-width: 900px) {
-  .workspace-header,
-  .interview-launch { align-items: stretch; flex-direction: column; }
-  .target-role-control { width: 100%; }
-  .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .resume-workspace,
-  .jobs-layout,
-  .plan-layout,
-  .interview-workspace { grid-template-columns: 1fr; }
-  .resume-hero-content { grid-template-columns: minmax(180px, 1fr) 112px; }
-  .resume-summary { grid-column: 1 / -1; }
-  .match-history-grid { grid-template-columns: 1fr; }
-  .plan-builder-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .plan-builder-fields > .el-button { justify-self: end; }
-  .interview-launch-actions { justify-content: flex-start; }
-}
-
-@media (max-width: 600px) {
-  .student-workspace { gap: 16px; }
-  .workspace-header h1 { font-size: 25px; }
-  .overview-grid { gap: 10px; }
-  .overview-card { min-height: 108px; padding: 14px; }
-  .overview-card strong { font-size: 25px; }
-  .overview-card > svg { top: 14px; right: 14px; }
-  .resume-hero,
-  .plan-builder,
-  .interview-launch,
-  .knowledge-shell,
-  .profile-panel,
-  .diagnosis-panel,
-  .job-browser,
-  .job-detail,
-  .match-launcher,
-  .plan-sidebar,
-  .task-panel,
-  .interview-question-card,
-  .answer-card,
-  .interview-history,
-  .interview-report { padding: 17px; border-radius: 13px; }
-  .resume-hero-content,
-  .profile-form,
-  .plan-builder-fields,
-  .match-controls,
-  .report-columns,
-  .match-insights { grid-template-columns: 1fr; }
-  .resume-score { padding: 15px 0 0; border-top: 1px solid var(--line, #e8ebea); border-left: 0; }
-  .resume-status { grid-template-columns: 1fr; }
-  .plan-builder-fields > :first-child,
-  .plan-builder-fields > .el-button { grid-column: auto; justify-self: stretch; }
-  .plan-builder-fields > .el-button { width: 100%; }
-  .task-row { grid-template-columns: minmax(0, 1fr) 62px; }
-  .task-row > :nth-child(3) { grid-column: 1 / -1; }
-  .task-row > :last-child { grid-column: 1 / -1; }
-  .task-hours { justify-self: end; }
-  .session-grid { grid-template-columns: 1fr; }
-  .question-nav,
-  .answer-actions { flex-wrap: wrap; }
-  .question-nav :deep(.el-button),
-  .answer-actions :deep(.el-button) { flex: 1; }
-  .knowledge-search { grid-template-columns: 1fr; }
-  .knowledge-search :deep(.el-button) { width: 100%; }
-}
-
-.compare-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  margin: 12px 0 16px;
-}
+.preview-task { padding: 12px 0; border-top: 1px solid var(--line, #dce3df); font-size: 14px; line-height: 1.7; }
+.preview-task .el-tag { margin-left: 10px; }
+.compare-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .compare-toolbar :deep(.el-select) { min-width: 0; }
-.comparison-panel { margin-bottom: 16px; }
-.comparison-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 12px;
-}
-.comparison-grid > article {
-  padding: 14px;
-  border: 1px solid var(--line, #e8ebea);
-  border-radius: 12px;
-  background: var(--surface-soft, #fbfcfb);
-}
-.comparison-grid small { display: block; margin-top: 4px; color: var(--muted, #75807c); }
-.comparison-grid p { margin: 8px 0 0; color: var(--muted, #596560); line-height: 1.5; }
+.comparison-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 14px; }
+.comparison-grid > article { min-width: 0; padding: 0 16px 0 0; border-right: 1px solid var(--line, #dce3df); }
+.comparison-grid > article:last-child { border-right: 0; }
+.comparison-grid small { display: block; margin-top: 4px; color: var(--muted, #64716b); font-size: 12px; }
+.comparison-grid p { margin: 8px 0 0; color: var(--muted, #64716b); font-size: 14px; line-height: 1.7; }
 .comparison-requirement { margin-top: 12px; }
 .comparison-requirement summary { cursor: pointer; line-height: 1.8; }
-.comparison-requirement p { overflow-wrap: anywhere; }
-.comparison-evidence { font-weight: 600; color: var(--ink, #1f2b27) !important; }
-@media (max-width: 700px) {
-  .compare-toolbar { grid-template-columns: 1fr; }
-  .compare-toolbar :deep(.el-button) { width: 100%; }
+.comparison-evidence { font-weight: 600; color: var(--ink, #20302b) !important; }
+:deep(.el-input__wrapper), :deep(.el-textarea__inner), :deep(.el-select__wrapper) { border-radius: 5px; }
+:deep(.el-button) { border-radius: 5px; font-weight: 600; }
+:deep(.el-button + .el-button) { margin-left: 0; }
+:deep(.el-tag) { border-radius: 4px; font-size: 12px; }
+@media (max-width: 1180px) {
+  .resume-hero-content { grid-template-columns: minmax(160px, 1fr) 105px minmax(180px, 1fr); }
+  .resume-status { grid-column: 1 / -1; grid-template-columns: auto 1fr; align-items: center; }
+  .session-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .match-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .match-controls > :last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+  .resume-workspace, .jobs-layout, .plan-layout, .interview-workspace, .match-history-grid { grid-template-columns: 1fr; }
+  .overview-card { padding-inline: 10px; }
+  .plan-builder-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .interview-launch { align-items: start; flex-direction: column; }
+  .interview-launch-actions { justify-content: flex-start; }
+}
+@media (max-width: 600px) {
+  .student-workspace { gap: 16px; }
+  .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-card { min-height: 43px; padding: 6px 10px; }
+  .overview-card:nth-child(2n) { border-right: 0; padding-right: 0; }
+  .overview-card:nth-child(2n + 1) { padding-left: 0; }
+  .overview-card strong { font-size: 19px; }
+  .overview-card span { font-size: 12px; }
+  .resume-hero-content, .profile-form, .plan-builder-fields, .match-controls, .report-columns, .match-insights, .compare-toolbar, .comparison-grid { grid-template-columns: 1fr; }
+  .resume-score { padding: 0; border-left: 0; }
+  .resume-status { grid-template-columns: 1fr; }
+  .profile-form .wide { grid-column: auto; }
+  .plan-builder-fields > .el-button { width: 100%; }
+  .task-row { grid-template-columns: minmax(0, 1fr) 56px; }
+  .task-row > :nth-child(3) { grid-column: 1 / -1; }
+  .task-hours { justify-self: end; }
+  .session-grid { grid-template-columns: 1fr; }
+  .question-nav, .answer-actions { flex-wrap: wrap; }
+  .question-nav :deep(.el-button), .answer-actions :deep(.el-button) { flex: 1; }
+  .knowledge-search { grid-template-columns: 1fr; }
+  .knowledge-search :deep(.el-button), .compare-toolbar :deep(.el-button) { width: 100%; }
+  .comparison-grid > article { padding: 0 0 14px; border: 0; border-bottom: 1px solid var(--line, #dce3df); }
+  .coverage-score { align-items: flex-start; }
+  .coverage-score > strong { font-size: 30px; }
 }
 </style>

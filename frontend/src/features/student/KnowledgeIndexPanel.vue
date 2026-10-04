@@ -27,5 +27,12 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer) })
 </script>
 <template><section class="index-panel"><header><div><h3>知识语义索引</h3><p>使用当前资料与权限重新生成语义索引，重建期间继续提供关键词检索。</p></div><el-button type="primary" :loading="busy || inProgress()" @click="rebuild">重建知识索引</el-button><el-button :disabled="busy" @click="load">刷新状态</el-button></header><div v-if="status" class="index-status"><el-tag :type="status.status === 'COMPLETED' ? 'success' : status.status === 'FAILED' ? 'danger' : 'info'">{{ status.status }}</el-tag><span>{{ status.model }} · {{ status.dimension }} 维</span><span>{{ status.completedDocuments }}/{{ status.totalDocuments }} 文档 · {{ status.indexedChunks }} 个片段</span><p>{{ status.message }}</p><small>索引版本 {{ status.indexVersion }} · {{ status.updatedAt }}</small></div><el-alert v-if="error" :title="error" type="warning" :closable="false" /></section></template>
 <style scoped>
-.index-panel{border:1px solid #e5ebe7;border-radius:14px;background:#fff;padding:18px;margin-bottom:18px}.index-panel header{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.index-panel header>div{flex:1;min-width:220px}.index-panel h3{margin:0;font-size:17px}.index-panel p{font-size:13px;color:#66716c;line-height:1.7}.index-status{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px;padding-top:12px}.index-status p,.index-status small{flex-basis:100%;margin:0}.index-status small{color:#66716c}
+.index-panel{border:0;border-top:1px solid var(--line,#dce3df);border-radius:0;background:transparent;padding:18px 0;margin-bottom:18px;min-width:0}
+.index-panel header{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.index-panel header>div{flex:1;min-width:min(220px,100%)}
+.index-panel h3{margin:0;font-size:17px}
+.index-panel p{font-size:14px;color:var(--muted,#64716b);line-height:1.7;overflow-wrap:anywhere}
+.index-status{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px;padding-top:12px}
+.index-status p,.index-status small{flex-basis:100%;margin:0;overflow-wrap:anywhere}
+.index-status small{color:var(--muted,#64716b)}
 </style>
