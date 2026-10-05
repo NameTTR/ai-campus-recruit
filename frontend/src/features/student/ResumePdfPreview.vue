@@ -28,6 +28,7 @@ let renderToken = 0
 let resizeObserver: ResizeObserver | undefined
 let previousFocus: HTMLElement | undefined
 let previousBodyOverflow = ''
+let bodyScrollLocked = false
 let layoutRequest = 0
 let alignedPage = 0
 let layoutPending = false
@@ -154,6 +155,11 @@ function toggleExpanded() {
   layoutPending = true
   expanded.value = !expanded.value
 }
+function releaseBodyScroll() {
+  if (!bodyScrollLocked) return
+  if (document.body.style.overflow === 'hidden') document.body.style.overflow = previousBodyOverflow
+  bodyScrollLocked = false
+}
 function measureViewport() {
   const container = pagesElement.value
   if (!container?.clientWidth || !container.clientHeight) return false
@@ -187,7 +193,7 @@ function expandedKeys(event: KeyboardEvent) {
   if (!expanded.value) return
   if (event.key === 'Escape') { event.preventDefault(); toggleExpanded(); return }
   if (event.key !== 'Tab') return
-  const controls = Array.from(viewerElement.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [])
+  const controls = Array.from(viewerElement.value?.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]') || [])
   const first = controls[0]
   const last = controls.at(-1)
   if (!first || !last) return
@@ -209,25 +215,30 @@ watch(pagesElement, (element, old) => {
   if (element) resizeObserver?.observe(element)
   measureViewport()
 }, { flush: 'post' })
-watch(expanded, async value => {
+watch(expanded, async (value, _previous, onCleanup) => {
+  let canceled = false
+  onCleanup(() => { canceled = true })
   const page = layoutPending ? alignedPage : currentPage.value
   if (value) {
     previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
     previousBodyOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
+    bodyScrollLocked = true
   } else {
-    document.body.style.overflow = previousBodyOverflow
+    releaseBodyScroll()
   }
   await alignAfterLayout(page)
+  if (canceled) return
   if (value) viewerElement.value?.focus({ preventScroll: true })
   else previousFocus?.focus({ preventScroll: true })
-})
+}, { flush: 'sync' })
 
 watch(() => props.src, loadPdf, { immediate: true })
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   document.removeEventListener('keydown', expandedKeys)
-  if (expanded.value) { document.body.style.overflow = previousBodyOverflow; previousFocus?.focus({ preventScroll: true }) }
+  releaseBodyScroll()
+  if (expanded.value) previousFocus?.focus({ preventScroll: true })
   clearViewer()
 })
 </script>
@@ -253,7 +264,7 @@ onBeforeUnmount(() => {
       <span>{{ error }}</span>
       <button type="button" class="preview-retry" @click="retry"><RefreshCw :size="14" />重试</button>
     </div>
-    <div v-if="pageCount" ref="pagesElement" data-testid="resume-pdf-pages" v-show="!loading && !error" class="resume-pdf-pages" @scroll.passive="syncCurrentPage">
+    <div v-if="pageCount" ref="pagesElement" data-testid="resume-pdf-pages" v-show="!loading && !error" class="resume-pdf-pages" tabindex="0" aria-label="简历页面" @scroll.passive="syncCurrentPage">
       <div class="resume-pdf-page-stack">
       <canvas v-for="index in pageCount" :key="index" :style="pageStyle(index - 1)" :data-resume-pdf-page="index" :ref="(element) => { if (element) canvasElements[index - 1] = element as HTMLCanvasElement }" />
       </div>
@@ -274,7 +285,9 @@ onBeforeUnmount(() => {
 .preview-tool.selected { color: #28664f; border-color: #8ab79b; background: #edf6f0; }
 .preview-tool:focus-visible { outline: 2px solid #28664f; outline-offset: 2px; }
 .preview-tool:disabled { cursor: not-allowed; opacity: .45; }
-.resume-pdf-pages { flex: 1 1 0; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.resume-pdf-pages { flex: 1 1 0; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: auto; scrollbar-gutter: stable; }
+.expanded .resume-pdf-pages { overscroll-behavior: contain; }
+.resume-pdf-pages:focus-visible { outline: 2px solid #28664f; outline-offset: -2px; }
 .resume-pdf-page-stack { display: grid; justify-items: center; gap: 18px; width: max-content; min-width: 100%; padding: 18px; box-sizing: border-box; }
 .resume-pdf-page { display: block; max-width: none; flex: none; background: #fff; box-shadow: 0 2px 8px rgb(15 23 42 / 12%); }
 .preview-state { display: flex; flex: 1; min-height: 0; align-items: center; justify-content: center; gap: 12px; padding: 20px; color: #64748b; font-size: 14px; }

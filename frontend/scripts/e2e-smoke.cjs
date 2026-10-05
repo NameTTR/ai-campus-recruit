@@ -59,6 +59,8 @@ async function main() {
 
     await verifyGlobalSearch(client)
     await navigate(client, `${baseUrl}/student/resume`)
+    await verifyStudentScrolling(client)
+    await setViewport(client, 1440, 980)
 
     await navigate(client, `${baseUrl}/student/plan`)
     await assertStudentWorkspace(client, 'plan')
@@ -878,6 +880,202 @@ async function assertNoHorizontalOverflow(client) {
   if (widest > dimensions.viewport + 1) {
     throw new Error(`Horizontal overflow detected: viewport=${dimensions.viewport}, content=${widest}`)
   }
+}
+
+async function verifyStudentScrolling(client) {
+  const results = []
+  for (const [width, height] of [[1440, 720], [390, 844], [320, 900]]) {
+    const mode = width < 700 ? 'touch' : 'wheel'
+    await setViewport(client, width, height)
+    await client.send('Emulation.setTouchEmulationEnabled', { enabled: mode === 'touch', maxTouchPoints: 1 })
+    for (const module of ['resume', 'jobs', 'plan', 'interview', 'knowledge']) {
+      await navigate(client, `${baseUrl}/student/${module}`)
+      await assertStudentWorkspace(client, module)
+      await assertNoHorizontalOverflow(client)
+      const label = `${module}-${width}x${height}`
+      results.push({ module, width, height, ...await assertDocumentScrolling(client, mode, label) })
+      if (module === 'resume') {
+        await verifyPreviewScrollRelease(client, mode, label)
+        if (mode === 'touch') {
+          await clickSelector(client, '.mobile-menu')
+          await waitForExpression(client, "Boolean(document.querySelector('.side-nav.is-open'))")
+          await clickSelector(client, '.nav-backdrop')
+          await waitForExpression(client, "!document.querySelector('.side-nav.is-open') && !document.querySelector('.nav-backdrop')")
+          await assertDocumentScrolling(client, mode, `${label}-drawer-closed`)
+        }
+      }
+    }
+  }
+  await client.send('Emulation.setTouchEmulationEnabled', { enabled: false })
+  fs.writeFileSync(path.join(artifactsDir, 'student-scroll-results.json'), JSON.stringify(results, null, 2), 'utf8')
+  console.log(`Real document scrolling passed: ${results.length} module/viewports (mouse wheel and touch swipes).`)
+}
+
+async function documentScrollState(client) {
+  return elementBox(client, `(() => {
+    const root = document.scrollingElement;
+    const bodyStyle = getComputedStyle(document.body);
+    const htmlStyle = getComputedStyle(document.documentElement);
+    const clipped = [...document.querySelectorAll('.app-shell, .main-view, .workspace-content, .student-workspace')]
+      .filter((element) => ['hidden', 'clip'].includes(getComputedStyle(element).overflowY)
+        && element.scrollHeight > element.clientHeight + 2)
+      .map((element) => element.className);
+    return {
+      top: root.scrollTop,
+      maximum: Math.max(0, root.scrollHeight - root.clientHeight),
+      viewport: root.clientHeight,
+      bodyOverflow: bodyStyle.overflowY,
+      htmlOverflow: htmlStyle.overflowY,
+      bodyPosition: bodyStyle.position,
+      clipped,
+      contentBottom: document.querySelector('.workspace-content')?.getBoundingClientRect().bottom
+    };
+  })()`)
+}
+
+async function scrollInputPoint(client) {
+  const point = await elementBox(client, `(() => {
+    const width = document.documentElement.clientWidth;
+    const height = innerHeight;
+    const main = document.querySelector('.main-view')?.getBoundingClientRect();
+    const candidates = [width - 8, width - 24, main ? main.left + 8 : 8];
+    for (const x of candidates) {
+      const y = Math.round(height * .76);
+      const hit = document.elementFromPoint(x, y);
+      if (!hit || hit.closest('.side-nav, .resume-pdf-preview, input, textarea, select, button, a, [role="combobox"], .el-overlay, .nav-backdrop')) continue;
+      let nestedScroller = false;
+      for (let element = hit; element && element !== document.body && element !== document.documentElement; element = element.parentElement) {
+        const style = getComputedStyle(element);
+        if ((['auto', 'scroll'].includes(style.overflowY) && element.scrollHeight > element.clientHeight + 2)
+          || style.touchAction === 'none') nestedScroller = true;
+      }
+      if (!nestedScroller) return { x, y, height };
+    }
+    return null;
+  })()`)
+  if (!point) throw new Error('No safe document scroll input point outside nested scroll regions')
+  return point
+}
+
+async function dispatchDocumentScroll(client, mode, direction) {
+  const point = await scrollInputPoint(client)
+  if (mode === 'wheel') {
+    await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y })
+    await client.send('Input.dispatchMouseEvent', {
+      type: 'mouseWheel', x: point.x, y: point.y, deltaX: 0, deltaY: direction * point.height * .8
+    })
+  } else {
+    const start = direction > 0 ? point.y : Math.round(point.height * .28)
+    const end = direction > 0 ? Math.round(point.height * .28) : point.y
+    const touchPoint = (y) => [{ x: point.x, y, radiusX: 4, radiusY: 4, force: 1, id: 0 }]
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: touchPoint(start) })
+    for (let index = 1; index <= 8; index += 1) {
+      await client.send('Input.dispatchTouchEvent', {
+        type: 'touchMove', touchPoints: touchPoint(Math.round(start + (end - start) * index / 8))
+      })
+      await sleep(16)
+    }
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  }
+  await sleep(300)
+}
+
+async function scrollDocumentToEdge(client, mode, direction, label) {
+  let state = await documentScrollState(client)
+  const maximumSteps = Math.min(100, Math.ceil(state.maximum / Math.max(1, state.viewport * .3)) + 8)
+  for (let index = 0; index < maximumSteps; index += 1) {
+    const distance = direction > 0 ? state.maximum - state.top : state.top
+    if (distance <= 2) return state
+    const previousTop = state.top
+    await dispatchDocumentScroll(client, mode, direction)
+    state = await documentScrollState(client)
+    if (Math.abs(state.top - previousTop) <= .5) {
+      throw new Error(`Document ${mode} scroll is blocked in ${label}: ${JSON.stringify(state)}`)
+    }
+  }
+  throw new Error(`Document ${mode} scroll did not reach ${direction > 0 ? 'bottom' : 'top'} in ${label}: ${JSON.stringify(state)}`)
+}
+
+async function assertDocumentScrolling(client, mode, label) {
+  const initial = await documentScrollState(client)
+  if (['hidden', 'clip'].includes(initial.bodyOverflow) || ['hidden', 'clip'].includes(initial.htmlOverflow)
+    || initial.bodyPosition === 'fixed' || initial.clipped.length) {
+    throw new Error(`Document has a residual scroll lock or clipped content in ${label}: ${JSON.stringify(initial)}`)
+  }
+  await scrollDocumentToEdge(client, mode, -1, label)
+  const top = await documentScrollState(client)
+  const bottom = await scrollDocumentToEdge(client, mode, 1, label)
+  if (top.maximum > 2 && bottom.top <= top.top + 1) {
+    throw new Error(`Document did not move with real ${mode} input in ${label}`)
+  }
+  if (bottom.contentBottom > bottom.viewport + 2) {
+    throw new Error(`Workspace bottom is unreachable in ${label}: ${JSON.stringify(bottom)}`)
+  }
+  await screenshot(client, `scroll-${label}-bottom.png`)
+  await scrollDocumentToEdge(client, mode, -1, label)
+  await assertNoHorizontalOverflow(client)
+  return { mode, scrollRange: top.maximum, reachedBottom: true, moved: bottom.top > top.top + 1 }
+}
+
+async function verifyPreviewScrollRelease(client, mode, label) {
+  const hasPreview = await elementBox(client, "Boolean(document.querySelector('[data-testid=\"resume-pdf-expand\"]')?.getClientRects().length)")
+  if (!hasPreview) return
+  await verifyPreviewWheelBoundary(client, label)
+  await clickSelector(client, '[data-testid="resume-pdf-expand"]')
+  await waitForExpression(client, "Boolean(document.querySelector('.resume-pdf-overlay .resume-pdf-preview.expanded'))")
+  const expandedOverscroll = await elementBox(client, "getComputedStyle(document.querySelector('.resume-pdf-overlay .resume-pdf-pages')).overscrollBehaviorY")
+  if (expandedOverscroll !== 'contain') {
+    throw new Error(`Expanded PDF should contain boundary scrolling in ${label}: ${expandedOverscroll}`)
+  }
+  await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  await waitForExpression(client, "!document.querySelector('.resume-pdf-overlay')")
+  await assertDocumentScrolling(client, mode, `${label}-preview-closed`)
+}
+
+async function verifyPreviewWheelBoundary(client, label) {
+  const state = await elementBox(client, `(() => {
+    const pages = document.querySelector('.resume-pdf-pages');
+    const root = document.scrollingElement;
+    if (!pages || !root) return null;
+    // Position the nested viewport for the boundary probe; only wheel input may satisfy the assertion.
+    pages.scrollIntoView({ block: 'center', inline: 'nearest' });
+    const rect = pages.getBoundingClientRect();
+    const maximum = Math.max(0, root.scrollHeight - root.clientHeight);
+    const direction = maximum - root.scrollTop > 2 ? 1 : -1;
+    const pagesMaximum = Math.max(0, pages.scrollHeight - pages.clientHeight);
+    pages.scrollTop = direction > 0 ? pagesMaximum : 0;
+    return {
+      x: Math.round(rect.left + rect.width / 2),
+      y: Math.round((Math.max(0, rect.top) + Math.min(innerHeight, rect.bottom)) / 2),
+      documentTop: root.scrollTop,
+      documentMaximum: maximum,
+      pagesTop: pages.scrollTop,
+      pagesMaximum,
+      direction,
+      overscroll: getComputedStyle(pages).overscrollBehaviorY
+    };
+  })()`)
+  if (!state || state.documentMaximum <= 2) return
+  if (state.overscroll !== 'auto') {
+    throw new Error(`Inline PDF should allow boundary scrolling to the document in ${label}: ${state.overscroll}`)
+  }
+  await sleep(200)
+  await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: state.x, y: state.y })
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseWheel', x: state.x, y: state.y, deltaX: 0, deltaY: state.direction * 780
+  })
+  await sleep(350)
+  const after = await elementBox(client, `(() => ({
+    documentTop: document.scrollingElement?.scrollTop || 0,
+    pagesTop: document.querySelector('.resume-pdf-pages')?.scrollTop || 0
+  }))()`)
+  if ((after.documentTop - state.documentTop) * state.direction <= 1) {
+    throw new Error(`Wheel at PDF boundary did not reach document in ${label}: ${JSON.stringify({ state, after })}`)
+  }
+  await client.send('Runtime.evaluate', { expression: 'document.scrollingElement.scrollTop = 0' })
+  await client.send('Runtime.evaluate', { expression: "document.querySelector('.resume-pdf-pages')?.scrollTo(0, 0)" })
+  await sleep(200)
 }
 
 async function assertNoInternalHorizontalOverflow(client, selector) {
