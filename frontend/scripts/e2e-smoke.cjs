@@ -48,36 +48,40 @@ async function main() {
     await navigate(client, `${baseUrl}/student/resume`)
     await assertText(client, ['Campus Recruit', '简历', '岗位匹配', '学习路径', '模拟面试', '知识库'])
     await assertNoText(client, ['投递记录', '通知中心', '简历闭环'])
+    await assertStudentWorkspace(client, 'resume')
     await assertNoHorizontalOverflow(client)
     await screenshot(client, '01-student-resume.png')
     if (coreFixture || await elementBox(client, "Boolean(document.querySelector('.resume-diagnosis'))")) {
+      await setDetailsOpen(client, '.legacy-resume-history', true)
       await assertDetailsToggle(client, '.resume-diagnosis')
+      await setDetailsOpen(client, '.legacy-resume-history', false)
     }
 
     await verifyGlobalSearch(client)
     await navigate(client, `${baseUrl}/student/resume`)
 
     await navigate(client, `${baseUrl}/student/plan`)
-    await assertText(client, ['学习路径', '学习计划'])
+    await assertStudentWorkspace(client, 'plan')
     await assertNoHorizontalOverflow(client)
     await screenshot(client, '02-student-plan.png')
 
     await navigate(client, `${baseUrl}/student/jobs`)
-    await assertText(client, ['岗位匹配', '岗位与匹配'])
+    await assertText(client, ['岗位匹配', '岗位列表'])
+    await assertStudentWorkspace(client, 'jobs')
     await assertNoHorizontalOverflow(client)
     await fillInput(client, '.job-search input', '__e2e_no_match__')
-    await assertText(client, ['没有匹配的岗位'])
+    await assertText(client, ['没有符合条件的岗位'])
     await fillInput(client, '.job-search input', '')
-    await assertText(client, ['岗位与匹配'])
+    await assertText(client, ['岗位列表'])
     await screenshot(client, '03-student-jobs.png')
 
     await navigate(client, `${baseUrl}/student/interview`)
-    await assertText(client, ['模拟面试', '模拟面试会话'])
+    await assertStudentWorkspace(client, 'interview')
     await assertNoHorizontalOverflow(client)
     await screenshot(client, '04-student-interview.png')
 
     await navigate(client, `${baseUrl}/student/knowledge`)
-    await assertText(client, ['知识库问答', 'RAG KNOWLEDGE BASE'])
+    await assertStudentWorkspace(client, 'knowledge')
     await assertNoHorizontalOverflow(client)
     await screenshot(client, '05-student-knowledge.png')
 
@@ -89,7 +93,7 @@ async function main() {
 
     await setViewport(client, 1024, 900)
     await navigate(client, `${baseUrl}/student/plan`)
-    await assertText(client, ['学习路径', '学习计划'])
+    await assertStudentWorkspace(client, 'plan')
     await assertNoHorizontalOverflow(client)
     await screenshot(client, '06-student-plan-1024.png')
 
@@ -135,16 +139,26 @@ async function main() {
 
     for (const [name, expected] of [
       ['resume', ['简历']],
-      ['jobs', ['岗位匹配', '岗位与匹配']],
-      ['plan', ['学习路径', '学习计划']],
-      ['interview', ['模拟面试', '模拟面试会话']],
-      ['knowledge', ['知识库问答', 'RAG KNOWLEDGE BASE']]
+      ['jobs', ['岗位匹配', '岗位列表']],
+      ['plan', ['学习路径']],
+      ['interview', ['开始模拟面试', '本次目标岗位']],
+      ['knowledge', ['仅检索', 'AI 回答', '检索']]
     ]) {
       await navigate(client, `${baseUrl}/student/${name}`)
       await assertText(client, expected)
+      await assertStudentWorkspace(client, name)
       await assertNoHorizontalOverflow(client)
       await screenshot(client, `14-student-${name}-mobile.png`)
     }
+
+    await setViewport(client, 320, 900)
+    for (const name of ['resume', 'jobs', 'plan', 'interview', 'knowledge']) {
+      await navigate(client, `${baseUrl}/student/${name}`)
+      await assertStudentWorkspace(client, name)
+      await assertNoHorizontalOverflow(client)
+      await screenshot(client, `18-student-${name}-320.png`)
+    }
+    await setViewport(client, 390, 844)
 
     await loginAs(client, 'company', 'COMPANY', '/company/jobs')
     await assertNoHorizontalOverflow(client)
@@ -228,8 +242,10 @@ async function verifyCoreFixture(client, fixture) {
   await verifyMatchHistoryRestoreAndContext(client, fixtureMatch, resume, job)
 
   await navigate(client, `${baseUrl}/student/plan`)
+  await assertStudentWorkspace(client, 'plan')
+  await setDetailsOpen(client, '.plan-sidebar', true)
   await selectElementPlusOption(client, '.plan-sidebar .el-select', `${plan.targetRole} · V${plan.version} · 进行中`)
-  await assertText(client, ['学习路径', '学习计划', '任务进度', plan.targetRole, `V${plan.version}`, '当前可编辑版本'])
+  await assertText(client, ['学习路径', '任务进度', plan.targetRole, `V${plan.version}`, '当前可编辑版本'])
   await assertSelectDisplay(client, `V${plan.version}`)
   await assertPersistedTask(client, persistedTaskFeedback)
   await screenshot(client, '00-core-fixture-learning-plan.png')
@@ -252,6 +268,7 @@ async function verifyCoreFixture(client, fixture) {
 }
 
 async function selectFixtureResume(client, resume) {
+  await setDetailsOpen(client, '.legacy-resume-history', true)
   await waitForExpression(client, "Boolean(document.querySelector('.resume-picker .el-select')) && !document.querySelector('.resume-hero .el-loading-mask')")
   await selectElementPlusOption(client, '.resume-picker .el-select', resume.fileName)
   await waitForExpression(client, `Boolean(document.querySelector('.resume-summary strong')?.innerText.includes(${JSON.stringify(resume.fileName)}))`)
@@ -293,10 +310,12 @@ async function verifyResumeDraftPersistence(client, fixture, resume) {
   await navigate(client, `${baseUrl}/student/jobs`)
   await waitForExpression(client, "location.pathname === '/student/jobs'")
   await navigate(client, `${baseUrl}/student/resume`)
+  await setDetailsOpen(client, '.legacy-resume-history', true)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   await assertInputValue(client, educationSelector, draftMarker)
 
   await navigate(client, `${baseUrl}/student/resume`)
+  await setDetailsOpen(client, '.legacy-resume-history', true)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   await assertInputValue(client, educationSelector, draftMarker)
 
@@ -305,6 +324,7 @@ async function verifyResumeDraftPersistence(client, fixture, resume) {
     expression: `sessionStorage.removeItem(${JSON.stringify(draftKey)})`
   })
   await navigate(client, `${baseUrl}/student/resume`)
+  await setDetailsOpen(client, '.legacy-resume-history', true)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   await assertInputValue(client, educationSelector, originalEducation)
   await screenshot(client, '00g-resume-draft-restored.png')
@@ -321,7 +341,8 @@ async function verifyMatchHistoryRestoreAndContext(client, match, resume, job) {
   await assertMatchSelection(client, resume.fileName, job.title)
   await clickSelector(client, '.match-next-actions button')
   await waitForExpression(client, "location.pathname === '/student/plan'")
-  await waitForText(client, `已关联匹配：${match.score}%`)
+  await waitForText(client, '已关联岗位匹配')
+  await waitForText(client, `技能覆盖 ${match.score}%`)
 
   await navigate(client, `${baseUrl}/student/jobs`)
   await assertMatchSelection(client, resume.fileName, job.title)
@@ -367,6 +388,7 @@ async function verifyTaskSaveFailureRetention(client, plan) {
     if (!Number.isInteger(taskIndex) || taskIndex < 0) {
       throw new Error(`Unable to locate unfinished task in the plan UI: ${task.taskId}`)
     }
+    await setDetailsOpen(client, `.task-list > .task-row:nth-child(${taskIndex + 1}) .task-management-details`, true)
     const feedbackInput = `.task-list > .task-row:nth-child(${taskIndex + 1}) input[placeholder="复盘备注"]`
     await fillInput(client, feedbackInput, feedback)
     for (let index = 0; index < 30 && !intercepted && !interceptionError; index += 1) {
@@ -403,10 +425,11 @@ async function verifyPlanHistoryReadOnly(client, plan) {
   }
 
   await navigate(client, `${baseUrl}/student/plan`)
+  await setDetailsOpen(client, '.plan-sidebar', true)
   await selectElementPlusOption(client, '.plan-sidebar .el-select', `${plan.targetRole} · V${plan.version} · 进行中`)
   await waitForText(client, `V${plan.version}`)
   await clickElementByData(client, '.version-actions button', 'planId', historical.planId)
-  await waitForText(client, '当前选择的是历史版本')
+  await waitForText(client, '当前为历史版本')
   await assertReadOnlyPersistedTask(client, persistedTaskFeedback)
   await screenshot(client, '00d-plan-history-readonly.png')
 }
@@ -425,7 +448,7 @@ async function verifyCompletedInterviewReadOnly(client, fixture, session) {
   await clickSessionCard(client, fixture.sessionId)
   await waitForExpression(client, "location.pathname === '/student/interview' && !new URLSearchParams(location.search).get('tab')")
   await waitForExpression(client, "Boolean(document.querySelector('.answer-input textarea')?.readOnly)")
-  await waitForText(client, '本题反馈')
+  await waitForText(client, '本题评价')
   await waitForText(client, feedbackText)
   await screenshot(client, '00e-completed-interview-readonly.png')
 }
@@ -779,6 +802,7 @@ async function assertInputValue(client, selector, expectedValue) {
 }
 
 async function assertReadOnlyPersistedTask(client, feedback) {
+  await openTaskManagement(client, feedback)
   for (let index = 0; index < 30; index += 1) {
     const state = await elementBox(client, `(() => {
       const row = [...document.querySelectorAll('.task-row')].find((item) =>
@@ -865,6 +889,76 @@ async function assertNoInternalHorizontalOverflow(client, selector) {
   }
 }
 
+async function assertStudentWorkspace(client, module) {
+  await waitForExpression(client, "Boolean(document.querySelector('.student-workspace'))")
+  const redundantChrome = await elementBox(client, "Boolean(document.querySelector('.student-workspace .eyebrow, .compact-workspace-header, .target-role-control'))")
+  if (redundantChrome) {
+    throw new Error(`Redundant heading or target role row remains in student ${module}`)
+  }
+
+  if (module === 'interview') {
+    await assertText(client, ['开始模拟面试', '本次目标岗位', '题目数量', '会话历史'])
+    await assertNoText(client, ['模拟面试会话', 'AI INTERVIEW STUDIO'])
+    await waitForExpression(client, "Boolean(document.querySelector('.target-role-editor input')?.getClientRects().length)")
+  }
+
+  if (module === 'knowledge') {
+    await assertText(client, ['仅检索', 'AI 回答', '检索'])
+    await assertNoText(client, ['RAG KNOWLEDGE BASE', 'RAG 知识库问答'])
+    const placeholder = await elementBox(client, "Boolean(document.querySelector('.knowledge-overview, .knowledge-intro, .knowledge-shell .el-empty'))")
+    if (placeholder) {
+      throw new Error('Initial knowledge page still contains decorative statistics or an empty illustration')
+    }
+    await waitForExpression(client, "Boolean(document.querySelector('.knowledge-search input')?.getClientRects().length) && Boolean(document.querySelector('.knowledge-search button')?.getClientRects().length)")
+  }
+
+  if (module === 'plan') {
+    await waitForExpression(client, "!document.querySelector('.plan-builder .el-loading-mask') && Boolean(document.querySelector('.task-panel, .plan-builder-fields'))")
+    const hasTasks = await elementBox(client, "Boolean(document.querySelector('.task-panel'))")
+    if (!hasTasks) {
+      await assertText(client, ['生成学习计划'])
+      return
+    }
+    await assertText(client, ['任务进度', '历史版本与重新规划'])
+    const layout = await elementBox(client, `(() => {
+      const tasks = document.querySelector('.task-panel');
+      const history = document.querySelector('.plan-sidebar');
+      const collapsedBuilder = document.querySelector('.plan-builder-collapsed');
+      return {
+        historyIsDetails: history?.tagName === 'DETAILS',
+        historyClosed: history?.open === false,
+        tasksFirst: Boolean(tasks && history && (tasks.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        duplicateBuilderTitle: Boolean(collapsedBuilder && document.querySelector('.plan-builder h2'))
+      };
+    })()`)
+    if (!layout?.historyIsDetails || !layout.historyClosed || !layout.tasksFirst || layout.duplicateBuilderTitle) {
+      throw new Error(`Learning page does not prioritize tasks and collapsed history: ${JSON.stringify(layout)}`)
+    }
+    await setDetailsOpen(client, '.plan-sidebar', true)
+    await waitForExpression(client, "Boolean(document.querySelector('.plan-sidebar .el-select')?.getClientRects().length) && Boolean(document.querySelector('.plan-sidebar .replan-form textarea')?.getClientRects().length)")
+    await setDetailsOpen(client, '.plan-sidebar', false)
+  }
+}
+
+async function setDetailsOpen(client, selector, open) {
+  await waitForExpression(client, `document.querySelector(${JSON.stringify(selector)})?.tagName === 'DETAILS'`)
+  const current = await elementBox(client, `document.querySelector(${JSON.stringify(selector)}).open`)
+  if (current !== open) {
+    await clickSelector(client, `${selector} > summary`)
+  }
+  await waitForExpression(client, `document.querySelector(${JSON.stringify(selector)}).open === ${open}`)
+}
+
+async function openTaskManagement(client, feedback) {
+  const taskIndex = await elementBox(client, `(() => [...document.querySelectorAll('.task-row')]
+    .findIndex((row) => [...row.querySelectorAll('input, textarea')]
+      .some((input) => input.value === ${JSON.stringify(feedback)})))()`)
+  if (!Number.isInteger(taskIndex) || taskIndex < 0) {
+    throw new Error(`Task with persisted feedback is missing: ${feedback}`)
+  }
+  await setDetailsOpen(client, `.task-list > .task-row:nth-child(${taskIndex + 1}) .task-management-details`, true)
+}
+
 async function assertDetailsToggle(client, selector) {
   const exists = await elementBox(client, `Boolean(document.querySelector(${JSON.stringify(selector)}))`)
   if (!exists) {
@@ -903,6 +997,7 @@ async function assertSelectDisplay(client, expected) {
 }
 
 async function assertPersistedTask(client, feedback) {
+  await openTaskManagement(client, feedback)
   for (let index = 0; index < 30; index += 1) {
     const found = await elementBox(client, `(() => [...document.querySelectorAll('.task-row')]
       .some((row) => row.innerText.includes('已完成')

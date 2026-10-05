@@ -83,7 +83,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
     <aside v-if="authed" class="side-nav" :class="{ 'is-open': mobileNavOpen }" :inert="searchOpen">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true"><Sparkles :size="23" :stroke-width="1.8" /></div>
-        <div class="brand-copy"><strong>Campus Recruit</strong><span>每一步，向理想靠近</span></div>
+        <div class="brand-copy"><strong>Campus Recruit</strong><span v-if="section !== 'student'">每一步，向理想靠近</span></div>
         <button class="icon-button mobile-close" aria-label="关闭导航" @click="mobileNavOpen = false"><X :size="18" /></button>
       </div>
       <div class="workspace-picker"><span class="workspace-avatar">{{ userInitial }}</span><div><strong>{{ roleLabel }}</strong><span>{{ userName }}</span></div><ShieldCheck :size="16" /></div>
@@ -94,9 +94,9 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
         </RouterLink>
       </nav>
       <div class="sidebar-bottom">
-        <div class="workspace-tip"><div class="tip-icon"><Sparkles :size="20" /></div><strong>{{ workspaceTip.label }}</strong><p>{{ workspaceTip.description }}</p><RouterLink :to="workspaceTip.path">{{ workspaceTip.action }}<ArrowUpRight :size="16" /></RouterLink></div>
+        <div v-if="section !== 'student'" class="workspace-tip"><div class="tip-icon"><Sparkles :size="20" /></div><strong>{{ workspaceTip.label }}</strong><p>{{ workspaceTip.description }}</p><RouterLink :to="workspaceTip.path">{{ workspaceTip.action }}<ArrowUpRight :size="16" /></RouterLink></div>
         <button class="ghost-button logout-button" type="button" @click="logout"><LogOut :size="17" /><span>退出登录</span></button>
-        <div class="sidebar-footnote">AI Campus Recruitment <span>✦</span></div>
+        <div v-if="section !== 'student'" class="sidebar-footnote">AI Campus Recruitment <span>✦</span></div>
       </div>
     </aside>
     <main class="main-view" :class="{ centered: !authed }" :inert="searchOpen">

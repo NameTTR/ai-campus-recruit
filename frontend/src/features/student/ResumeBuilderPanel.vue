@@ -538,19 +538,16 @@ onBeforeUnmount(() => {
 <template>
   <el-config-provider :locale="zhCn">
   <section ref="workspaceElement" class="panel resume-builder" data-testid="resume-workspace" v-loading="loading">
-    <div class="section-heading">
-<div>
-<h2>{{ step === 'resume' ? '我的简历' : step === 'template' ? '选择岗位与模板' : '填写简历资料' }}</h2>
-</div>
-<el-button v-if="!profileDirty && !draftDirty" circle :loading="loading" title="刷新" aria-label="刷新工作区" @click="load"><RefreshCw :size="16" /></el-button>
-</div>
-    <nav class="workflow-steps" aria-label="简历制作步骤">
+    <div class="workflow-toolbar">
+      <nav class="workflow-steps" aria-label="简历制作步骤">
       <button type="button" data-testid="resume-step-profile" :class="{ active: step === 'profile' }" :aria-current="step === 'profile' ? 'step' : undefined" @click="goToStep('profile')"><span>1</span>填写资料</button>
       <ArrowRight :size="15" class="step-arrow" />
       <button type="button" data-testid="resume-step-template" :class="{ active: step === 'template' }" :aria-current="step === 'template' ? 'step' : undefined" @click="goToStep('template')"><span>2</span>岗位与模板</button>
       <ArrowRight :size="15" class="step-arrow" />
       <button type="button" data-testid="resume-step-result" :class="{ active: step === 'resume' }" :disabled="!drafts.length" :aria-current="step === 'resume' ? 'step' : undefined" @click="goToStep('resume')"><span>3</span>编辑与下载</button>
-    </nav>
+      </nav>
+      <el-button v-if="!profileDirty && !draftDirty" class="workspace-refresh" circle :loading="loading" title="刷新" aria-label="刷新工作区" @click="load"><RefreshCw :size="16" /></el-button>
+    </div>
     <div class="builder-grid">
       <div v-show="step === 'profile'" class="builder-source" data-testid="resume-profile-form">
         <div class="subheading">
@@ -1080,7 +1077,9 @@ onBeforeUnmount(() => {
   </el-config-provider>
 </template>
 <style scoped>
-.workflow-steps{display:flex;align-items:center;gap:12px;border-bottom:1px solid #e5ebe7;padding:6px 0 18px;margin-bottom:20px}
+.workflow-toolbar{display:flex;align-items:center;gap:12px;border-bottom:1px solid #e5ebe7;padding-bottom:12px;margin-bottom:16px}
+.workflow-steps{display:flex;align-items:center;flex:1;flex-wrap:wrap;min-width:0;gap:12px}
+.workspace-refresh{flex:none;width:32px;height:32px}
 .workflow-steps button{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 12px;color:#68756e;border:0;background:transparent;font:inherit;font-size:13px;cursor:pointer;min-height:40px;border-radius:6px}
 .workflow-steps button.active{background:#e9f3ec;color:#28664f;font-weight:600}
 .workflow-steps button:disabled{cursor:default;opacity:.5}
@@ -1210,10 +1209,11 @@ onBeforeUnmount(() => {
 .draft-toolbar :deep(.el-select){width:100%}
 .pdf-preview{height:580px}}
 @media(max-width:560px){.resume-builder{padding:14px}
-.workflow-steps{gap:2px;justify-content:space-between}
-.workflow-steps button{padding:7px 4px;font-size:12px;gap:4px}
+.workflow-toolbar{align-items:flex-start;gap:6px}
+.workflow-steps{gap:6px}
+.workflow-steps button{padding:7px 6px;gap:4px;white-space:nowrap}
 .workflow-steps button span{width:19px;height:19px;font-size:11px}
-.step-arrow{width:12px}
+.step-arrow{display:none}
 .profile-tabs{gap:16px}
 .profile-tabs button{font-size:12px}
 .template-list{grid-template-columns:repeat(2,minmax(0,1fr))}

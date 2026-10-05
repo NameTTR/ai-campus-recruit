@@ -13,14 +13,11 @@ import {
   CheckCircle2,
   CircleDashed,
   Clock3,
-  Compass,
   FileText,
   GraduationCap,
-  Library,
   MapPin,
   PencilLine,
   RefreshCw,
-  Route,
   Search,
   Sparkles,
   TrendingUp,
@@ -200,10 +197,9 @@ const interviewTargetRole = ref('')
 let answerDraftSessionId = ''
 let interviewReadRequest = 0
 
-const knowledgeQuery = ref('Java Redis 面试')
+const knowledgeQuery = ref('')
 const knowledgeAnswer = ref<KnowledgeAnswerResponse>()
 const knowledgeRetrieval = ref<AiSearchResponse>()
-const knowledgeResultCount = ref<number>()
 const knowledgeLoading = ref(false)
 const knowledgeUseAi = ref(false)
 const knowledgeAnswerUsedAi = ref(false)
@@ -1444,7 +1440,6 @@ async function runKnowledgeSearch() {
   knowledgeError.value = ''
   knowledgeAnswer.value = undefined
   knowledgeRetrieval.value = undefined
-  knowledgeResultCount.value = undefined
   knowledgeAnswerUsedAi.value = useAi
   knowledgeLoading.value = true
   try {
@@ -1452,7 +1447,6 @@ async function runKnowledgeSearch() {
     if (requestKey !== knowledgeRequestKey) return
     knowledgeAnswer.value = { ...answer, citations: answer.citations || [] }
     knowledgeRetrieval.value = retrievalFromAnswer(answer)
-    knowledgeResultCount.value = knowledgeRetrieval.value.results.length
     saveKnowledgeQuery(query)
     if (!answer.citations?.length) ElMessage.warning('没有找到可引用的知识资料')
   } catch (error) {
@@ -1537,7 +1531,7 @@ watch(targetRole, (value) => {
 
       <section class="resume-hero panel" v-loading="resumeLoading">
         <div class="section-heading">
-          <div><span class="eyebrow">RESUME LIBRARY</span><h2>我的简历</h2></div>
+          <div><h2>我的简历</h2></div>
           <label class="upload-control">
             <Upload :size="16" />
             <span>上传简历</span>
@@ -1560,7 +1554,7 @@ watch(targetRole, (value) => {
               <div class="tag-row"><el-tag type="info">{{ selectedResume.sourceFormat || '未知格式' }}</el-tag><el-tag type="success">{{ selectedResume.parseStatus || '待解析' }}</el-tag><el-tag>{{ selectedResume.parsedTextLength || 0 }} 字符</el-tag></div>
             </div>
           </template>
-          <el-empty v-else description="暂无简历，请先上传" />
+          <p v-else class="compact-empty">暂无简历，请先上传。</p>
         </div>
         <ResumeEvidencePanel v-if="selectedResume?.structuredDiagnosis" :diagnosis="selectedResume.structuredDiagnosis" />
         <details v-if="selectedResume?.diagnosis" class="resume-diagnosis">
@@ -1571,7 +1565,7 @@ watch(targetRole, (value) => {
 
       <section class="resume-workspace">
         <article class="panel profile-panel">
-          <div class="section-heading"><div><span class="eyebrow">PROFILE EVIDENCE</span><h2>简历资料与诊断</h2></div><PencilLine :size="20" /></div>
+          <div class="section-heading"><div><h2>简历资料与诊断</h2></div><PencilLine :size="20" /></div>
           <div class="profile-form">
             <label class="form-field"><span>学历与专业</span><el-input v-model="resumeForm.education" placeholder="学历与专业" /></label>
             <label class="form-field"><span>实际岗位（优先）</span><el-select v-model="diagnosisJobId" clearable filterable placeholder="选择实际岗位；留空使用通用建议"><el-option v-for="job in jobs" :key="job.jobId" :label="`${job.title} · ${job.companyName}`" :value="job.jobId" /></el-select></label>
@@ -1591,8 +1585,8 @@ watch(targetRole, (value) => {
           </div>
         </article>
         <aside class="panel diagnosis-panel">
-          <div class="section-heading"><div><span class="eyebrow">ANALYSIS HISTORY</span><h2>诊断记录</h2></div><RefreshCw :size="20" /></div>
-          <el-empty v-if="!diagnoses.length" description="完成诊断后将在这里展示" :image-size="84" />
+          <div class="section-heading"><div><h2>诊断记录</h2></div><RefreshCw :size="20" /></div>
+          <p v-if="!diagnoses.length" class="compact-empty">暂无诊断记录。</p>
           <div v-else class="diagnosis-list">
             <article v-for="diagnosis in diagnoses" :key="diagnosis.diagnosisId" class="diagnosis-item">
               <div class="diagnosis-item-head"><div><strong>{{ diagnosis.targetJob || '通用诊断' }}</strong><span>{{ diagnosis.createdAt }}</span></div><b>{{ diagnosis.score }}<small>分</small></b></div>
@@ -1616,7 +1610,7 @@ watch(targetRole, (value) => {
 
       <section class="jobs-layout" v-loading="jobsLoading">
         <article class="panel job-browser">
-          <div class="section-heading"><div><span class="eyebrow">ROLE EXPLORER</span><h2>岗位与匹配</h2></div><span class="result-count">{{ filteredJobs.length }} 个结果</span></div>
+          <div class="section-heading"><div><h2>岗位列表</h2></div><span class="result-count">{{ filteredJobs.length }} 个结果</span></div>
           <el-input v-model="jobSearch" class="job-search" placeholder="搜索岗位、公司、城市或技能">
             <template #prefix><Search :size="17" /></template>
           </el-input>
@@ -1637,12 +1631,12 @@ watch(targetRole, (value) => {
               <ArrowUpRight :size="18" />
             </button>
           </div>
-          <el-empty v-if="!filteredJobs.length" description="没有匹配的岗位" :image-size="88" />
+          <p v-if="!filteredJobs.length" class="compact-empty">没有符合条件的岗位，可调整搜索词或筛选条件。</p>
         </article>
 
         <div class="job-detail-stack">
           <article v-if="compareResult" class="panel comparison-panel">
-            <div class="section-heading"><div><span class="eyebrow">JOB COMPARISON</span><h2>岗位条件与证据比较</h2></div><el-button text @click="compareResult = undefined">关闭</el-button></div>
+            <div class="section-heading"><div><h2>岗位条件与证据比较</h2></div><el-button text @click="compareResult = undefined">关闭</el-button></div>
             <p class="form-dirty-note">各岗位使用同一份选定简历。覆盖率表示要求覆盖情况；缺少安排或岗位条件时保留“信息不足”。</p>
             <div class="comparison-grid">
               <article v-for="item in compareResult.jobs" :key="item.job.jobId">
@@ -1663,18 +1657,17 @@ watch(targetRole, (value) => {
           </article>
           <article class="panel job-detail">
             <template v-if="selectedJob">
-              <div class="section-heading"><div><span class="eyebrow">SELECTED ROLE</span><h2>{{ selectedJob.title }}</h2></div><el-tag type="success">{{ selectedJob.status || 'OPEN' }}</el-tag></div>
+              <div class="section-heading"><div><h2>{{ selectedJob.title }}</h2></div><el-tag type="success">{{ selectedJob.status || 'OPEN' }}</el-tag></div>
               <div class="job-detail-meta"><span><BriefcaseBusiness :size="15" />{{ selectedJob.companyName }}</span><span><MapPin :size="15" />{{ selectedJob.city }}</span><strong>{{ selectedJob.salaryRange }}</strong></div>
               <p>{{ selectedJob.description }}</p>
               <div class="tag-row"><el-tag v-for="skill in selectedJob.requiredSkills" :key="skill">{{ skill }}</el-tag></div>
             </template>
-            <el-empty v-else description="请选择一个岗位" :image-size="84" />
+            <p v-else class="compact-empty">选择岗位后查看要求与条件。</p>
           </article>
           <article class="panel match-launcher">
-            <div><span class="eyebrow">SKILL COVERAGE</span><h2>开始匹配</h2><p>选择简历与岗位，查看已具备的技能证据和下一步建议。</p></div>
             <div class="match-controls">
-              <el-select v-model="selectedResumeId" placeholder="选择简历" @change="selectResume"><el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" /></el-select>
-              <el-select v-model="selectedJobId" placeholder="选择岗位"><el-option v-for="job in jobs" :key="job.jobId" :label="`${job.title} · ${job.companyName}`" :value="job.jobId" /></el-select>
+              <label class="form-field"><span>匹配简历</span><el-select v-model="selectedResumeId" placeholder="选择简历" aria-label="匹配简历" @change="selectResume"><el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" /></el-select></label>
+              <label class="form-field"><span>目标岗位</span><el-select v-model="selectedJobId" placeholder="选择岗位" aria-label="匹配岗位"><el-option v-for="job in jobs" :key="job.jobId" :label="`${job.title} · ${job.companyName}`" :value="job.jobId" /></el-select></label>
               <el-button type="primary" :loading="matchLoading" @click="runMatch">匹配</el-button>
             </div>
           </article>
@@ -1683,7 +1676,7 @@ watch(targetRole, (value) => {
 
       <section class="match-history-grid">
         <article v-if="currentMatch" class="panel match-result">
-          <div class="section-heading"><div><span class="eyebrow">LATEST RESULT</span><h2>本次匹配结果</h2></div><CheckCircle2 :size="21" /></div>
+          <div class="section-heading"><div><h2>本次匹配结果</h2></div><CheckCircle2 :size="21" /></div>
           <MatchEvidencePanel v-if="currentMatch.details" :details="currentMatch.details" />
           <div v-else class="coverage-score"><strong>{{ matchScoreLabel(currentMatch) }}</strong><div><b>技能覆盖率</b><span>{{ currentMatch.analysisSource === 'RULE_INSUFFICIENT_JOB_SKILLS' ? '岗位要求缺少可比技能，暂不生成覆盖率。' : '根据岗位要求与简历技能计算' }}</span></div></div>
           <div class="tag-row"><el-tag :type="sourceTagType(currentMatch.analysisSource)">{{ matchSourceLabel(currentMatch.analysisSource) }}</el-tag></div>
@@ -1694,15 +1687,15 @@ watch(targetRole, (value) => {
           <div class="match-next-actions"><el-button :disabled="currentMatchStale" @click="openMatchWorkspace('plan')">生成学习计划 <ArrowUpRight :size="15" /></el-button><el-button type="primary" :disabled="currentMatchStale" @click="openMatchWorkspace('interview')">进入模拟面试 <ArrowUpRight :size="15" /></el-button></div>
         </article>
         <article class="panel match-history">
-          <div class="section-heading"><div><span class="eyebrow">MATCH ARCHIVE</span><h2>匹配覆盖</h2></div><Sparkles :size="20" /></div>
-          <el-empty v-if="!matches.length" description="尚无匹配记录" :image-size="76" />
+          <div class="section-heading"><div><h2>匹配记录</h2></div><Sparkles :size="20" /></div>
+          <p v-if="!matches.length" class="compact-empty">暂无匹配记录。</p>
           <div v-else class="match-records"><button v-for="match in matches" :key="match.matchId" class="match-record" :data-match-id="match.matchId" @click="restoreMatch(match)"><div><strong>{{ jobs.find((job) => job.jobId === match.jobId)?.title || match.jobId }}</strong><span>{{ matchSourceLabel(match.analysisSource) }}</span></div><b>{{ matchScoreLabel(match) }}</b></button></div>
         </article>
       </section>
     </template>
 
     <template v-else-if="activeModule === 'plan'">
-      <section class="overview-grid" v-loading="planLoading">
+      <section v-if="selectedPlan" class="overview-grid" v-loading="planLoading">
         <article class="overview-card accent-mint"><span>完成任务</span><strong>{{ selectedPlanCompletedTasks }}<small>/{{ selectedPlan?.tasks.length || 0 }}</small></strong><CheckCircle2 :size="22" /></article>
         <article class="overview-card accent-lavender"><span>当前进度</span><strong>{{ selectedPlanProgress }}<small>%</small></strong><TrendingUp :size="22" /></article>
         <article class="overview-card accent-peach"><span>每周投入</span><strong>{{ selectedPlan?.weeklyHours || planForm.weeklyHours }}<small>h</small></strong><Clock3 :size="22" /></article>
@@ -1710,7 +1703,7 @@ watch(targetRole, (value) => {
       </section>
 
       <section class="plan-builder panel" v-loading="planLoading">
-        <div class="section-heading"><div><span class="eyebrow">PERSONAL ROADMAP</span><h2>学习计划</h2><p>按可投入时间生成与目标岗位关联的练习节奏。</p></div><Route :size="22" /></div>
+        <div v-if="planBuilderOpen || !plans.length" class="section-heading"><h2>学习安排</h2><el-button v-if="plans.length" text size="small" @click="planBuilderOpen = false">收起</el-button></div>
         <div v-if="plans.length && !planBuilderOpen" class="plan-builder-collapsed">
           <div class="plan-builder-collapsed-copy">
             <strong>{{ selectedPlan?.targetRole || planForm.targetRole || '学习计划设置' }}</strong>
@@ -1738,38 +1731,20 @@ watch(targetRole, (value) => {
         </div>
       </section>
 
-      <p class="plan-context">{{ selectedContextMatch ? `已关联匹配：${matchScoreLabel(selectedContextMatch)} · ${selectedContextMatch.matchId}` : '无当前技能对应的匹配记录，计划将基于已选简历、岗位和目标岗位生成。' }}</p>
+      <p v-if="selectedContextMatch" class="plan-context">已关联岗位匹配 · 技能覆盖 {{ matchScoreLabel(selectedContextMatch) }}</p>
       <section v-if="plans.length" class="plan-layout">
-        <aside class="panel plan-sidebar">
-          <div class="section-heading"><div><span class="eyebrow">PLAN VERSION</span><h2>计划版本</h2></div><RefreshCw :size="20" /></div>
-          <el-select v-model="selectedPlanId" placeholder="选择学习计划" @change="loadPlanVersions"><el-option v-for="plan in plans" :key="plan.planId" :label="`${plan.targetRole} · V${plan.version} · ${planStatusLabel(plan.status)}`" :value="plan.planId" /></el-select>
-          <div v-if="selectedPlan" class="plan-summary-card">
-            <div><span>{{ selectedPlan.targetRole }}</span><strong>V{{ selectedPlan.version }}</strong></div>
-            <p>{{ selectedPlan.weeklyHours }} 小时/周 · {{ selectedPlan.durationWeeks }} 周</p>
-            <el-progress :percentage="selectedPlanProgress" :show-text="false" :stroke-width="8" color="#28664f" />
-            <div class="tag-row"><el-tag :type="selectedPlanIsActive ? 'success' : 'info'">{{ planStatusLabel(selectedPlan.status) }}{{ selectedPlanIsActive ? ' · 当前可编辑版本' : ' · 历史只读版本' }}</el-tag><el-tag :type="sourceTagType(undefined, selectedPlan.mocked)">{{ sourceTagLabel(undefined, selectedPlan.mocked) }}</el-tag></div>
-          </div>
-          <div class="version-rail"><span v-for="version in planVersions" :key="version.planId" :class="{ current: version.planId === selectedPlanId }">V{{ version.version }}</span></div>
-          <div v-if="planVersions.length" class="version-actions"><el-button v-for="version in planVersions" :key="version.planId" :data-plan-id="version.planId" size="small" :type="version.planId === selectedPlanId ? 'primary' : 'default'" @click="selectedPlanId = version.planId; loadPlanVersions()">V{{ version.version }} · {{ planStatusLabel(version.status) }}</el-button></div>
-          <el-alert v-if="selectedPlan && !selectedPlanIsActive" title="当前选择的是历史版本，任务和重新规划均为只读。" type="info" :closable="false" show-icon />
-          <details v-if="selectedPlan?.revisionReason" class="revision-reason">
-            <summary>调整原因：{{ summarizeText(selectedPlan.revisionReason) }}</summary>
-            <p>{{ selectedPlan.revisionReason }}</p>
-          </details>
-          <div class="schedule-summary"><strong>本周安排</strong><span>{{ weekTasks.length }} 项 · {{ activePlanSchedule.startDate ? `第 ${currentPlanWeek} 周` : '尚未设置日期' }}</span><small v-if="todayPlanData?.reminders?.length">{{ todayPlanData.reminders.join('；') }}</small><small v-else-if="upcomingReminders.length">每天 {{ activePlanSchedule.reminderTime || '20:00' }} 提醒未完成任务</small><small v-else>暂无待提醒任务</small><small v-if="weeklyReviewData">上周实际 {{ weeklyReviewData.actualMinutes }} 分钟 · 完成 {{ weeklyReviewData.completedTasks }} 项 · 延期 {{ weeklyReviewData.delayedTasks }} 项</small></div>
-          <div class="replan-form"><span>调整节奏与周复盘</span><el-input v-model="planForm.replanReason" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="计划变化或复盘原因" /><el-input v-model="weeklyReviewDraft" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="本周复盘：完成了什么、哪里卡住、下周准备怎么调整" /><el-select v-model="selectedCompletedSessionId" :disabled="!selectedPlanIsActive" clearable placeholder="选择同目标的已完成面试会话（可选)"><el-option v-for="session in compatibleCompletedSessions" :key="session.sessionId" :label="`${session.targetRole} · ${session.completedAt || session.updatedAt}`" :value="session.sessionId" /></el-select><div class="schedule-actions"><el-button :disabled="!selectedPlanIsActive" @click="savePlanSchedule">保存安排与复盘</el-button><el-button :disabled="!selectedPlanIsActive" :loading="planActionLoading" @click="replan">重新规划并预览</el-button></div><small v-if="weeklyReviewSaved" class="saved-note">最近已保存本周复盘</small></div>
-        </aside>
         <article class="panel task-panel">
-          <el-alert title="完成状态为自报进度；成果评价单独记录，不会自动更新已掌握技能。" type="info" :closable="false" />
           <div class="section-heading"><div><h2>任务进度</h2><p class="task-context">今日 {{ todayPlanData?.tasks.length ?? todayTasks.length }} 项 · 本周 {{ weekTasks.length }} 项<span v-if="overdueTasks.length"> · 逾期 {{ overdueTasks.length }} 项</span></p></div><div class="progress-text"><strong>{{ selectedPlanProgress }}%</strong><span>{{ selectedPlanCompletedTasks }}/{{ selectedPlan?.tasks.length || 0 }} 已完成</span></div></div>
+          <p class="task-evidence-note">完成状态为自报进度，不会自动增加技能证据。</p>
+          <p v-if="selectedPlan && !selectedPlanIsActive" class="form-dirty-note">当前为历史版本，任务和重新规划只读。</p>
           <div v-if="todayTasks.length || todayPlanData?.tasks.length" class="today-strip"><strong>今天先做</strong><span v-for="task in (todayPlanData?.tasks || todayTasks).slice(0, 3)" :key="task.taskId">{{ task.title }}</span></div>
           <el-alert v-if="overdueTasks.length" title="有任务已经超过安排日期，请完成、延期或跳过后再继续。" type="warning" :closable="false" />
-          <el-empty v-if="!selectedPlan" description="请选择学习计划" :image-size="88" />
+          <p v-if="!selectedPlan" class="compact-empty">在历史版本中选择学习计划。</p>
           <div v-else class="task-list">
             <div v-for="task in selectedPlan.tasks" :key="task.taskId" class="task-row" :class="{ 'task-today': todayTasks.some((item) => item.taskId === task.taskId), 'task-overdue': overdueTasks.some((item) => item.taskId === task.taskId) }">
               <div class="task-main"><span class="week-chip">W{{ task.week }}</span><div><div class="task-title-line"><strong>{{ task.title }}</strong><el-tag size="small" :type="taskDisplayStatus(task) === 'COMPLETED' ? 'success' : taskDisplayStatus(task) === 'IN_PROGRESS' ? 'primary' : taskDisplayStatus(task) === 'PAUSED' || taskDisplayStatus(task) === 'DEFERRED' ? 'warning' : 'info'">{{ taskActionLabel(task) }}</el-tag></div><details class="task-details"><summary>查看任务详情</summary><p>{{ task.description }}</p><div class="task-detail-lines"><small>安排：{{ taskSchedule(task).scheduledDate || `第 ${task.week} 周` }}</small><small v-if="taskSchedule(task).actualMinutes">实际：{{ taskSchedule(task).actualMinutes }} 分钟</small><small v-if="task.stage">{{ learningStageLabel(task.stage) }}</small><small v-if="task.skillGap">缺口：{{ task.skillGap }}</small><small v-if="task.acceptanceCriteria">验收：{{ task.acceptanceCriteria }}</small><small v-if="task.practiceDeliverable">交付：{{ task.practiceDeliverable }}</small></div></details></div></div>
               <span class="task-hours"><Clock3 :size="14" />{{ task.estimatedHours }}h</span>
-              <div class="task-actions"><el-button size="small" :disabled="!selectedPlanIsActive || taskSaving(task.taskId) || taskDisplayStatus(task) === 'IN_PROGRESS'" @click="performTaskAction(task, 'START')">开始</el-button><el-button size="small" :disabled="!selectedPlanIsActive || taskSaving(task.taskId) || taskDisplayStatus(task) !== 'IN_PROGRESS'" @click="performTaskAction(task, 'PAUSE')">暂停</el-button><el-button size="small" type="success" plain :disabled="!selectedPlanIsActive || taskSaving(task.taskId) || taskDisplayStatus(task) === 'COMPLETED'" @click="performTaskAction(task, 'COMPLETE')">完成</el-button><el-button size="small" text :disabled="!selectedPlanIsActive || taskSaving(task.taskId) || taskDisplayStatus(task) === 'COMPLETED'" @click="performTaskAction(task, 'DEFER')">延期一天</el-button></div>
+              <div v-if="selectedPlanIsActive && taskDisplayStatus(task) !== 'COMPLETED'" class="task-actions"><el-button v-if="taskDisplayStatus(task) !== 'IN_PROGRESS'" size="small" :disabled="taskSaving(task.taskId)" @click="performTaskAction(task, 'START')">开始</el-button><el-button v-if="taskDisplayStatus(task) === 'IN_PROGRESS'" size="small" :disabled="taskSaving(task.taskId)" @click="performTaskAction(task, 'PAUSE')">暂停</el-button><el-button size="small" type="success" plain :disabled="taskSaving(task.taskId)" @click="performTaskAction(task, 'COMPLETE')">完成</el-button><el-button size="small" text :disabled="taskSaving(task.taskId)" @click="performTaskAction(task, 'DEFER')">延期一天</el-button></div>
               <details class="task-management-details">
                 <summary>{{ task.evidence?.length ? '查看进度与成果' : '记录复盘或提交成果' }}</summary>
                 <div class="task-management-fields">
@@ -1782,12 +1757,25 @@ watch(targetRole, (value) => {
             </div>
           </div>
         </article>
+        <details class="plan-sidebar plan-history-details">
+          <summary>历史版本与重新规划</summary>
+          <div class="plan-history-body">
+            <el-select v-model="selectedPlanId" placeholder="选择学习计划" aria-label="学习计划版本" @change="loadPlanVersions"><el-option v-for="plan in plans" :key="plan.planId" :label="`${plan.targetRole} · V${plan.version} · ${planStatusLabel(plan.status)}`" :value="plan.planId" /></el-select>
+            <div v-if="selectedPlan" class="tag-row"><el-tag :type="selectedPlanIsActive ? 'success' : 'info'">{{ planStatusLabel(selectedPlan.status) }}{{ selectedPlanIsActive ? ' · 当前可编辑版本' : ' · 历史只读版本' }}</el-tag><el-tag :type="sourceTagType(undefined, selectedPlan.mocked)">{{ sourceTagLabel(undefined, selectedPlan.mocked) }}</el-tag></div>
+            <div v-if="planVersions.length" class="version-actions"><el-button v-for="version in planVersions" :key="version.planId" :data-plan-id="version.planId" size="small" :type="version.planId === selectedPlanId ? 'primary' : 'default'" @click="selectedPlanId = version.planId; loadPlanVersions()">V{{ version.version }} · {{ planStatusLabel(version.status) }}</el-button></div>
+            <details v-if="selectedPlan?.revisionReason" class="revision-reason">
+              <summary>调整原因：{{ summarizeText(selectedPlan.revisionReason) }}</summary>
+              <p>{{ selectedPlan.revisionReason }}</p>
+            </details>
+            <div v-if="todayPlanData?.reminders?.length || upcomingReminders.length || weeklyReviewData" class="schedule-summary"><small v-if="todayPlanData?.reminders?.length">{{ todayPlanData.reminders.join('；') }}</small><small v-else-if="upcomingReminders.length">每天 {{ activePlanSchedule.reminderTime || '20:00' }} 提醒未完成任务</small><small v-if="weeklyReviewData">上周实际 {{ weeklyReviewData.actualMinutes }} 分钟 · 完成 {{ weeklyReviewData.completedTasks }} 项 · 延期 {{ weeklyReviewData.delayedTasks }} 项</small></div>
+            <div class="replan-form"><span>调整节奏与周复盘</span><el-input v-model="planForm.replanReason" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="计划变化或复盘原因" aria-label="计划调整原因" /><el-input v-model="weeklyReviewDraft" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="本周复盘：完成了什么、哪里卡住、下周准备怎么调整" aria-label="本周复盘" /><el-select v-model="selectedCompletedSessionId" :disabled="!selectedPlanIsActive" clearable placeholder="同目标的已完成面试（可选）" aria-label="面试反馈来源"><el-option v-for="session in compatibleCompletedSessions" :key="session.sessionId" :label="`${session.targetRole} · ${session.completedAt || session.updatedAt}`" :value="session.sessionId" /></el-select><div class="schedule-actions"><el-button :disabled="!selectedPlanIsActive" @click="savePlanSchedule">保存安排与复盘</el-button><el-button :disabled="!selectedPlanIsActive" :loading="planActionLoading" @click="replan">重新规划并预览</el-button></div><small v-if="weeklyReviewSaved" class="saved-note">最近已保存本周复盘</small></div>
+          </div>
+        </details>
       </section>
-      <el-empty v-else description="尚未生成学习计划" :image-size="92" />
     </template>
 
     <template v-else-if="activeModule === 'interview'">
-      <section class="overview-grid" v-loading="interviewLoading">
+      <section v-if="selectedSession" class="overview-grid" v-loading="interviewLoading">
         <article class="overview-card accent-mint"><span>模拟会话</span><strong>{{ interviewSessions.length }}</strong><Bot :size="22" /></article>
         <article class="overview-card accent-lavender"><span>当前完成度</span><strong>{{ selectedSessionProgress }}<small>%</small></strong><CircleDashed :size="22" /></article>
         <article class="overview-card accent-peach"><span>本次题目</span><strong>{{ selectedSession?.questions.length || interviewQuestionCount }}</strong><BrainCircuit :size="22" /></article>
@@ -1795,27 +1783,25 @@ watch(targetRole, (value) => {
       </section>
 
       <section class="interview-launch panel" v-loading="interviewLoading">
-        <div><span class="eyebrow">AI INTERVIEW STUDIO</span><h2>模拟面试会话</h2><p>围绕目标岗位生成问题，逐题保存作答并在完成后查看报告。</p></div>
         <div class="interview-launch-actions"><label class="target-role-editor"><span>本次目标岗位</span><el-input v-model="interviewTargetRole" placeholder="例如 Java 后端" /></label><label><span>题目数量</span><el-input-number v-model="interviewQuestionCount" :min="1" :max="8" controls-position="right" aria-label="面试题数" /></label><el-button type="primary" :loading="interviewActionLoading" @click="startInterview"><Bot :size="16" />开始模拟面试</el-button><el-button @click="router.push({ path: '/student/interview', query: { tab: 'history' } })">会话历史</el-button><el-button @click="router.push('/student/interview')">当前会话</el-button></div>
       </section>
 
       <section v-if="interviewHistoryOpen" class="panel interview-history">
-        <div class="section-heading"><div><span class="eyebrow">SESSION ARCHIVE</span><h2>面试记录</h2></div><RefreshCw :size="20" /></div>
-        <el-empty v-if="!interviewSessions.length" description="暂无模拟面试记录" :image-size="92" />
+        <div class="section-heading"><div><h2>面试记录</h2></div><RefreshCw :size="20" /></div>
+        <p v-if="!interviewSessions.length" class="compact-empty">暂无面试记录，可开始一次模拟面试。</p>
         <div v-else class="session-grid"><button v-for="session in interviewSessions" :key="session.sessionId" class="session-card" :data-session-id="session.sessionId" :class="{ selected: session.sessionId === selectedSessionId }" @click="selectedSessionId = session.sessionId; selectSession(); router.push('/student/interview')"><div><span class="session-icon"><Bot :size="18" /></span><strong>{{ session.targetRole }}</strong></div><span>{{ session.status }} · {{ session.answers.length }}/{{ session.questions.length }} 题</span><div class="session-card-foot"><el-tag :type="sourceTagType(undefined, session.mocked)">{{ sourceTagLabel(undefined, session.mocked) }}</el-tag><ArrowUpRight :size="17" /></div></button></div>
       </section>
       <section v-else-if="selectedSession && activeQuestion" class="interview-workspace">
-        <article class="panel interview-question-card">
+        <article class="panel interview-question-card" aria-label="当前面试题目">
           <div class="question-topline"><span>问题 {{ activeQuestionIndex + 1 }} / {{ selectedSession.questions.length }}</span><span>{{ selectedSessionProgress }}% 已作答</span></div>
-          <div class="section-heading"><div><span class="eyebrow">QUESTION ROOM</span><h2>模拟面试</h2></div><BrainCircuit :size="22" /></div>
           <div class="tag-row"><el-tag type="info">{{ activeQuestion.category || '综合' }}</el-tag><el-tag>{{ activeQuestion.difficulty || '普通' }}</el-tag><el-tag :type="sourceTagType(activeQuestion.source || activeQuestion.generationSource, selectedSession.mocked)">{{ sourceTagLabel(activeQuestion.source || activeQuestion.generationSource, selectedSession.mocked) }}</el-tag></div>
           <p class="question-text">{{ activeQuestion.question }}</p>
           <div v-if="activeQuestion.referencePoints?.length" class="reference-points"><span>答题参考</span><ul class="plain-list"><li v-for="point in activeQuestion.referencePoints" :key="point">{{ point }}</li></ul></div>
           <div class="question-nav"><el-button v-for="(_, index) in selectedSession.questions" :key="index" size="small" :type="index === activeQuestionIndex ? 'primary' : 'default'" @click="activeQuestionIndex = index">第 {{ index + 1 }} 题</el-button></div>
         </article>
         <article class="panel answer-card">
-          <div class="section-heading"><div><span class="eyebrow">YOUR RESPONSE</span><h2>我的回答</h2></div><PencilLine :size="21" /></div>
-          <el-input v-model="currentAnswer" class="answer-input" type="textarea" :rows="13" :readonly="activeQuestionLocked || interviewActionLoading" :placeholder="activeQuestionLocked ? '该题已保存或当前会话只读' : '输入回答，保存后可在会话中恢复'" />
+          <label class="answer-label" for="interview-answer">我的回答</label>
+          <el-input id="interview-answer" v-model="currentAnswer" class="answer-input" type="textarea" :rows="13" :readonly="activeQuestionLocked || interviewActionLoading" :placeholder="activeQuestionLocked ? '该题已保存或当前会话只读' : '输入回答，保存后可在会话中恢复'" />
           <p v-if="!activeQuestionLocked" class="form-dirty-note">草稿会在当前浏览器标签页保留，保存回答后才会提交至面试会话。</p>
           <InterviewFeedbackPanel v-if="activeQuestionFeedback" :feedback="activeQuestionFeedback" />
           <el-alert v-if="activeSavedAnswer && activeSavedAnswer.evaluationStatus !== 'SUCCEEDED' && activeSavedAnswer.evaluationStatus" type="warning" :closable="false" :title="interviewEvaluationError || activeSavedAnswer.evaluationError || '回答已保存，待完成评价。'" />
@@ -1823,9 +1809,8 @@ watch(targetRole, (value) => {
           <div class="answer-actions"><el-button type="primary" :disabled="activeQuestionLocked || !currentAnswer.trim()" :loading="interviewActionLoading || Boolean(interviewEvaluatingId)" @click="saveCurrentAnswer">保存回答</el-button><el-button :disabled="Boolean(interviewEvaluatingId) || pendingInterviewEvaluations > 0 || selectedSession.status !== 'IN_PROGRESS' || unfinishedInterviewQuestions > 1 || (unfinishedInterviewQuestions === 1 && (activeQuestionLocked || !currentAnswer.trim()))" :loading="interviewActionLoading" @click="finishInterview">完成并生成报告</el-button></div>
         </article>
       </section>
-      <el-empty v-else-if="!interviewHistoryOpen" description="开始一次模拟面试后可在此继续作答" :image-size="92" />
       <section v-if="sessionReport" class="panel interview-report">
-        <div class="report-score"><div><span class="eyebrow">SESSION REPORT</span><h2>面试报告</h2><el-tag :type="sourceTagType(undefined, sessionReport.mocked)">{{ sourceTagLabel(undefined, sessionReport.mocked) }}</el-tag></div><strong>{{ sessionReport.overallScore }}<small>分</small></strong></div>
+        <div class="report-score"><div><h2>面试报告</h2><el-tag :type="sourceTagType(undefined, sessionReport.mocked)">{{ sourceTagLabel(undefined, sessionReport.mocked) }}</el-tag></div><strong>{{ sessionReport.overallScore }}<small>分</small></strong></div>
         <p class="form-dirty-note">{{ sessionReport.comparisonNote || '历史记录缺少评价版本，暂不进行分数比较。' }}</p>
         <p v-if="sessionReport.difficultyNote" class="form-dirty-note">{{ sessionReport.difficultyNote }}</p>
         <div v-if="comparisonSessions.length" class="version-actions"><span>同岗位、同评价版本的历史表现：</span><span v-for="session in comparisonSessions" :key="session.sessionId">{{ session.completedAt || session.updatedAt }} · {{ session.report?.overallScore }} 分</span></div>
@@ -1835,25 +1820,17 @@ watch(targetRole, (value) => {
     </template>
 
     <template v-else-if="activeModule === 'knowledge'">
-      <section class="overview-grid knowledge-overview">
-        <article class="overview-card accent-mint"><span>检索结果</span><strong>{{ knowledgeResultCount ?? '—' }}</strong><Search :size="22" /></article>
-        <article class="overview-card accent-lavender"><span>引用片段</span><strong>{{ knowledgeAnswer?.citations.length || 0 }}</strong><Library :size="22" /></article>
-        <article class="overview-card accent-peach"><span>回答来源</span><strong class="provider-value">{{ knowledgeAnswer?.provider || '—' }}</strong><Sparkles :size="22" /></article>
-        <article class="overview-card accent-plain"><span>生成状态</span><strong>{{ knowledgeLoading ? '生成中' : knowledgeAnswer ? '已就绪' : '待提问' }}</strong><Compass :size="22" /></article>
-      </section>
       <section class="panel knowledge-shell">
-        <div class="knowledge-intro"><div><span class="eyebrow">RAG KNOWLEDGE BASE</span><p>检索岗位技能、面试问题和简历证据，并查看可追溯的引用来源。</p></div><span class="knowledge-orb"><Library :size="28" /></span></div>
-        <h2 class="panel-title"><span>RAG 知识库问答</span><Library :size="19" /></h2>
-        <div class="knowledge-mode"><span>回答模式</span><el-switch v-model="knowledgeUseAi" active-text="AI 回答" inactive-text="仅检索" /></div>
+        <div class="knowledge-mode"><span>回答模式</span><el-switch v-model="knowledgeUseAi" active-text="AI 回答" inactive-text="仅检索" aria-label="AI 回答模式" /></div>
         <div class="knowledge-search">
-          <el-input v-model="knowledgeQuery" placeholder="搜索 Java、Redis、面试或简历证据" @keyup.enter="runKnowledgeSearch" />
+          <el-input v-model="knowledgeQuery" placeholder="搜索 Java、Redis、面试或简历证据" aria-label="知识库查询" @keyup.enter="runKnowledgeSearch" />
           <el-button type="primary" :loading="knowledgeLoading" @click="runKnowledgeSearch"><Search :size="17" />检索</el-button>
         </div>
         <div v-if="knowledgeRecentQueries.length" class="knowledge-history"><span>最近查询</span><el-button v-for="query in knowledgeRecentQueries" :key="query" text @click="knowledgeQuery = query; runKnowledgeSearch()">{{ query }}</el-button></div>
         <el-alert v-if="knowledgeError" class="knowledge-error" type="warning" :title="knowledgeError" :closable="false" show-icon><template #default><el-button link type="primary" @click="runKnowledgeSearch">重试</el-button></template></el-alert>
         <div v-if="knowledgeAnswer" class="knowledge-history"><el-tag type="info">{{ retrievalModeLabel(knowledgeAnswer.retrievalMode) }}</el-tag><el-tag>{{ knowledgeAnswer.generationMode === 'AI' ? 'AI 回答' : '检索资料' }}</el-tag><span>{{ knowledgeAnswer.algorithmVersion }}</span></div>
         <el-alert v-if="knowledgeAnswer && ['NO_EVIDENCE', 'INSUFFICIENT_EVIDENCE', 'INSUFFICIENT'].includes(knowledgeAnswer.evidenceStatus || '')" title="现有资料不足以支持完整回答，请核对检索资料或补充知识库。" type="info" :closable="false" />
-        <section v-if="knowledgeRetrieval" class="knowledge-retrieval"><header><strong>检索摘要</strong><span>{{ knowledgeRetrieval.results.length }} 条</span></header><el-empty v-if="!knowledgeRetrieval.results.length" description="未检索到可引用资料" :image-size="64" /><article v-for="result in knowledgeRetrieval.results" v-else :key="result.id" class="retrieval-result"><div><strong>{{ result.title }}</strong><span>{{ result.type }} · {{ result.owner }} · {{ result.score }} 分</span></div><p>{{ result.summary }}</p><small v-if="result.citation">{{ citationLocation(result.citation) }} · {{ result.citation.source }}</small><div class="tag-row"><el-tag v-for="highlight in result.highlights" :key="highlight" type="info">{{ highlight }}</el-tag></div></article></section>
+        <section v-if="knowledgeRetrieval" class="knowledge-retrieval"><header><strong>检索摘要</strong><span>{{ knowledgeRetrieval.results.length }} 条</span></header><p v-if="!knowledgeRetrieval.results.length" class="compact-empty">未检索到可引用资料，可调整关键词。</p><article v-for="result in knowledgeRetrieval.results" v-else :key="result.id" class="retrieval-result"><div><strong>{{ result.title }}</strong><span>{{ result.type }} · {{ result.owner }} · {{ result.score }} 分</span></div><p>{{ result.summary }}</p><small v-if="result.citation">{{ citationLocation(result.citation) }} · {{ result.citation.source }}</small><div class="tag-row"><el-tag v-for="highlight in result.highlights" :key="highlight" type="info">{{ highlight }}</el-tag></div></article></section>
         <div v-if="knowledgeAnswer" class="rag-answer">
           <header><strong>{{ knowledgeAnswerLabel() }}</strong><el-tag :type="knowledgeAnswer.mocked ? 'warning' : 'success'">{{ knowledgeAnswer.provider }}</el-tag></header>
           <div class="knowledge-answer" v-html="renderMarkdown(knowledgeAnswer.answer)" />
@@ -1866,7 +1843,6 @@ watch(targetRole, (value) => {
             </details>
           </div>
         </div>
-        <el-empty v-if="!knowledgeAnswer && !knowledgeRetrieval && !knowledgeError && !knowledgeLoading" description="输入关键词后检索知识库" />
       </section>
     </template>
     <el-dialog v-model="replanPreviewOpen" title="核对新计划并确认切换" width="min(760px, 94vw)">
@@ -1879,8 +1855,8 @@ watch(targetRole, (value) => {
 <style scoped>
 .legacy-resume-history{margin-top:20px;border-top:1px solid var(--line,#e5ebe7);padding-top:16px}
 .legacy-resume-history>summary{color:var(--muted,#66716c);font-size:13px;cursor:pointer;width:fit-content;margin-bottom:18px}
-.claim-list { display: grid; gap: 9px; margin: 12px 0; padding: 13px; border-radius: 10px; background: #f5f9f6; font-size: 13px; }
-.claim-list article { padding: 9px; border: 1px solid #e5ebe7; border-radius: 8px; background: #fff; }
+.claim-list { display: grid; gap: 9px; margin: 0; font-size: 13px; }
+.claim-list article { padding: 10px 0; border-top: 1px solid var(--line, #e8ebea); }
 .claim-list p { margin: 0 0 4px; line-height: 1.7; white-space: pre-wrap; }
 .claim-list small { color: #66716c; }
 .claim-list blockquote { margin: 7px 0 0; padding-left: 10px; border-left: 3px solid #8db7a2; color: #66716c; white-space: pre-wrap; }
@@ -1888,7 +1864,7 @@ watch(targetRole, (value) => {
 .preview-task .el-tag { margin-left: 10px; }
 .student-workspace {
   display: grid;
-  gap: 22px;
+  gap: 16px;
   min-width: 0;
   color: var(--ink, #1f2724);
 }
@@ -1909,7 +1885,6 @@ watch(targetRole, (value) => {
 
 .header-copy,
 .section-heading > div,
-.knowledge-intro > div,
 .resume-summary,
 .job-card-copy,
 .task-main > div,
@@ -1918,19 +1893,9 @@ watch(targetRole, (value) => {
   min-width: 0;
 }
 
-.eyebrow {
-  display: inline-block;
-  color: var(--accent, #28664f);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  line-height: 1.2;
-}
-
 .section-heading h2,
-.knowledge-shell h2,
 .report-score h2 {
-  margin: 5px 0 0;
+  margin: 0;
   color: var(--ink, #1f2724);
   font-size: 28px;
   font-weight: 750;
@@ -1939,11 +1904,7 @@ watch(targetRole, (value) => {
 }
 
 .section-heading p,
-.knowledge-intro p,
-.interview-launch p,
-.match-launcher p,
-.job-detail p,
-.knowledge-empty p {
+.job-detail p {
   margin: 7px 0 0;
   color: var(--muted, #66716c);
   font-size: 14px;
@@ -1967,46 +1928,35 @@ watch(targetRole, (value) => {
 .overview-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  gap: 10px;
 }
 
 .overview-card,
 .panel {
   border: 1px solid var(--line, #e8ebea);
-  border-radius: 16px;
+  border-radius: 8px;
   background: var(--surface, #fff);
   box-shadow: 0 1px 2px rgba(32, 43, 38, 0.025);
 }
 
 .overview-card {
-  position: relative;
   display: grid;
-  min-height: 126px;
-  align-content: space-between;
-  padding: 18px;
-  overflow: hidden;
-}
-
-.overview-card::after {
-  position: absolute;
-  right: -18px;
-  bottom: -24px;
-  width: 78px;
-  height: 78px;
-  border: 1px solid rgba(40, 102, 79, 0.1);
-  border-radius: 50%;
-  content: '';
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 70px;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 16px;
 }
 
 .overview-card span {
   color: var(--muted, #66716c);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
 }
 
 .overview-card strong {
   color: var(--ink, #1f2724);
-  font-size: 31px;
+  font-size: 24px;
   font-weight: 760;
   line-height: 1;
 }
@@ -2014,28 +1964,22 @@ watch(targetRole, (value) => {
 .overview-card strong small {
   margin-left: 2px;
   color: var(--muted, #66716c);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 650;
 }
 
-.overview-card > svg {
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  color: var(--accent, #28664f);
-}
+.overview-card > svg { display: none; }
 
 .overview-card.accent-mint { background: #c8f1df; }
 .overview-card.accent-lavender { background: #ebe8fa; }
 .overview-card.accent-peach { background: #fff0e5; }
 .overview-card.accent-plain { background: var(--surface, #fff); }
-.overview-card .provider-value { font-size: 18px; overflow-wrap: anywhere; }
 
 .resume-hero,
 .plan-builder,
 .interview-launch,
 .knowledge-shell {
-  padding: 24px;
+  padding: 20px;
 }
 
 .section-heading {
@@ -2048,7 +1992,6 @@ watch(targetRole, (value) => {
 }
 
 .section-heading h2,
-.knowledge-shell h2,
 .report-score h2 {
   font-size: 20px;
 }
@@ -2133,7 +2076,6 @@ watch(targetRole, (value) => {
 .job-browser,
 .job-detail,
 .match-launcher,
-.plan-sidebar,
 .task-panel,
 .interview-question-card,
 .answer-card,
@@ -2179,10 +2121,10 @@ watch(targetRole, (value) => {
 .diagnosis-copy { max-height: 85px; overflow: auto; color: var(--muted, #66716c); font-size: 12px; line-height: 1.6; }
 .diagnosis-copy :deep(p) { margin: 0; }
 
-.jobs-layout { grid-template-columns: minmax(310px, 0.75fr) minmax(0, 1.25fr); }
+.jobs-layout { grid-template-columns: minmax(310px, 0.75fr) minmax(0, 1.25fr); align-items: start; }
 .job-browser { display: grid; align-content: start; gap: 15px; }
 .result-count { padding: 6px 9px; border-radius: 7px; background: #f0f3f1; color: var(--muted, #66716c); font-size: 12px; font-weight: 700; white-space: nowrap; }
-.job-card-list { display: grid; gap: 8px; max-height: 485px; overflow: auto; padding-right: 2px; }
+.job-card-list { display: grid; gap: 8px; max-height: 420px; overflow: auto; padding-right: 2px; }
 .job-card { display: grid; grid-template-columns: 36px minmax(0, 1fr) 18px; gap: 10px; align-items: center; width: 100%; padding: 11px; border: 1px solid transparent; border-radius: 11px; background: transparent; color: var(--ink, #1f2724); cursor: pointer; text-align: left; }
 .job-card:hover,
 .job-card.selected { border-color: #cfe7d9; background: #f2fbf5; }
@@ -2193,14 +2135,14 @@ watch(targetRole, (value) => {
 .job-card-copy em { color: var(--accent, #28664f); font-size: 11px; font-style: normal; font-weight: 700; }
 .job-filter-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
 .job-card > svg { color: var(--muted, #66716c); }
-.job-detail-stack { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 18px; }
-.job-detail { display: grid; align-content: start; gap: 17px; min-height: 270px; }
+.job-detail-stack { display: grid; align-content: start; gap: 14px; }
+.job-detail { display: grid; align-content: start; gap: 14px; }
 .job-detail-meta { justify-content: flex-start; flex-wrap: wrap; gap: 14px; color: var(--muted, #66716c); font-size: 13px; }
 .job-detail-meta span { display: inline-flex; align-items: center; gap: 5px; }
 .job-detail-meta strong { color: var(--accent, #28664f); }
 .job-detail p { max-width: 720px; }
-.match-launcher { display: grid; grid-template-columns: minmax(220px, 0.8fr) minmax(360px, 1.2fr); gap: 24px; align-items: center; background: #f6fbf8; }
-.match-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.match-launcher { background: #f6fbf8; }
+.match-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; align-items: end; }
 .match-history-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .match-result { display: grid; gap: 17px; }
 .coverage-score { display: flex; align-items: center; gap: 16px; }
@@ -2225,55 +2167,55 @@ watch(targetRole, (value) => {
 .match-record span { color: var(--muted, #66716c); font-size: 11px; }
 .match-record b { color: var(--accent, #28664f); font-size: 20px; }
 
-.plan-builder { display: grid; gap: 20px; }
+.plan-builder { display: grid; gap: 14px; }
+.plan-builder:has(.plan-builder-collapsed) { padding-block: 14px; }
 .plan-builder-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; align-items: end; }
 .plan-builder-fields :deep(.el-input-number) { width: 100%; }
 .plan-builder-fields :deep(.el-select__selected-item) { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-builder-fields :deep(.el-select__selected-item > span) { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plan-builder-collapsed { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; border: 1px solid #dcebe2; border-radius: 10px; background: #f6fbf8; }
+.plan-builder-collapsed { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .plan-builder-collapsed-copy { display: grid; gap: 3px; min-width: 0; }
 .plan-builder-collapsed-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .plan-builder-collapsed-copy span { color: var(--muted, #66716c); font-size: 12px; }
 .plan-builder-collapsed-copy small { color: var(--muted, #66716c); font-size: 11px; }
 .plan-advanced-settings { grid-column: 1 / -1; padding-top: 3px; }
 .plan-advanced-settings summary,
+.plan-history-details > summary,
 .revision-reason summary,
 .task-details summary,
 .task-management-details summary { color: var(--muted, #66716c); cursor: pointer; font-size: 12px; font-weight: 700; list-style: none; }
 .plan-advanced-settings summary::-webkit-details-marker,
+.plan-history-details > summary::-webkit-details-marker,
 .revision-reason summary::-webkit-details-marker,
 .task-details summary::-webkit-details-marker,
 .task-management-details summary::-webkit-details-marker { display: none; }
 .plan-advanced-settings summary::before,
+.plan-history-details > summary::before,
 .revision-reason summary::before,
 .task-details summary::before,
 .task-management-details summary::before { display: inline-block; margin-right: 5px; content: '＋'; color: var(--accent, #28664f); font-size: 14px; }
 .plan-advanced-settings[open] summary::before,
+.plan-history-details[open] > summary::before,
 .revision-reason[open] summary::before,
 .task-details[open] summary::before,
 .task-management-details[open] summary::before { content: '−'; }
 .plan-advanced-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; margin-top: 12px; padding: 12px; border-radius: 9px; background: #f7faf8; }
-.plan-layout { grid-template-columns: minmax(300px, 0.65fr) minmax(0, 1.35fr); }
-.plan-sidebar { display: grid; align-content: start; gap: 15px; }
-.plan-summary-card { display: grid; gap: 11px; padding: 16px; border-radius: 12px; background: #eff9f3; }
-.plan-summary-card > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.plan-summary-card span { font-size: 14px; font-weight: 750; }
-.plan-summary-card strong { color: var(--accent, #28664f); }
-.plan-summary-card p { margin: 0; color: var(--muted, #66716c); font-size: 12px; }
-.revision-reason { display: grid; gap: 6px; padding: 9px 10px; border-radius: 8px; background: #f7f9f8; }
+.plan-layout { grid-template-columns: minmax(0, 1fr); }
+.plan-history-details { min-width: 0; padding: 14px 0; border-top: 1px solid var(--line, #e8ebea); }
+.plan-history-body { display: grid; align-content: start; gap: 12px; margin-top: 14px; }
+.revision-reason { padding: 9px 10px; border-radius: 8px; background: #f7f9f8; }
 .revision-reason p { margin: 0; color: var(--muted, #66716c); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
-.version-rail { display: flex; flex-wrap: wrap; gap: 7px; }
-.version-rail span { padding: 5px 8px; border: 1px solid var(--line, #e8ebea); border-radius: 6px; color: var(--muted, #66716c); font-size: 11px; font-weight: 700; }
-.version-rail span.current { border-color: #b9dcc7; background: #e7f6ed; color: var(--accent, #28664f); }
 .version-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .replan-form { display: grid; gap: 10px; margin-top: 3px; padding-top: 15px; border-top: 1px solid var(--line, #e8ebea); }
 .replan-form > span { color: var(--muted, #66716c); font-size: 12px; font-weight: 750; }
 .task-panel { min-width: 0; }
+.task-evidence-note { margin: 8px 0 0; color: var(--muted, #66716c); font-size: 12px; line-height: 1.6; }
+.compact-empty { margin: 8px 0; color: var(--muted, #66716c); font-size: 13px; line-height: 1.6; }
 .progress-text { display: grid; justify-items: end; gap: 2px; }
 .progress-text strong { color: var(--accent, #28664f); font-size: 22px; }
 .progress-text span { color: var(--muted, #66716c); font-size: 11px; }
 .task-list { display: grid; margin-top: 14px; }
-.task-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px 128px; gap: 12px; align-items: start; padding: 17px 0; border-top: 1px solid var(--line, #e8ebea); min-width: 0; }
+.task-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 17px 0; border-top: 1px solid var(--line, #e8ebea); min-width: 0; }
 .task-row.task-today { border-left: 2px solid var(--accent, #28664f); padding-left: 10px; }
 .task-row.task-overdue { border-left: 2px solid #b46c2e; padding-left: 10px; }
 .task-main { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 11px; min-width: 0; }
@@ -2305,9 +2247,8 @@ watch(targetRole, (value) => {
 .schedule-summary small, .saved-note { color: var(--muted, #66716c); font-size: 12px; }
 .schedule-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-.interview-launch { display: flex; align-items: center; justify-content: space-between; gap: 24px; background: #f4fbf6; }
-.interview-launch h2 { margin: 5px 0 0; font-size: 21px; }
-.interview-launch-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 10px; }
+.interview-launch { background: #f4fbf6; }
+.interview-launch-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
 .interview-launch-actions label { width: 116px; }
 .interview-launch-actions .target-role-editor { width: 190px; }
 .interview-launch-actions :deep(.el-input-number) { width: 100%; }
@@ -2321,7 +2262,8 @@ watch(targetRole, (value) => {
 .session-card > span { color: var(--muted, #66716c); font-size: 12px; }
 .interview-workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 0.92fr); }
 .interview-question-card,
-.answer-card { display: grid; align-content: start; gap: 18px; }
+.answer-card { display: grid; align-content: start; gap: 14px; }
+.answer-label { font-size: 14px; font-weight: 700; }
 .question-topline { padding-bottom: 13px; border-bottom: 1px solid var(--line, #e8ebea); color: var(--muted, #66716c); font-size: 12px; font-weight: 700; }
 .question-text { margin: 0; color: var(--ink, #1f2724); font-size: 19px; font-weight: 650; line-height: 1.65; }
 .question-feedback { padding: 12px; border-left: 3px solid #8ebea4; background: #f4fbf6; }
@@ -2340,32 +2282,23 @@ watch(targetRole, (value) => {
 .report-columns > div { padding: 14px; border-radius: 11px; background: #f7f8f7; }
 .report-columns > div > span { color: var(--muted, #66716c); font-size: 11px; font-weight: 800; }
 
-.knowledge-shell { display: grid; gap: 22px; }
-.knowledge-intro { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.knowledge-intro p { max-width: 670px; }
-.knowledge-shell .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; color: var(--ink, #1f2724); font-size: 20px; }
-.knowledge-shell .panel-title svg { color: var(--accent, #28664f); }
-.knowledge-orb,
-.knowledge-empty > span { display: grid; flex: 0 0 auto; width: 62px; height: 62px; place-items: center; border-radius: 50%; background: #c8f1df; color: var(--accent, #28664f); }
+.knowledge-shell { display: grid; gap: 12px; }
 .knowledge-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
-.knowledge-mode, .knowledge-history { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 12px 0; color: var(--muted, #66716c); font-size: 12px; }
-.knowledge-retrieval { display: grid; gap: 10px; margin-top: 16px; padding: 16px; border: 1px solid #d5e8dd; background: #fbfefc; }
+.knowledge-mode, .knowledge-history { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 0; color: var(--muted, #66716c); font-size: 12px; }
+.knowledge-retrieval { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line, #e8ebea); }
 .knowledge-retrieval > header { display: flex; justify-content: space-between; color: var(--muted, #66716c); font-size: 12px; }
 .retrieval-result { padding: 12px 0; border-top: 1px solid var(--line, #e8ebea); }
 .retrieval-result > div:first-child { display: flex; justify-content: space-between; gap: 10px; }
 .retrieval-result > div:first-child span { color: var(--muted, #66716c); font-size: 11px; }
 .retrieval-result p { margin: 7px 0; color: var(--muted, #66716c); line-height: 1.55; }
-.rag-answer { display: grid; gap: 18px; padding: 20px; border: 1px solid #d5e8dd; border-radius: 13px; background: #f5fbf7; }
+.rag-answer { display: grid; gap: 14px; padding-top: 14px; border-top: 1px solid var(--line, #e8ebea); }
 .rag-answer > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .rag-answer > header strong { font-size: 18px; }
-.knowledge-result { display: grid; gap: 18px; padding: 20px; border: 1px solid #d5e8dd; border-radius: 13px; background: #f5fbf7; }
-.knowledge-result header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.knowledge-result h3 { margin: 4px 0 0; font-size: 18px; }
 .knowledge-answer { color: var(--ink, #1f2724); font-size: 14px; line-height: 1.72; }
 .knowledge-answer :deep(p) { margin: 0 0 10px; }
 .citation-list { display: grid; gap: 9px; padding-top: 5px; }
 .citation-title { color: var(--muted, #66716c); font-size: 11px; font-weight: 800; }
-.citation-row { display: grid; gap: 7px; padding: 13px 0 0; border-top: 1px solid #dcece2; }
+.citation-row { padding: 13px 0 0; border-top: 1px solid #dcece2; }
 .citation-row summary { display: flex; align-items: center; gap: 8px; color: var(--ink, #1f2724); cursor: pointer; font-size: 13px; font-weight: 700; list-style: none; }
 .citation-row summary::-webkit-details-marker { display: none; }
 .citation-row summary b { color: var(--accent, #28664f); }
@@ -2373,9 +2306,6 @@ watch(targetRole, (value) => {
 .citation-row p { margin: 0; color: var(--muted, #66716c); font-size: 11px; }
 .citation-row div { color: var(--muted, #66716c); font-size: 12px; line-height: 1.6; }
 .citation-row div :deep(p) { margin: 0; }
-.knowledge-empty { display: flex; align-items: center; gap: 15px; padding: 20px; border: 1px dashed #cbd7cf; border-radius: 13px; background: #fbfcfb; }
-.knowledge-empty > span { width: 46px; height: 46px; }
-.knowledge-empty strong { font-size: 14px; }
 
 :deep(.el-input__wrapper),
 :deep(.el-textarea__inner),
@@ -2388,17 +2318,11 @@ watch(targetRole, (value) => {
 @media (max-width: 1180px) {
   .resume-hero-content { grid-template-columns: minmax(180px, 1fr) 112px minmax(230px, 1.1fr); }
   .resume-status { grid-column: 1 / -1; grid-template-columns: auto 1fr; align-items: center; padding-top: 15px; border-top: 1px solid var(--line, #e8ebea); }
-  .jobs-layout,
-  .plan-layout { grid-template-columns: minmax(280px, 0.7fr) minmax(0, 1.3fr); }
+  .jobs-layout { grid-template-columns: minmax(280px, 0.7fr) minmax(0, 1.3fr); }
   .session-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-@media (max-width: 1450px) {
-  .match-launcher { grid-template-columns: 1fr; }
-}
-
 @media (max-width: 900px) {
-  .interview-launch { align-items: stretch; flex-direction: column; }
   .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .resume-workspace,
   .jobs-layout,
@@ -2416,9 +2340,9 @@ watch(targetRole, (value) => {
 @media (max-width: 600px) {
   .student-workspace { gap: 16px; }
   .overview-grid { gap: 10px; }
-  .overview-card { min-height: 108px; padding: 14px; }
-  .overview-card strong { font-size: 25px; }
-  .overview-card > svg { top: 14px; right: 14px; }
+  .overview-card { min-height: 62px; padding: 10px 12px; }
+  .overview-card strong { font-size: 21px; }
+  .job-card-list { max-height: 250px; }
   .resume-hero,
   .plan-builder,
   .interview-launch,
@@ -2428,12 +2352,11 @@ watch(targetRole, (value) => {
   .job-browser,
   .job-detail,
   .match-launcher,
-  .plan-sidebar,
   .task-panel,
   .interview-question-card,
   .answer-card,
   .interview-history,
-  .interview-report { padding: 17px; border-radius: 13px; }
+  .interview-report { padding: 16px; border-radius: 8px; }
   .resume-hero-content,
   .profile-form,
   .plan-builder-fields,
@@ -2448,7 +2371,7 @@ watch(targetRole, (value) => {
   .plan-builder-fields > .el-button { width: 100%; }
   .plan-builder-collapsed { align-items: flex-start; flex-direction: column; }
   .plan-builder-collapsed > .el-button { width: 100%; }
-  .task-row { grid-template-columns: minmax(0, 1fr) 62px; }
+  .task-row { grid-template-columns: minmax(0, 1fr) auto; }
   .task-row > :nth-child(3) { grid-column: 1 / -1; }
   .task-row > :last-child { grid-column: 1 / -1; }
   .task-hours { justify-self: end; }
