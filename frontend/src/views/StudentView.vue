@@ -23,7 +23,6 @@ import {
   Route,
   Search,
   Sparkles,
-  Target,
   TrendingUp,
   Upload
 } from 'lucide-vue-next'
@@ -1524,14 +1523,6 @@ watch(targetRole, (value) => {
 
 <template>
   <section class="page student-workspace">
-    <header v-if="activeModule !== 'resume'" class="workspace-header compact-workspace-header">
-      <label class="target-role-control" aria-label="目标岗位">
-        <el-input v-model="targetRole" placeholder="例如 Java 后端实习生">
-          <template #prefix><Target :size="16" /></template>
-        </el-input>
-      </label>
-    </header>
-
     <template v-if="activeModule === 'resume'">
       <ResumeBuilderPanel :target-role="targetRole" :resume-id="selectedResumeId || undefined" @confirmed="syncWorkspaceResume" />
 
@@ -1888,8 +1879,6 @@ watch(targetRole, (value) => {
 <style scoped>
 .legacy-resume-history{margin-top:20px;border-top:1px solid var(--line,#e5ebe7);padding-top:16px}
 .legacy-resume-history>summary{color:var(--muted,#66716c);font-size:13px;cursor:pointer;width:fit-content;margin-bottom:18px}
-.workspace-header.compact-workspace-header{justify-content:flex-end;align-items:center;padding:0}
-.workspace-header.compact-workspace-header .target-role-control{display:block;width:min(318px,100%)}
 .claim-list { display: grid; gap: 9px; margin: 12px 0; padding: 13px; border-radius: 10px; background: #f5f9f6; font-size: 13px; }
 .claim-list article { padding: 9px; border: 1px solid #e5ebe7; border-radius: 8px; background: #fff; }
 .claim-list p { margin: 0 0 4px; line-height: 1.7; white-space: pre-wrap; }
@@ -1904,7 +1893,6 @@ watch(targetRole, (value) => {
   color: var(--ink, #1f2724);
 }
 
-.workspace-header,
 .section-heading,
 .result-header,
 .job-detail-meta,
@@ -1917,11 +1905,6 @@ watch(targetRole, (value) => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-}
-
-.workspace-header {
-  align-items: end;
-  padding: 5px 2px 2px;
 }
 
 .header-copy,
@@ -1944,7 +1927,6 @@ watch(targetRole, (value) => {
   line-height: 1.2;
 }
 
-.workspace-header h1,
 .section-heading h2,
 .knowledge-shell h2,
 .report-score h2 {
@@ -1956,7 +1938,6 @@ watch(targetRole, (value) => {
   line-height: 1.2;
 }
 
-.workspace-header p,
 .section-heading p,
 .knowledge-intro p,
 .interview-launch p,
@@ -1969,7 +1950,6 @@ watch(targetRole, (value) => {
   line-height: 1.65;
 }
 
-.target-role-control,
 .form-field,
 .interview-launch-actions label {
   display: grid;
@@ -1977,11 +1957,6 @@ watch(targetRole, (value) => {
   min-width: 0;
 }
 
-.target-role-control {
-  width: min(318px, 100%);
-}
-
-.target-role-control > span,
 .form-field > span,
 .interview-launch-actions label > span {
   color: var(--muted, #66716c);
@@ -2423,9 +2398,7 @@ watch(targetRole, (value) => {
 }
 
 @media (max-width: 900px) {
-  .workspace-header,
   .interview-launch { align-items: stretch; flex-direction: column; }
-  .target-role-control { width: 100%; }
   .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .resume-workspace,
   .jobs-layout,
@@ -2442,7 +2415,6 @@ watch(targetRole, (value) => {
 
 @media (max-width: 600px) {
   .student-workspace { gap: 16px; }
-  .workspace-header h1 { font-size: 25px; }
   .overview-grid { gap: 10px; }
   .overview-card { min-height: 108px; padding: 14px; }
   .overview-card strong { font-size: 25px; }
