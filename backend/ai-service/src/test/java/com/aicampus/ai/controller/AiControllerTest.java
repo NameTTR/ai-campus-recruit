@@ -1420,7 +1420,7 @@ class AiControllerTest {
     }
 
     @Test
-    void coreInterviewSessionUsesGatewayStudentAndHidesUnansweredReferencePoints() throws Exception {
+    void coachingInterviewUsesGatewayStudentAndAllowsReferencePoints() throws Exception {
         String response = mockMvc.perform(post("/api/ai/interview/sessions")
                         .header("X-User-Id", "S-CORE-CONTROLLER-001")
                         .header("X-User-Role", "STUDENT")
@@ -1435,7 +1435,8 @@ class AiControllerTest {
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.studentId").value("S-CORE-CONTROLLER-001"))
                 .andExpect(jsonPath("$.data.questions.length()").value(5))
-                .andExpect(jsonPath("$.data.questions[0].referencePoints.length()").value(0))
+                .andExpect(jsonPath("$.data.mode").value("COACHING"))
+                .andExpect(jsonPath("$.data.questions[0].referencePoints.length()").value(greaterThanOrEqualTo(1)))
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -1454,7 +1455,7 @@ class AiControllerTest {
                                 """.formatted(questionId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.questions[0].referencePoints.length()").value(greaterThanOrEqualTo(1)))
-                .andExpect(jsonPath("$.data.questions[1].referencePoints.length()").value(0));
+                .andExpect(jsonPath("$.data.questions[1].referencePoints.length()").value(greaterThanOrEqualTo(1)));
 
         mockMvc.perform(get("/api/ai/interview/sessions/{sessionId}", sessionId)
                         .header("X-User-Id", "S-CORE-CONTROLLER-002")

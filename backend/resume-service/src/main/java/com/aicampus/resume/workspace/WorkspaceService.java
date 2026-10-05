@@ -6,6 +6,8 @@ import com.aicampus.common.dto.ResumeSummary;
 import com.aicampus.common.evidence.SkillOntology;
 import com.aicampus.common.resume.ResumeWorkspaceModels.*;
 import com.aicampus.resume.client.AiDraftClient;
+import com.aicampus.resume.client.InterviewCandidateClient;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.aicampus.resume.client.ResumeJobClient;
 import com.aicampus.resume.render.ResumeRenderService;
 import com.aicampus.resume.render.ResumeTemplateRegistry;
@@ -64,6 +66,12 @@ public class WorkspaceService {
         @Override public byte[] bytes() { return bytes.clone(); }
     }
     private final String localUser;
+    private InterviewCandidateClient interviewCandidates;
+
+    @Autowired
+    public void setInterviewCandidateClient(InterviewCandidateClient client) { this.interviewCandidates = client; }
+
+    public record InterviewCandidateRequest(String sessionId, String questionId, String attemptId) {}
 
     @Autowired
     public WorkspaceService(WorkspaceStore store, ResumeRecordStore resumes, ResumeObjectStorageService storage,
@@ -106,6 +114,36 @@ public class WorkspaceService {
 
     public MasterProfile getProfile(String owner) {
         return store.profile(requireOwner(owner)).orElseGet(() -> new MasterProfile(owner, 0, emptyProfile(), null, Instant.now()));
+    }
+
+    public Experience interviewCandidate(String owner, InterviewCandidateRequest request) {
+        owner = requireOwner(owner);
+        if (request == null || !sourceIdValid(request.sessionId()) || !sourceIdValid(request.questionId())
+                || !sourceIdValid(request.attemptId())) throw WorkspaceException.invalid("Valid interview source IDs are required");
+        if (interviewCandidates == null) throw WorkspaceException.invalid("Interview material is temporarily unavailable");
+        ApiResponse<JsonNode> response;
+        try {
+            response = interviewCandidates.candidate(request.sessionId(),
+                    Map.of("questionId", request.questionId(), "attemptId", request.attemptId()), owner, "STUDENT");
+        } catch (RuntimeException ex) { throw WorkspaceException.invalid("Unable to verify the saved interview answer"); }
+        if (response == null || response.code() != 0 || response.data() == null) throw WorkspaceException.notFound();
+        JsonNode data = response.data();
+        if (!request.sessionId().equals(data.path("sessionId").asText())
+                || !request.questionId().equals(data.path("questionId").asText())
+                || !request.attemptId().equals(data.path("attemptId").asText())
+                || data.path("actions").asText().isBlank() || data.path("candidateId").asText().isBlank())
+            throw WorkspaceException.invalid("Interview source could not be verified");
+        String original = data.path("actions").asText();
+        SourceRef source = new SourceRef("INTERVIEW_ANSWER",
+                String.join("|", request.sessionId(), request.questionId(), request.attemptId()), original, false,
+                "ANSWER_RECORDED_NOT_INDEPENDENTLY_VERIFIED");
+        return new Experience("interview-" + data.path("candidateId").asText(), "PROJECT",
+                data.path("title").asText("Interview project material"), "", "", "", "", original,
+                data.path("methods").asText(""), data.path("results").asText(""), List.of(), List.of(), source, false);
+    }
+
+    private static boolean sourceIdValid(String value) {
+        return value != null && value.matches("[A-Za-z0-9._:-]{1,200}");
     }
     public MasterProfile saveProfile(String owner, ProfileSaveRequest request) {
         owner = requireOwner(owner);
@@ -407,6 +445,7 @@ public class WorkspaceService {
         Map<String,String> previousFacts=profileFacts(previous); Map<String,String> currentFacts=profileFacts(p); Map<String,SourceRef> priorSources=new HashMap<>();
         nvl(previous.education()).forEach(e->priorSources.put(e.id(),e.source()));nvl(previous.skills()).forEach(e->priorSources.put(e.id(),e.source()));nvl(previous.experiences()).forEach(e->priorSources.put(e.id(),e.source()));nvl(previous.credentials()).forEach(e->priorSources.put(e.id(),e.source()));
         Map<String,Map<String,String>> imported=new HashMap<>();
+        Map<String,Experience> interviewSources=new HashMap<>();
         java.util.function.BiFunction<String,SourceRef,SourceRef> bind=(id,source)->{
             String content=currentFacts.getOrDefault(id,"");
             boolean unchanged=Objects.equals(previousFacts.get(id),content);
@@ -419,7 +458,16 @@ public class WorkspaceService {
                     authenticImport=Objects.equals(parsed.get(id),content);
                 }
             }
-            SourceRef authoritative=unchanged?priorSources.get(id):authenticImport?source:null;
+            boolean authenticInterview=false;
+            if(!unchanged&&source!=null&&"INTERVIEW_ANSWER".equals(source.kind())) {
+                String[] ids=text(source.sourceId()).split("\\|",-1);
+                if(ids.length!=3)throw WorkspaceException.invalid("Invalid interview source reference");
+                Experience verified=interviewSources.computeIfAbsent(source.sourceId(),key->interviewCandidate(owner,new InterviewCandidateRequest(ids[0],ids[1],ids[2])));
+                Map<String,String> originalFacts=profileFacts(new ProfileData(null,List.of(),List.of(),List.of(verified),List.of(),null));
+                authenticInterview=id.equals(verified.id())&&Objects.equals(originalFacts.get(id),content)
+                        &&Objects.equals(verified.source().quote(),source.quote());
+            }
+            SourceRef authoritative=unchanged?priorSources.get(id):authenticImport||authenticInterview?source:null;
             if(authoritative!=null)return new SourceRef(authoritative.kind(),authoritative.sourceId(),authoritative.quote(),confirm,confirm?"USER_CONFIRMED":"UNCONFIRMED");
             return new SourceRef("USER",id,content,confirm,confirm?"USER_CONFIRMED":"UNCONFIRMED");
         };

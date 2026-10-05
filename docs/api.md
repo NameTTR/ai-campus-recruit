@@ -49,12 +49,12 @@
 
 模拟面试：
 
-- `POST /api/ai/interview/sessions`：请求 `resumeId`、`jobId`、可选 `matchId`、`targetRole`、`questionCount`；允许 1–8 道主问题，默认 5 道。
+- `POST /api/ai/interview/sessions`：请求 `resumeId`、`jobId`、可选 `matchId`、`targetRole`、`questionCount`；允许 1–8 道主问题，默认 5 道。新增 `mode`（`COACHING`/`MOCK`）、`sourceType`（`JOB`/`PROJECT`/`GAP`）、`sourceId`、`timerMinutes`，具体见“模拟面试来源、练习和复盘”。
 - `GET /api/ai/interview/sessions`、`GET /api/ai/interview/sessions/{sessionId}`：读取本人会话列表和详情，可在刷新后继续。
-- `PUT /api/ai/interview/sessions/{sessionId}/questions/{questionId}/answer`：请求 `{ "questionId": "...", "answer": "..." }`，按当前题顺序提交；重复请求不可把同一回答当作下一题答案。
+- `PUT /api/ai/interview/sessions/{sessionId}/questions/{questionId}/answer`：请求 `{ "questionId": "...", "answer": "..." }`，按当前题顺序首次提交；相同请求幂等，重答使用新增尝试接口。
 - `POST /api/ai/interview/sessions/{sessionId}/finish`：完成面试并返回整场报告，包含总体评分、优势、薄弱项、改进建议及逐题反馈。
-- 会话保存目标与简历快照、题目、回答、进度及报告。未作答题目不暴露参考要点；每道主问题最多追加一次追问。旧单题接口保留兼容。
-- 回答按顺序且只能保存一次；进行中的会话允许同题同内容的幂等重试，修改已保存答案会被拒绝。全部主问题与追问都作答后才能完成，已完成会话只读；重复完成请求返回已保存的报告。回答和报告落库使用快照条件写入，避免并发覆盖。
+- 会话保存目标与简历快照、题目、回答、进度及报告。辅导练习可以查看参考；模拟面试作答期间隐藏参考、评价和追问。每道主问题最多追加一次追问，旧单题接口保留兼容。
+- 首次回答按顺序保存，兼容接口不允许覆盖；辅导重答使用独立尝试记录并由学生明确采用。相同文本提交幂等。辅导练习需回答主问题与已生成追问，模拟面试只需回答主问题；已完成会话只读，重复完成返回已保存报告。回答和报告落库使用快照条件写入，避免并发覆盖。
 
 RAG 沿用 `/api/ai/knowledge/*` 接口。检索和回答使用认证角色，正文引用对应真实知识块；文档删除或角色修改后必须同步影响检索结果。
 
@@ -575,12 +575,43 @@ Gateway 验证 Bearer Token 后清理外部身份头，再注入 `X-User-Id` 和
 
 学习完成状态不会自动提升岗位匹配证据。下一次匹配会继续要求正文、项目或成果中存在可核对材料。
 
-### 模拟面试保存与评价
+### 模拟面试来源、练习和复盘
 
-- `PUT /api/ai/interview/sessions/{sessionId}/questions/{questionId}/answer`：先保存答案，返回的 `evaluationStatus` 初始为 `PENDING`。重复提交相同答案幂等，修改已保存答案被拒绝。
-- `POST /api/ai/interview/sessions/{sessionId}/questions/{questionId}/evaluate`：独立评价已保存答案。成功后返回四个固定维度 `ACCURACY`、`ANALYSIS`、`EVIDENCE`、`STRUCTURE` 及逐字引用的证据项；答案不丢失，失败可以重试；成功结果按答案指纹复用。
-- 每道主问题最多追加一次追问，追问依据遗漏要点、矛盾和项目证据，不按回答长度机械触发。
-- `POST /api/ai/interview/sessions/{sessionId}/finish`：复用逐题评价生成报告；报告只比较相同目标岗位和 rubric 版本的历史结果，已完成会话幂等且只读。
+所有接口使用登录学生的服务端身份并返回 `ApiResponse<T>`。岗位资料由服务端读取，项目、学习成果、匹配差距和历史面试薄弱项必须属于本人；伪造 `studentId` 或来源 ID 不能扩大权限。
+
+| 接口 | 行为与返回 |
+| --- | --- |
+| `GET /api/ai/interview/sessions/sources?resumeId=...&jobId=...&matchId=...` | 可选上下文筛选。返回服务端可选来源列表：`sourceType`、`sourceId`、`sourceKind`、`label`、`description` 及对应简历、岗位、匹配、目标岗位。创建请求复用该来源 ID。 |
+| `POST /api/ai/interview/sessions` | 创建 `InterviewSession`。旧请求默认为 `COACHING` + `JOB`。`PROJECT`、`GAP` 需选择可访问来源；无简历也可以使用通用岗位练习。 |
+| `PUT /api/ai/interview/sessions/{id}/questions/{questionId}/answer` | 兼容首次保存，先保存不可变回答再评价；同题相同文本幂等，不能覆盖历史回答。 |
+| `POST /api/ai/interview/sessions/{id}/questions/{questionId}/attempts` | 辅导练习新增重答；请求 `{ "questionId": "...", "answer": "..." }`，返回更新后的会话。每次尝试独立编号、指纹和评价状态。 |
+| `POST /api/ai/interview/sessions/{id}/questions/{questionId}/evaluate` | 评价该题当前采用的回答；成功结果按输入指纹复用。 |
+| `POST /api/ai/interview/sessions/{id}/questions/{questionId}/attempts/{attemptId}/evaluate` | 评价指定已保存尝试或失败重试。保存失败与评价失败分开；评价失败不删除回答。 |
+| `POST /api/ai/interview/sessions/{id}/questions/{questionId}/attempts/{attemptId}/select` | 学生明确采用回答，可提交 `{ "reason": "..." }`。首次回答默认采用，重答不自动覆盖报告版本。 |
+| `POST /api/ai/interview/sessions/{id}/pause`、`/resume` | 暂停/恢复，返回更新后的会话和服务端计时。暂停期间不计入作答时间。 |
+| `POST /api/ai/interview/sessions/{id}/partial-report` | 返回 `PARTIAL` 阶段报告，标记已完成范围与未答题；会话仍可继续，不进入历史成绩比较。 |
+| `POST /api/ai/interview/sessions/{id}/finish` | 辅导练习的主问题与追问、或模拟面试的主问题完成后返回 `FINAL` 报告；复用选定尝试的逐题评价，重复完成幂等。 |
+| `GET /api/ai/interview/sessions/{id}/next-actions` | 返回报告关联的练习、知识资料、材料补充及学习计划调整行动。 |
+| `POST /api/ai/interview/sessions/{id}/next-actions/preview` | 请求 `{ "actionId": "...", "planId": "..." }`，其中 `planId` 按所选行动可选；仅生成影响和时间预览。 |
+| `POST /api/ai/interview/sessions/{id}/next-actions/confirm` | 请求 `{ "previewId": "..." }`，确认后创建专项练习或学习计划调整草稿；重复确认返回同一创建结果。学习草稿仍须通过现有计划确认接口切换版本。 |
+| `POST /api/ai/interview/sessions/{id}/resume-candidate` | 面试服务的候选材料接口，请求 `{ "questionId": "...", "attemptId": "..." }`，返回来源原句与待补数据；不写入简历资料。 |
+| `POST /api/resumes/master-profile/interview-candidate` | 请求 `{ "sessionId": "...", "questionId": "...", "attemptId": "..." }`。服务端读取本人已评价回答，返回未确认的简历候选经历；不会自动保存主资料。 |
+
+创建参数 `timerMinutes` 在 `COACHING` 模式为空；`MOCK` 未提供时默认 20，允许 5–60，`0` 明确关闭。服务端保存 `startedAt`、`pausedAt`、`runningSince`、`accumulatedSeconds`、`pausedSeconds` 和 `timeoutReached`；到时提醒但不自动结束。会话查询恢复真实计时，浏览器倒计时仅用于显示。
+
+行动预览保存 `reportFingerprint`、`skillGap` 和来源引用，确认使用预览绑定的薄弱项。阶段报告更新、继续答题或重新评价后，未确认的旧预览返回业务错误，需重新预览。旧记录中已确认的行动继续返回原结果；没有版本绑定的历史未确认预览只读并要求重新预览。专项练习使用预览派生的稳定会话 ID，练习已经保存但确认记录写入中断时，重试会复用同一练习；学习调整复用相同输入的已保存 `DRAFT`。
+
+辅导模式提交后留在本题查看评价，可重答、采用版本及继续。模拟模式作答期间 API 和页面均隐藏参考点、评分、评价与追问；阶段或最终报告统一复盘。每道主问题最多一次基于遗漏、矛盾、个人职责或验证证据的追问，不按回答长度机械触发。
+
+项目和薄弱项练习只使用选定来源的正文与原句，岗位及知识资料作为背景。薄弱项题目必须围绕选定缺口；项目题不能将未提供的技术、职责或成果当作既有经历。生成结果偏离来源时退回对应来源的规则题，标记演示来源，不追加模型调用。题目生成提示版本为 `interview-generation-context-v3`。阶段报告的“继续答题”恢复未提交草稿，否则进入首道未答题。
+
+`InterviewAnswerAttempt` 包含 `attemptId`、`questionId`、`attemptNo`、`answer`、`submittedAt`、`evaluationStatus`、`evaluation`、`evaluationError`、`inputFingerprint`、`selectedForReport`、`selectedAt`、`selectionReason`。四个评分维度仍为 `ACCURACY`、`ANALYSIS`、`EVIDENCE`、`STRUCTURE`；结论区分 `SUPPORTED`、`INCORRECT`、`INSUFFICIENT_EVIDENCE`，引用必须逐字存在于对应回答或授权材料中，不能将回答声明等同为已核实成果。
+
+会话及题目保存 `sourceReferences`、来源正文、岗位要求、薄弱项和 rubric 版本。报告记录 `reportType`、完成范围、未答题、采用的尝试与重答差异；只比较相同目标岗位、模式、rubric 版本的最终报告，并展示难度差异。模拟面试查看阶段反馈后继续作答会记录 `feedbackViewedAfterPartial`，该最终报告不与独立模拟成绩直接比较。旧会话按辅导模式、单次回答和历史报告兼容读取。模型不可用时确定性规则评价标记为演示评价；失败状态允许重试。计时、回答尝试、报告和行动预览均保存在已有版本化会话快照中，无新增必需基础设施。
+
+`FAILED` 即使带有规则兜底 `evaluation`，辅导答题页仍提供评价重试，原回答和提交时间不变；模拟作答期间不显示评价或重试按钮，生成报告时统一评价。逐题反馈默认显示分数、摘要和首条建议，四维评分、引用和评价版本可展开核对。
+
+学习成果仅在评价通过且学生确认后可成为项目练习来源；面试候选经历经学生确认并保存主资料、重新生成简历后才参与材料证据。面试分数、任务完成和候选创建均不会自动提高技能覆盖率。
 
 ### RAG 检索与引用
 
@@ -742,6 +773,8 @@ Gateway 验证 Bearer Token 后清理外部身份头，再注入 `X-User-Id` 和
 ### Learning path execution (schedule and evidence)
 
 Learning plan creation accepts optional `startDate` (`yyyy-MM-dd`), `studyDays` (weekday names, default Monday-Friday), and `dailyMinutesCap`. The service normalizes a weekend start to the next selected study day, assigns each task a `taskDate` and `estimatedMinutes`, and rejects schedules that exceed weekly or daily budgets. Legacy requests remain valid.
+
+Structured AI tasks retain exact `estimatedMinutes`. Positive fractional `estimatedHours` are converted to minutes without integer truncation (for example, `0.5` hours becomes `30` minutes); legacy whole-hour inputs remain supported. Weekly budgets and preserved completed work use minutes. The older `estimatedHours` field remains an integer estimate rounded up for display and must not be used to sum a plan's budget.
 
 - `GET /api/ai/learning/plans/{planId}/today?date=yyyy-MM-dd`: today's tasks, planned/actual minutes, and reminders.
 - `GET /api/ai/learning/plans/{planId}/reminders`: server-computed in-app reminders for due work and evidence needing attention.

@@ -284,9 +284,9 @@ public class AiController {
             @RequestParam(required = false) String studentId,
             @RequestHeader(value = X_USER_ID, required = false) String userId,
             @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
-        return ApiResponse.ok(aiCareerCoreService.getInterviewSession(
+        return ApiResponse.ok(sanitizeInterviewSession(aiCareerCoreService.getInterviewSession(
                         sessionId, resolveCoreStudentId(studentId, userId, userRole))
-                .questions().stream().filter(InterviewSessionQuestion::followUp).toList());
+                ).questions().stream().filter(InterviewSessionQuestion::followUp).toList());
     }
 
     @Operation(summary = "Answer the next interview question")
@@ -729,40 +729,7 @@ public class AiController {
     }
 
     private InterviewSession sanitizeInterviewSession(InterviewSession session) {
-        if (session == null || !"IN_PROGRESS".equals(session.status())) {
-            return session;
-        }
-        List<InterviewSessionQuestion> questions = session.questions().stream()
-                .map(question -> session.answers().stream()
-                        .anyMatch(answer -> question.questionId().equals(answer.questionId()))
-                        ? question
-                        : new InterviewSessionQuestion(
-                                question.questionId(),
-                                question.order(),
-                                question.mainQuestionId(),
-                                question.category(),
-                                question.difficulty(),
-                                question.question(),
-                                List.of(),
-                                question.followUp(),
-                                question.generationSource()))
-                .toList();
-        return new InterviewSession(
-                session.sessionId(),
-                session.studentId(),
-                session.resumeId(),
-                session.jobId(),
-                session.matchId(),
-                session.targetRole(),
-                session.contextSnapshot(),
-                session.status(),
-                questions,
-                session.answers(),
-                session.report(),
-                session.mocked(),
-                session.createdAt(),
-                session.updatedAt(),
-                session.completedAt());
+        return session == null ? null : aiCareerCoreService.interviewPractice().view(session);
     }
 
     private boolean isRole(String userRole, String expectedRole) {

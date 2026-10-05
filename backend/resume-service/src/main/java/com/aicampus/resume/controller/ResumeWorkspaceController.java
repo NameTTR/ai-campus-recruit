@@ -32,6 +32,12 @@ public class ResumeWorkspaceController {
     @Operation(summary="Save confirmed master profile")
     @PutMapping("/master-profile")
     public ApiResponse<MasterProfile> save(@RequestHeader("X-User-Id") String uid,@RequestHeader("X-User-Role") String role,@RequestBody ProfileSaveRequest req){return ApiResponse.ok(service.saveProfile(student(uid,role),req));}
+    @Operation(summary="Read an owned evaluated interview answer as unconfirmed resume candidate material")
+    @PostMapping("/master-profile/interview-candidate")
+    public ApiResponse<Experience> interviewCandidate(@RequestHeader("X-User-Id") String uid,
+            @RequestHeader("X-User-Role") String role,@RequestBody WorkspaceService.InterviewCandidateRequest request) {
+        return ApiResponse.ok(service.interviewCandidate(student(uid,role),request));
+    }
     @Operation(summary="Import resume as unconfirmed candidate facts")
     @PostMapping("/master-profile/import")
     public ApiResponse<ImportCandidate> importCandidate(@RequestHeader("X-User-Id") String uid,@RequestHeader("X-User-Role") String role,@RequestBody ImportRequest req){return ApiResponse.ok(service.importCandidate(student(uid,role),req));}

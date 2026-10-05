@@ -579,6 +579,57 @@ export interface InterviewSessionRequest {
   matchId?: string
   targetRole?: string
   questionCount?: number
+  mode?: 'COACHING' | 'MOCK'
+  sourceType?: 'JOB' | 'PROJECT' | 'GAP'
+  sourceId?: string
+  timerMinutes?: number | null
+}
+
+export interface InterviewSourceReference { sourceId: string; kind: string; quote: string; location: string }
+export interface InterviewSourceOption {
+  sourceType: 'JOB' | 'PROJECT' | 'GAP'
+  sourceId: string
+  label: string
+  description: string
+  resumeId?: string
+  jobId?: string
+  matchId?: string
+  targetRole?: string
+  sourceKind?: string
+}
+export interface InterviewAnswerAttempt extends InterviewSessionAnswer {
+  attemptId: string
+  attemptNo: number
+  submittedAt: string
+  inputFingerprint?: string
+  selectedForReport: boolean
+  selectedAt?: string
+  selectionReason?: string
+}
+export interface InterviewNextAction {
+  actionId: string
+  type: string
+  title: string
+  description: string
+  skill?: string
+  estimatedMinutes: number
+  sourceReferences?: InterviewSourceReference[]
+}
+export interface InterviewActionPreview {
+  previewId: string
+  actionId: string
+  type: string
+  title: string
+  description: string
+  estimatedMinutes: number
+  impact: string
+  status: string
+  createdSessionId?: string
+  createdPlanId?: string
+  planId?: string
+  sourceReferences?: InterviewSourceReference[]
+  reportFingerprint?: string
+  skillGap?: string
 }
 
 export interface InterviewSessionQuestion {
@@ -592,6 +643,11 @@ export interface InterviewSessionQuestion {
   referencePoints?: string[]
   source?: string
   generationSource?: string
+  sourceReferences?: InterviewSourceReference[]
+  sourceRequirements?: string[]
+  sourceGaps?: string[]
+  generationReason?: string
+  rubricVersion?: string
 }
 
 export interface InterviewSessionAnswer {
@@ -620,6 +676,27 @@ export interface InterviewSession {
   completedAt?: string
   contextSnapshot?: Record<string, unknown>
   mocked?: boolean
+  mode?: 'COACHING' | 'MOCK'
+  sourceType?: 'JOB' | 'PROJECT' | 'GAP'
+  sourceId?: string
+  sourceLabel?: string
+  sourceMaterial?: string
+  sourceRequirements?: string[]
+  sourceGaps?: string[]
+  sourceReferences?: InterviewSourceReference[]
+  attempts?: InterviewAnswerAttempt[]
+  startedAt?: string
+  pausedAt?: string | null
+  accumulatedSeconds?: number
+  timerMinutes?: number | null
+  timeoutReached?: boolean
+  pausedSeconds?: number
+  runningSince?: string | null
+  partialReport?: InterviewSessionReport | null
+  partialReports?: InterviewSessionReport[]
+  feedbackViewedAfterPartial?: boolean
+  actionPreviews?: InterviewActionPreview[]
+  timer?: { startedAt: string; pausedAt?: string | null; accumulatedSeconds: number; timerMinutes?: number | null; timeoutReached: boolean; pausedSeconds: number; runningSince?: string | null }
 }
 
 export interface InterviewQuestionFeedback {
@@ -645,6 +722,7 @@ export interface InterviewEvaluationResponse {
   feedback?: InterviewQuestionFeedback | null
   error?: string
   followUpQuestion?: InterviewSessionQuestion | null
+  attemptId?: string
 }
 
 export interface InterviewSessionReport {
@@ -660,6 +738,12 @@ export interface InterviewSessionReport {
   questionFeedback: InterviewQuestionFeedback[]
   generatedAt: string
   mocked: boolean
+  reportType?: 'PARTIAL' | 'FINAL'
+  completionScope?: string
+  unansweredQuestionIds?: string[]
+  selectedAttempts?: InterviewAnswerAttempt[]
+  attemptComparisons?: Array<{ questionId: string; originalAttemptId: string; selectedAttemptId: string; improvements?: string[]; remainingGaps?: string[]; note?: string }>
+  nextActions?: InterviewNextAction[]
 }
 
 export interface AiCoachAdviceRequest {
@@ -3974,6 +4058,53 @@ export function getInterviewSession(sessionId: string) {
   return session ? Promise.resolve(session) : Promise.reject(new Error('模拟面试会话不存在'))
 }
 
+export function listInterviewSources(context: { resumeId?: string; jobId?: string; matchId?: string } = {}) {
+  const query = new URLSearchParams(Object.entries(context).filter((entry): entry is [string, string] => Boolean(entry[1])))
+  const path = `/api/ai/interview/sessions/sources${query.size ? `?${query}` : ''}`
+  return shouldUseApi(path) ? authenticatedRequest<InterviewSourceOption[]>(path, { method: 'GET' }) : Promise.resolve([])
+}
+
+export function saveInterviewAttempt(sessionId: string, questionId: string, answer: string) {
+  const path = `/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(questionId)}/attempts`
+  return authenticatedRequest<InterviewSession>(path, { method: 'POST', body: JSON.stringify({ questionId, answer }) })
+}
+
+export function evaluateInterviewAttempt(sessionId: string, questionId: string, attemptId: string) {
+  const path = `/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(questionId)}/attempts/${encodeURIComponent(attemptId)}/evaluate`
+  return authenticatedRequest<InterviewEvaluationResponse>(path, { method: 'POST' })
+}
+
+export function selectInterviewAttempt(sessionId: string, questionId: string, attemptId: string) {
+  const path = `/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(questionId)}/attempts/${encodeURIComponent(attemptId)}/select`
+  return authenticatedRequest<InterviewSession>(path, { method: 'POST', body: JSON.stringify({ reason: '学生选择采用本次回答' }) })
+}
+
+export function pauseInterviewSession(sessionId: string) {
+  return authenticatedRequest<InterviewSession>(`/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/pause`, { method: 'POST' })
+}
+
+export function resumeInterviewSession(sessionId: string) {
+  return authenticatedRequest<InterviewSession>(`/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/resume`, { method: 'POST' })
+}
+
+export function createPartialInterviewReport(sessionId: string) {
+  return authenticatedRequest<InterviewSessionReport>(`/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/partial-report`, { method: 'POST' })
+}
+
+export function listInterviewNextActions(sessionId: string) {
+  return authenticatedRequest<InterviewNextAction[]>(`/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/next-actions`, { method: 'GET' })
+}
+
+export function previewInterviewNextAction(sessionId: string, actionId: string, planId?: string) {
+  return authenticatedRequest<InterviewActionPreview>(`/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/next-actions/preview`,
+    { method: 'POST', body: JSON.stringify({ actionId, planId }) })
+}
+
+export function confirmInterviewNextAction(sessionId: string, previewId: string) {
+  return authenticatedRequest<InterviewActionPreview>(`/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/next-actions/confirm`,
+    { method: 'POST', body: JSON.stringify({ previewId }) })
+}
+
 export function saveInterviewSessionAnswer(sessionId: string, questionId: string, answer: string) {
   const path = `/api/ai/interview/sessions/${encodeURIComponent(sessionId)}/answers/${encodeURIComponent(questionId)}`
   const init: RequestInit = { method: 'PUT', body: JSON.stringify({ questionId, answer }) }
@@ -5017,6 +5148,11 @@ export interface ResumeWorkspaceSourceRef { kind: string; sourceId: string; quot
 export interface ResumeWorkspaceBasicInfo { name: string; phone: string; email: string; city: string; portfolioUrl: string; photoObjectKey?: string }
 export interface ResumeWorkspaceEducation { id: string; school: string; major: string; degree: string; startDate: string; endDate: string; graduationDate: string; courses: string[]; notes: string; source?: ResumeWorkspaceSourceRef }
 export interface ResumeWorkspaceExperience { id: string; type: string; title: string; organization: string; startDate: string; endDate: string; role: string; actions: string; methods: string; results: string; skills: string[]; links: string[]; source?: ResumeWorkspaceSourceRef; confirmed: boolean }
+
+export function importInterviewResumeCandidate(payload: { sessionId: string; questionId: string; attemptId: string }) {
+  return authenticatedRequest<ResumeWorkspaceExperience>('/api/resumes/master-profile/interview-candidate',
+    { method: 'POST', body: JSON.stringify(payload) })
+}
 export interface ResumeWorkspaceSkill { id: string; name: string; source?: ResumeWorkspaceSourceRef }
 export interface ResumeWorkspaceCredential { id: string; title: string; date: string; description: string; source?: ResumeWorkspaceSourceRef }
 export interface ResumeWorkspaceAvailability { cities: string[]; earliestStartDate: string; daysPerWeek?: number; continuousMonths?: number; graduationDate: string }

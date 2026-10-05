@@ -19,6 +19,10 @@ class ResumeWorkspaceControllerTest {
         assertEquals(401, missing.status().value());
         WorkspaceException wrongRole = assertThrows(WorkspaceException.class, () -> controller.profile("student-1", "ADMIN"));
         assertEquals(401, wrongRole.status().value());
+        assertThrows(WorkspaceException.class, () -> controller.interviewCandidate(null,null,
+                new WorkspaceService.InterviewCandidateRequest("IS-1","Q1","IA-1")));
+        assertThrows(WorkspaceException.class, () -> controller.interviewCandidate("u1","COMPANY",
+                new WorkspaceService.InterviewCandidateRequest("IS-1","Q1","IA-1")));
     }
 
     @Test void exportFileRequiresStudentIdentityAndReturnsJsonErrors() throws Exception {

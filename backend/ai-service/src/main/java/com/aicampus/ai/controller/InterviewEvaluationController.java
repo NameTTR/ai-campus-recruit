@@ -25,12 +25,13 @@ public class InterviewEvaluationController {
     public ApiResponse<InterviewEvaluationResponse> evaluate(
             @PathVariable String sessionId,
             @PathVariable String questionId,
+            @RequestParam(required = false) String attemptId,
             @RequestHeader(value = "X-User-Id", required = false) String userId,
             @RequestHeader(value = "X-User-Role", required = false) String role) {
         if (!"STUDENT".equalsIgnoreCase(role) || userId == null || userId.isBlank())
             return ApiResponse.fail("Student identity is required");
         InterviewEvaluationResponse result =
-                service.evaluateInterviewAnswer(sessionId, questionId, userId.trim());
+                service.interviewPractice().evaluate(sessionId, questionId, attemptId, userId.trim(), false);
         InterviewSessionQuestion question = result.followUpQuestion();
         if (question != null)
             question =
@@ -43,7 +44,7 @@ public class InterviewEvaluationController {
                             question.question(),
                             List.of(),
                             question.followUp(),
-                            question.generationSource());
+                            question.generationSource(), question.sourceReferences(), question.rubricVersion());
         return ApiResponse.ok(
                 new InterviewEvaluationResponse(
                         result.sessionId(),

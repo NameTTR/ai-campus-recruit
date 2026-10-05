@@ -148,7 +148,7 @@ async function main() {
       ['resume', ['简历']],
       ['jobs', ['岗位匹配', '岗位列表']],
       ['plan', ['学习路径']],
-      ['interview', ['开始模拟面试', '本次目标岗位']],
+      ['interview', ['开始辅导练习', '本次目标岗位']],
       ['knowledge', ['仅检索', 'AI 回答', '检索']]
     ]) {
       await navigate(client, `${baseUrl}/student/${name}`)
@@ -269,6 +269,8 @@ async function verifyCoreFixture(client, fixture) {
   await waitForExpression(client, "location.pathname === '/student/interview/history'")
   await assertText(client, ['模拟面试', '已完成'])
   await navigate(client, `${baseUrl}/student/interview/report?sessionId=${encodeURIComponent(fixture.sessionId)}`)
+  await waitForExpression(client, "Boolean(document.querySelector('.report-details'))")
+  await setDetailsOpen(client, '.report-details', true)
   await assertText(client, [
     '模拟面试',
     '面试报告',
@@ -373,7 +375,7 @@ async function verifyMatchHistoryRestoreAndContext(client, match, resume, job) {
   await assertMatchSelection(client, resume.fileName, job.title)
   await clickSelector(client, '.match-next-actions .el-button--primary')
   await waitForExpression(client, "location.pathname === '/student/interview'")
-  await assertInputValue(client, '.target-role-editor input', job.title)
+  await assertInputValue(client, '[aria-label="本次目标岗位"]', job.title)
   await screenshot(client, '00c-match-interview-context.png')
 }
 
@@ -583,7 +585,7 @@ async function verifyModuleNavigationBoundaries(client, fixture) {
   }
   await navigate(client, `${baseUrl}/student/interview/practice?sessionId=${invalid}`)
   await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"interview-unavailable\"]'))")
-  if (await elementBox(client, "Boolean(document.querySelector('.answer-input textarea'))")) throw new Error('Invalid interview exposes another session answer')
+  if (await elementBox(client, "Boolean(document.querySelector('#interview-answer'))")) throw new Error('Invalid interview exposes another session answer')
   await withApiOverrides(client, [{ path: '/api/ai/learning/plans', data: [] }], async () => {
     await navigate(client, `${baseUrl}/student/plan`)
     await assertOnlyModulePage(client, 'plan', 'today')
@@ -593,7 +595,7 @@ async function verifyModuleNavigationBoundaries(client, fixture) {
   await withApiOverrides(client, [{ path: '/api/ai/interview/sessions', data: [] }], async () => {
     await navigate(client, `${baseUrl}/student/interview/practice`)
     await assertOnlyModulePage(client, 'interview', 'practice')
-    if (await elementBox(client, "Boolean(document.querySelector('.answer-input textarea'))")) throw new Error('Empty interview list shows cached answers')
+    if (await elementBox(client, "Boolean(document.querySelector('#interview-answer'))")) throw new Error('Empty interview list shows cached answers')
   })
   await navigate(client, `${baseUrl}/student/resume`)
 }
@@ -840,33 +842,35 @@ async function verifyCompletedInterviewReadOnly(client, fixture, session) {
   await assertNoText(client, ['本次目标岗位', '题目数量'])
   await clickSelector(client, '[data-testid="interview-view-answers"]')
   await waitForExpression(client, `location.pathname === '/student/interview/practice' && new URLSearchParams(location.search).get('sessionId') === ${JSON.stringify(fixture.sessionId)}`)
-  await waitForExpression(client, "Boolean(document.querySelector('.answer-input textarea')?.readOnly)")
+  await waitForExpression(client, "Boolean(document.querySelector('#interview-answer')?.readOnly)")
   await setDetailsOpen(client, '.question-feedback', true)
-  await waitForText(client, '本题评价')
+  await waitForText(client, '本题反馈')
   await waitForText(client, feedbackText)
   await screenshot(client, '00e-completed-interview-readonly.png')
 }
 
 async function verifyInterviewAnswerDraft(client, completedSession) {
   const session = { ...completedSession, sessionId: `e2e-answer-draft-${Date.now()}`, status: 'IN_PROGRESS',
-    questions: [completedSession.questions[0]], answers: [], report: undefined }
+    questions: [completedSession.questions[0]], answers: [], attempts: [], report: undefined, partialReport: undefined,
+    completedAt: undefined, mode: 'COACHING', timer: undefined, pausedAt: undefined }
   const text = `E2E unsaved answer ${Date.now()}`
   const path = `/student/interview/practice?sessionId=${encodeURIComponent(session.sessionId)}`
-  await withApiOverrides(client, [{ path: '/api/ai/interview/sessions', data: [session] }], async () => {
+  await withApiOverrides(client, [{ path: '/api/ai/interview/sessions', data: [session] },
+    { path: `/api/ai/interview/sessions/${session.sessionId}`, data: session }], async () => {
     await navigate(client, baseUrl + path)
-    await waitForExpression(client, "Boolean(document.querySelector('.answer-input textarea')) && !document.querySelector('.answer-input textarea').readOnly")
-    await fillInput(client, '.answer-input textarea', text)
-    await assertInputValue(client, '.answer-input textarea', text)
+    await waitForExpression(client, "Boolean(document.querySelector('#interview-answer')) && !document.querySelector('#interview-answer').readOnly")
+    await fillInput(client, '#interview-answer', text)
+    await assertInputValue(client, '#interview-answer', text)
     await clickSelector(client, '[data-testid="interview-nav-start"]')
     await waitForExpression(client, "location.pathname === '/student/interview'")
     await clickSelector(client, '[data-testid="interview-nav-practice"]')
     await waitForExpression(client, "location.pathname === '/student/interview/practice'")
-    await assertInputValue(client, '.answer-input textarea', text)
+    await assertInputValue(client, '#interview-answer', text)
     await navigate(client, baseUrl + path)
-    await assertInputValue(client, '.answer-input textarea', text)
+    await assertInputValue(client, '#interview-answer', text)
     await screenshot(client, '00i-interview-draft-restored.png')
     const userId = await elementBox(client, "localStorage.getItem('userId')")
-    await client.send('Runtime.evaluate', { expression: `sessionStorage.removeItem(${JSON.stringify(`aicampus.draft.${encodeURIComponent(userId)}.interview.${encodeURIComponent(session.sessionId)}`)})` })
+    await client.send('Runtime.evaluate', { expression: `localStorage.removeItem(${JSON.stringify(`aicampus.draft.${encodeURIComponent(userId)}.interview-practice.${encodeURIComponent(session.sessionId)}`)})` })
   })
 }
 
@@ -1667,9 +1671,9 @@ async function assertStudentWorkspace(client, module) {
   }
 
   if (module === 'interview') {
-    await assertText(client, ['开始模拟面试', '本次目标岗位', '题目数量'])
+    await assertText(client, ['开始辅导练习', '本次目标岗位', '题目数量'])
     await assertNoText(client, ['模拟面试会话', 'AI INTERVIEW STUDIO'])
-    await waitForExpression(client, "Boolean(document.querySelector('.target-role-editor input')?.getClientRects().length)")
+    await waitForExpression(client, "Boolean(document.querySelector('[aria-label=\"本次目标岗位\"]')?.getClientRects().length)")
   }
 
   if (module === 'knowledge') {

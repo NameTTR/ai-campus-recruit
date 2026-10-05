@@ -10,6 +10,7 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import {
   applyResumeSuggestion, createResumeDraft, createResumeExport, diagnoseResumeDraft,
   getAuthSession, getMasterResumeProfile, getResumeDraft, getResumeExport, getResumeExportFile, importResumeProfile,
+  importInterviewResumeCandidate,
   listJobs, listLearningPlans, listResumeDraftRevisions, listResumeDrafts,
   listResumes, listResumeTemplates, restoreResumeDraft, saveMasterResumeProfile,
   updateResumeDraft, uploadResume, uploadResumePhoto,
@@ -21,7 +22,7 @@ import {
 import {
   confirmedResumeProfile, copyResumeProfile, isResumeRevisionConflict, mergeResumeCandidate,
   moveResumeItem, resumeDraftCanAutoPreview, resumeDraftFingerprint, resumeExportStatusLabel, resumeLearningCandidates,
-  resumeSourceLabel, resumeWorkspaceMessage,
+  resumeSourceLabel, resumeWorkspaceMessage, resumeInterviewCandidateRequest,
   studentSource, suggestionNeedsProfile, suggestionMatchesDraft, editableResumeLines, editableResumeValues, type ResumeLearningCandidate
 } from './resumeWorkspace'
 import ResumePdfPreview from './ResumePdfPreview.vue'
@@ -87,6 +88,8 @@ const photoPreviewUrl = ref('')
 const learningCandidates = ref<ResumeLearningCandidate[]>([])
 const learningOpen = ref(false)
 const learningLoading = ref(false)
+const interviewCandidateLoading = ref(false)
+const interviewCandidateRequest = computed(() => resumeInterviewCandidateRequest(route.query))
 const resumeFileInput = ref<HTMLInputElement>()
 const photoFileInput = ref<HTMLInputElement>()
 const expandedSuggestions = ref(false)
@@ -585,6 +588,24 @@ async function loadLearningCandidates() {
   catch (error) { showError(error, '学习成果暂时无法读取，请稍后重试。') }
   finally { learningLoading.value = false }
 }
+async function addInterviewCandidate() {
+  const request = interviewCandidateRequest.value
+  if (!request || interviewCandidateLoading.value) return
+  interviewCandidateLoading.value = true
+  try {
+    const candidate = await importInterviewResumeCandidate(request)
+    if (disposed.value || JSON.stringify(interviewCandidateRequest.value) !== JSON.stringify(request)) return
+    if (profileInput.value.experiences.some(item => item.id === candidate.id)) {
+      ElMessage.info('这份回答已加入资料编辑区。')
+      return
+    }
+    profileInput.value.experiences.push(candidate)
+    profileConfirmed.value = false
+    profileSection.value = 'experience'
+    ElMessage.success('面试原回答已加入编辑区，请核对并补充职责、方法和实际结果后保存。')
+  } catch (error) { showError(error, '面试材料暂不可用，原回答仍保留。') }
+  finally { interviewCandidateLoading.value = false }
+}
 function addLearningCandidate(candidate: ResumeLearningCandidate) {
   if (profileInput.value.experiences.some(item => item.id === candidate.experience.id)) { ElMessage.info('这份成果已在资料中。'); return }
   profileInput.value.experiences.push(JSON.parse(JSON.stringify(candidate.experience)) as ResumeWorkspaceExperience)
@@ -667,6 +688,10 @@ onBeforeUnmount(() => {
           <button type="button" data-testid="resume-profile-experience" :class="{ active: profileSection === 'experience' }" @click="profileSection = 'experience'">技能与经历</button>
           <button type="button" data-testid="resume-profile-optional" :class="{ active: profileSection === 'optional' }" @click="profileSection = 'optional'">其他资料</button>
         </nav>
+        <div v-if="interviewCandidateRequest" class="builder-actions" data-testid="resume-interview-candidate">
+          <el-button :loading="interviewCandidateLoading" :disabled="loading" @click="addInterviewCandidate">加入这次面试的候选材料</el-button>
+          <small class="hint">仅加入编辑区，核对并保存后生效。</small>
+        </div>
         <div v-show="profileSection === 'basics'">
         <details class="import-panel">
 <summary>导入已有简历（PDF / DOC / DOCX）</summary>
@@ -1188,7 +1213,7 @@ onBeforeUnmount(() => {
 </template>
 </el-dialog>
     <el-dialog v-model="learningOpen" title="选择学习成果作为候选经历" width="min(760px, 95vw)">
-<p class="hint">只展示已提交的文本或链接成果。选择后仍需补充与确认，不会因为完成任务自动增加技能。</p>
+<p class="hint">仅展示评价通过且已确认的学习成果。选入资料后仍需核对和保存。</p>
 <article v-for="candidate in learningCandidates" :key="candidate.id" class="profile-item">
 <strong>{{ candidate.title }}</strong>
 <p>{{ candidate.description }}</p>
@@ -1196,7 +1221,7 @@ onBeforeUnmount(() => {
 <p v-if="candidate.links.length" class="hint">成果链接：{{ candidate.links.join('；') }}</p>
 <el-button size="small" :disabled="profileInput.experiences.some(item => item.id === candidate.experience.id)" @click="addLearningCandidate(candidate)">{{ profileInput.experiences.some(item => item.id === candidate.experience.id) ? '已加入编辑区' : '选择加入候选经历' }}</el-button>
 </article>
-<p v-if="!learningCandidates.length" class="empty-hint">暂无已提交学习成果。可先在学习路径中提交文本说明或作品链接。</p>
+<p v-if="!learningCandidates.length" class="empty-hint">暂无评价通过且已确认的学习成果。</p>
 </el-dialog>
   </section>
   </el-config-provider>

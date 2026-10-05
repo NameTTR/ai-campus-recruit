@@ -57,6 +57,18 @@ public class PersistentInterviewSessionStore implements InterviewSessionStore {
     }
 
     @Override
+    public boolean replace(InterviewSession expectedSession, InterviewSession updatedSession) {
+        try {
+            InterviewSessionEntity current = mapper.selectById(expectedSession.sessionId());
+            if (current == null || !current.toSession(objectMapper).equals(expectedSession)) return false;
+            return mapper.updateIfCurrent(InterviewSessionEntity.fromSession(updatedSession, objectMapper),
+                    current.getSessionSnapshot()) == 1;
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to persist interview session", ex);
+        }
+    }
+
+    @Override
     public List<InterviewSession> listByStudent(String studentId, int limit) {
         try {
             return mapper

@@ -33,6 +33,11 @@ public class InMemoryInterviewSessionStore implements InterviewSessionStore {
     }
 
     @Override
+    public synchronized boolean replace(InterviewSession expectedSession, InterviewSession updatedSession) {
+        return expectedSession != null && sessions.replace(expectedSession.sessionId(), expectedSession, updatedSession);
+    }
+
+    @Override
     public List<InterviewSession> listByStudent(String studentId, int limit) {
         return sessions.values().stream()
                 .filter(session -> studentId != null && studentId.equals(session.studentId()))

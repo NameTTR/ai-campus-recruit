@@ -24,6 +24,9 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 import com.aicampus.common.api.ApiResponse;
 import com.aicampus.common.dto.JobSummary;
 import com.aicampus.resume.client.AiDraftClient;
+import com.aicampus.resume.client.InterviewCandidateClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.aicampus.resume.render.ResumeRenderService;
 import com.aicampus.resume.render.ResumeTemplateRegistry;
 import com.aicampus.resume.workspace.store.WorkspaceStore.ExportJob;
@@ -32,6 +35,40 @@ import static org.mockito.Mockito.*;
 
 class WorkspaceServiceTest {
     private final List<WorkspaceService> services = new ArrayList<>();
+    @Test void interviewCandidateIsUnconfirmedAndOnlyAuthenticUneditedAnswersKeepTheirSource() {
+        Harness h=harness(null,null,null,null);
+        InterviewCandidateClient client=mock(InterviewCandidateClient.class);
+        h.service.setInterviewCandidateClient(client);
+        ObjectNode payload=new ObjectMapper().createObjectNode();
+        payload.put("candidateId","IC-1").put("sessionId","IS-1").put("questionId","Q1").put("attemptId","IA-1")
+                .put("title","Campus project").put("actions","I tested the actual API.").put("methods","").put("results","");
+        when(client.candidate(eq("IS-1"),anyMap(),eq("u1"),eq("STUDENT"))).thenReturn(ApiResponse.ok(payload));
+        Experience candidate=h.service.interviewCandidate("u1",new WorkspaceService.InterviewCandidateRequest("IS-1","Q1","IA-1"));
+        assertFalse(candidate.confirmed()); assertFalse(candidate.source().confirmed());
+        assertTrue(h.service.getProfile("u1").data().experiences().isEmpty());
+        assertEquals("",candidate.role()); assertTrue(candidate.skills().isEmpty());
+        Experience confirmed=new Experience(candidate.id(),candidate.type(),candidate.title(),candidate.organization(),candidate.startDate(),candidate.endDate(),candidate.role(),candidate.actions(),candidate.methods(),candidate.results(),candidate.skills(),candidate.links(),candidate.source(),true);
+        MasterProfile saved=h.service.saveProfile("u1",new ProfileSaveRequest(0,profile(confirmed),null,true));
+        assertEquals("INTERVIEW_ANSWER",saved.data().experiences().get(0).source().kind());
+        assertEquals(candidate.actions(),saved.data().experiences().get(0).source().quote());
+        Experience edited=new Experience(candidate.id(),candidate.type(),candidate.title(),"","","","",candidate.actions()+" Added a student claim.","","",List.of(),List.of(),candidate.source(),true);
+        MasterProfile changed=h.service.saveProfile("u1",new ProfileSaveRequest(1,profile(edited),null,true));
+        assertEquals("USER",changed.data().experiences().get(0).source().kind());
+    }
+
+    @Test void inaccessibleOrMismatchedInterviewSourcesNeverBecomeCandidates() {
+        Harness h=harness(null,null,null,null);
+        InterviewCandidateClient client=mock(InterviewCandidateClient.class);
+        h.service.setInterviewCandidateClient(client);
+        when(client.candidate(eq("IS-1"),anyMap(),eq("u2"),eq("STUDENT"))).thenReturn(ApiResponse.fail("not owned"));
+        assertThrows(WorkspaceException.class,()->h.service.interviewCandidate("u2",new WorkspaceService.InterviewCandidateRequest("IS-1","Q1","IA-1")));
+        assertThrows(WorkspaceException.class,()->h.service.interviewCandidate("u1",new WorkspaceService.InterviewCandidateRequest("../other","Q1","IA-1")));
+        ObjectNode invalid=new ObjectMapper().createObjectNode();
+        invalid.put("candidateId","IC-1").put("sessionId","OTHER").put("questionId","Q1").put("attemptId","IA-1").put("actions","Saved answer");
+        when(client.candidate(eq("IS-1"),anyMap(),eq("u1"),eq("STUDENT"))).thenReturn(ApiResponse.ok(invalid));
+        assertThrows(WorkspaceException.class,()->h.service.interviewCandidate("u1",new WorkspaceService.InterviewCandidateRequest("IS-1","Q1","IA-1")));
+        assertTrue(h.service.getProfile("u1").data().experiences().isEmpty());
+    }
     @AfterEach void closeServices(){ services.forEach(WorkspaceService::shutdown); }
     private WorkspaceService service(InMemoryResumeRecordStore records) {
         ResumeObjectStorageService storage = new ResumeObjectStorageService(false,"http://localhost:9000","a","b","resumes");

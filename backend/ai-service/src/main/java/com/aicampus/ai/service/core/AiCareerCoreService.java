@@ -56,6 +56,7 @@ public class AiCareerCoreService {
     private final LearningPlanStore learningPlanStore;
     private final InterviewSessionStore interviewSessionStore;
     private final RecruitmentContextClient contextClient;
+    private final InterviewPracticeService interviewPractice;
     private LearningEvidenceStore learningEvidenceStore = new InMemoryLearningEvidenceStore();
     private LearningWeeklyReviewStore learningWeeklyReviewStore = new InMemoryLearningWeeklyReviewStore();
     private static final String ALGORITHM_VERSION = "career-evidence-v2";
@@ -86,6 +87,7 @@ public class AiCareerCoreService {
         this.learningPlanStore = learningPlanStore;
         this.interviewSessionStore = interviewSessionStore;
         this.contextClient = contextClient;
+        this.interviewPractice = new InterviewPracticeService(aiCoachService, interviewSessionStore, contextClient, this);
     }
 
     public LearningPlan createLearningPlan(
@@ -453,85 +455,17 @@ public class AiCareerCoreService {
     public InterviewSession createInterviewSession(
             String studentId, String userRole, InterviewSessionCreateRequest request) {
         requireStudentId(studentId);
-        String resumeId = valueOr(request == null ? null : request.resumeId());
-        String jobId = valueOr(request == null ? null : request.jobId());
-        String matchId = valueOr(request == null ? null : request.matchId());
-        RecruitmentContextClient.ValidatedContext context =
-                contextClient.validate(studentId, resumeId, jobId, matchId, userRole);
-        String targetRole =
-                resolveTargetRole(request == null ? null : request.targetRole(), context);
-        int questionCount =
-                normalizeQuestionCount(request == null ? null : request.questionCount());
-        List<InterviewQuestion> generated =
-                aiCoachService.generateInterviewQuestions(
-                        new InterviewQuestionRequest(
-                                studentId,
-                                resumeId,
-                                jobId,
-                                targetRole,
-                                context.resumeSkills(),
-                                questionCount,
-                                true,
-                                6,
-                                contextMaterial(context),
-                                context.requiredSkills(),
-                                effectiveSkillGaps(context, targetRole)));
-        if (generated == null || generated.size() < questionCount) {
-            throw new IllegalArgumentException(
-                    "Interview question generation did not return enough questions");
-        }
-        String sessionId = "IS-" + UUID.randomUUID().toString().substring(0, 12);
-        boolean mocked =
-                generated.stream()
-                        .allMatch(question -> question.questionId().startsWith("IQ-RAG-"));
-        List<InterviewSessionQuestion> questions = new ArrayList<>();
-        for (int index = 0; index < questionCount; index++) {
-            InterviewQuestion question = generated.get(index);
-            String questionId = sessionId + "-Q" + (index + 1);
-            questions.add(
-                    new InterviewSessionQuestion(
-                            questionId,
-                            (index + 1) * 10,
-                            questionId,
-                            valueOr(question.category(), "general"),
-                            valueOr(question.difficulty(), "medium"),
-                            requireText(
-                                    question.question(), "Generated interview question is blank"),
-                            safeStrings(question.referencePoints()),
-                            false,
-                            mocked ? "FALLBACK" : "DASHSCOPE"));
-        }
-        Instant now = Instant.now();
-        InterviewSession session =
-                new InterviewSession(
-                        sessionId,
-                        studentId,
-                        resumeId,
-                        jobId,
-                        matchId,
-                        targetRole,
-                        context.snapshot(resumeId, jobId, matchId),
-                        "IN_PROGRESS",
-                        List.copyOf(questions),
-                        List.of(),
-                        null,
-                        mocked,
-                        now,
-                        now,
-                        null);
-        interviewSessionStore.save(session);
-        return session;
+        return interviewPractice.create(studentId, userRole, request);
     }
+
 
     public List<InterviewSession> listInterviewSessions(String studentId, Integer limit) {
         requireStudentId(studentId);
-        return interviewSessionStore.listByStudent(studentId, normalizeListLimit(limit));
+        return interviewPractice.listSessions(studentId, limit);
     }
 
     public InterviewSession getInterviewSession(String sessionId, String studentId) {
-        InterviewSession session = requireInterviewSession(sessionId);
-        requireOwner(session.studentId(), studentId, "Interview session");
-        return session;
+        return interviewPractice.get(sessionId, studentId);
     }
 
     public InterviewSession answerInterviewQuestion(
@@ -539,369 +473,23 @@ public class AiCareerCoreService {
             String questionId,
             String studentId,
             InterviewSessionAnswerRequest request) {
-        String answer =
-                requireText(request == null ? null : request.answer(), "answer is required");
-        String requestedQuestionId =
-                requireText(
-                        request == null ? null : request.questionId(), "questionId is required");
-        if (!questionId.equals(requestedQuestionId)) {
-            throw new IllegalArgumentException("questionId must match the path");
-        }
-        if (answer.length() > 8000) {
-            throw new IllegalArgumentException("answer must not exceed 8000 characters");
-        }
-        for (int attempt = 0; attempt < MAX_CONCURRENT_WRITE_ATTEMPTS; attempt++) {
-            InterviewSession session = getInterviewSession(sessionId, studentId);
-            if (!"IN_PROGRESS".equals(session.status())) {
-                throw new IllegalArgumentException("Interview session is already finished");
-            }
-            if (safeQuestions(session.questions()).stream()
-                    .noneMatch(question -> questionId.equals(question.questionId()))) {
-                throw new IllegalArgumentException("Interview question not found");
-            }
-            InterviewSessionAnswer existingAnswer =
-                    safeAnswers(session.answers()).stream()
-                            .filter(item -> questionId.equals(item.questionId()))
-                            .findFirst()
-                            .orElse(null);
-            if (existingAnswer != null) {
-                if (existingAnswer.answer().equals(answer)) {
-                    return session;
-                }
-                throw new IllegalArgumentException("Interview question already has an answer");
-            }
-            InterviewSessionQuestion expected = nextUnansweredQuestion(session);
-            if (expected == null || !expected.questionId().equals(questionId)) {
-                throw new IllegalArgumentException(
-                        "Interview answers must be submitted in question order");
-            }
-            Instant now = Instant.now();
-            List<InterviewSessionAnswer> answers = new ArrayList<>(safeAnswers(session.answers()));
-            answers.add(new InterviewSessionAnswer(questionId, answer, now));
-            List<InterviewSessionQuestion> questions =
-                    new ArrayList<>(safeQuestions(session.questions()));
-            InterviewSession updated =
-                    new InterviewSession(
-                            session.sessionId(),
-                            session.studentId(),
-                            session.resumeId(),
-                            session.jobId(),
-                            session.matchId(),
-                            session.targetRole(),
-                            session.contextSnapshot(),
-                            session.status(),
-                            questions.stream()
-                                    .sorted(
-                                            Comparator.comparingInt(
-                                                    InterviewSessionQuestion::order))
-                                    .toList(),
-                            List.copyOf(answers),
-                            session.report(),
-                            session.mocked(),
-                            session.createdAt(),
-                            now,
-                            session.completedAt());
-            if (interviewSessionStore.replaceInProgress(session, updated)) {
-                return updated;
-            }
-        }
-        throw new IllegalStateException(
-                "Interview session was changed before the answer could be saved");
+        return interviewPractice.answer(sessionId, questionId, studentId, request, false);
     }
+
 
     public InterviewEvaluationResponse evaluateInterviewAnswer(
             String sessionId, String questionId, String studentId) {
-        synchronized (operationLock("interview:" + sessionId)) {
-            return evaluateInterviewAnswerLocked(sessionId, questionId, studentId, true);
-        }
+        return interviewPractice.evaluate(sessionId, questionId, null, studentId, false);
     }
 
-    private InterviewEvaluationResponse evaluateInterviewAnswerLocked(
-            String sessionId, String questionId, String studentId, boolean allowFollowUp) {
-        InterviewSession initial = getInterviewSession(sessionId, studentId);
-        InterviewSessionAnswer saved =
-                safeAnswers(initial.answers()).stream()
-                        .filter(a -> questionId.equals(a.questionId()))
-                        .findFirst()
-                        .orElseThrow(
-                                () ->
-                                        new IllegalArgumentException(
-                                                "Save an answer before requesting evaluation"));
-        InterviewSessionQuestion question =
-                safeQuestions(initial.questions()).stream()
-                        .filter(q -> questionId.equals(q.questionId()))
-                        .findFirst()
-                        .orElseThrow(
-                                () -> new IllegalArgumentException("Interview question not found"));
-        String fingerprint =
-                fingerprint(
-                        studentId,
-                        sessionId,
-                        questionId,
-                        saved.answer(),
-                        RUBRIC_VERSION,
-                        question.referencePoints().toString(),
-                        modelKey("interview-evaluation-v1"));
-        if (saved.evaluation() != null
-                && "SUCCEEDED".equals(saved.evaluationStatus())
-                && (!"IN_PROGRESS".equals(initial.status())
-                        || evaluationMatches(saved, fingerprint)))
-            return evaluationResponse(initial, questionId);
-        if (!"IN_PROGRESS".equals(initial.status()))
-            throw new IllegalArgumentException("Interview session is already finished");
-        if ("EVALUATING".equals(saved.evaluationStatus())
-                && Duration.between(initial.updatedAt(), Instant.now())
-                                .compareTo(Duration.ofMinutes(3))
-                        < 0) return evaluationResponse(initial, questionId);
-
-        InterviewSession claimed = null;
-        for (int attempt = 0; attempt < MAX_CONCURRENT_WRITE_ATTEMPTS; attempt++) {
-            InterviewSession current = getInterviewSession(sessionId, studentId);
-            InterviewSessionAnswer answer =
-                    safeAnswers(current.answers()).stream()
-                            .filter(a -> questionId.equals(a.questionId()))
-                            .findFirst()
-                            .orElseThrow();
-            if (("SUCCEEDED".equals(answer.evaluationStatus())
-                            && evaluationMatches(answer, fingerprint))
-                    || ("EVALUATING".equals(answer.evaluationStatus())
-                            && Duration.between(current.updatedAt(), Instant.now())
-                                            .compareTo(Duration.ofMinutes(3))
-                                    < 0)) return evaluationResponse(current, questionId);
-            claimed = withEvaluation(current, questionId, "EVALUATING", null, null, null);
-            if (interviewSessionStore.replaceInProgress(current, claimed)) break;
-            claimed = null;
-        }
-        if (claimed == null)
-            throw new IllegalStateException("Interview evaluation could not be claimed");
-        InterviewQuestionFeedback feedback = null;
-        String error = null;
-        try {
-            InterviewFeedback result =
-                    aiCoachService.evaluateSavedAnswer(
-                            new InterviewFeedbackRequest(
-                                    studentId,
-                                    questionId,
-                                    question.question(),
-                                    saved.answer(),
-                                    initial.targetRole()),
-                            safeList(question.referencePoints()));
-            List<InterviewEvidenceNote> notes = safeList(result.evidence());
-            for (InterviewEvidenceNote note : notes)
-                if (note.quote() == null
-                        || note.quote().isBlank()
-                        || !saved.answer().contains(note.quote()))
-                    throw new IllegalArgumentException(
-                            "Evaluation quote could not be located in the saved answer");
-            if (notes.isEmpty())
-                throw new IllegalArgumentException("Evaluation must cite the saved answer");
-            feedback =
-                    new InterviewQuestionFeedback(
-                            questionId,
-                            result.score(),
-                            safeList(result.strengths()),
-                            safeList(result.gaps()),
-                            safeList(result.suggestions()),
-                            result.summary(),
-                            result.mocked(),
-                            safeList(result.dimensions()),
-                            notes,
-                            RUBRIC_VERSION,
-                            result.followUpQuestion(),
-                            metadata(fingerprint, result.mocked(), "interview-evaluation-v1"),
-                            Instant.now());
-        } catch (RuntimeException ex) {
-            error = "评价暂时不可用，答案已保存，请重试。";
-        }
-        for (int attempt = 0; attempt < MAX_CONCURRENT_WRITE_ATTEMPTS; attempt++) {
-            InterviewSession current = getInterviewSession(sessionId, studentId);
-            InterviewSessionQuestion followUp = null;
-            if (feedback != null
-                    && allowFollowUp
-                    && !question.followUp()
-                    && valueOr(feedback.followUpQuestion()) != null
-                    && current.questions().stream()
-                            .noneMatch(
-                                    q ->
-                                            q.mainQuestionId().equals(question.mainQuestionId())
-                                                    && q.followUp())
-                    && current.answers().stream()
-                            .noneMatch(
-                                    a ->
-                                            current.questions().stream()
-                                                    .anyMatch(
-                                                            q ->
-                                                                    q.questionId()
-                                                                                    .equals(
-                                                                                            a
-                                                                                                    .questionId())
-                                                                            && q.order()
-                                                                                    > question
-                                                                                            .order()))) {
-                followUp =
-                        followUpQuestion(
-                                current, question, feedback.followUpQuestion(), feedback.mocked());
-            }
-            InterviewSession updated =
-                    withEvaluation(
-                            current,
-                            questionId,
-                            feedback == null ? "FAILED" : "SUCCEEDED",
-                            feedback,
-                            error,
-                            followUp);
-            if (interviewSessionStore.replaceInProgress(current, updated))
-                return evaluationResponse(updated, questionId);
-        }
-        throw new IllegalStateException("Interview evaluation result could not be saved");
-    }
 
     public InterviewSessionReport finishInterviewSession(String sessionId, String studentId) {
-        synchronized (operationLock("interview:" + sessionId)) {
-            InterviewSession session = getInterviewSession(sessionId, studentId);
-            if (session.report() != null) return session.report();
-            if (!"IN_PROGRESS".equals(session.status()) || nextUnansweredQuestion(session) != null)
-                throw new IllegalArgumentException(
-                        "All interview questions must be answered before finish");
-            for (InterviewSessionQuestion question : safeQuestions(session.questions())) {
-                InterviewEvaluationResponse evaluation =
-                        evaluateInterviewAnswerLocked(
-                                sessionId, question.questionId(), studentId, false);
-                if (!"SUCCEEDED".equals(evaluation.status()))
-                    throw new IllegalStateException(
-                            "Interview evaluation is unavailable; saved answers can be retried");
-            }
-            for (int attempt = 0; attempt < MAX_CONCURRENT_WRITE_ATTEMPTS; attempt++) {
-                session = getInterviewSession(sessionId, studentId);
-                if (session.report() != null) return session.report();
-                List<InterviewQuestionFeedback> feedback =
-                        session.answers().stream().map(InterviewSessionAnswer::evaluation).toList();
-                InterviewSessionReport basic = toReport(sessionId, feedback);
-                List<String> comparable =
-                        interviewSessionStore.listByStudent(studentId, 100).stream()
-                                .filter(
-                                        s ->
-                                                s.report() != null
-                                                        && sameTargetRole(
-                                                                sessionTargetRole(sessionId),
-                                                                s.targetRole())
-                                                        && RUBRIC_VERSION.equals(
-                                                                s.report().rubricVersion()))
-                                .map(InterviewSession::sessionId)
-                                .filter(id -> !sessionId.equals(id))
-                                .toList();
-                String difficulty =
-                        "本次题目难度："
-                                + session.questions().stream()
-                                        .map(InterviewSessionQuestion::difficulty)
-                                        .distinct()
-                                        .collect(java.util.stream.Collectors.joining("、"))
-                                + "；历史题目难度可能不同，分数仅作练习参考。";
-                InterviewSessionReport report =
-                        new InterviewSessionReport(
-                                sessionId,
-                                basic.overallScore(),
-                                basic.strengths(),
-                                basic.gaps(),
-                                basic.recommendations(),
-                                feedback,
-                                basic.generatedAt(),
-                                basic.mocked(),
-                                RUBRIC_VERSION,
-                                "仅列出相同目标岗位、相同评价标准版本的历史面试",
-                                comparable,
-                                difficulty);
-                Instant now = Instant.now();
-                InterviewSession completed =
-                        new InterviewSession(
-                                session.sessionId(),
-                                session.studentId(),
-                                session.resumeId(),
-                                session.jobId(),
-                                session.matchId(),
-                                session.targetRole(),
-                                session.contextSnapshot(),
-                                "COMPLETED",
-                                session.questions(),
-                                session.answers(),
-                                report,
-                                session.mocked() || report.mocked(),
-                                session.createdAt(),
-                                now,
-                                now);
-                if (interviewSessionStore.replaceInProgress(session, completed)) return report;
-            }
-            throw new IllegalStateException(
-                    "Interview report was changed before it could be saved");
-        }
+        return interviewPractice.report(sessionId, studentId, false);
     }
 
-    private String sessionTargetRole(String sessionId) {
-        return requireInterviewSession(sessionId).targetRole();
-    }
 
-    private InterviewEvaluationResponse evaluationResponse(
-            InterviewSession session, String questionId) {
-        InterviewSessionAnswer answer =
-                session.answers().stream()
-                        .filter(a -> questionId.equals(a.questionId()))
-                        .findFirst()
-                        .orElseThrow();
-        InterviewSessionQuestion followUp =
-                session.questions().stream()
-                        .filter(q -> q.followUp() && questionId.equals(q.mainQuestionId()))
-                        .findFirst()
-                        .orElse(null);
-        return new InterviewEvaluationResponse(
-                session.sessionId(),
-                questionId,
-                answer.evaluationStatus(),
-                answer.evaluation(),
-                answer.evaluationError(),
-                followUp);
-    }
+    public InterviewPracticeService interviewPractice() { return interviewPractice; }
 
-    private InterviewSession withEvaluation(
-            InterviewSession session,
-            String questionId,
-            String status,
-            InterviewQuestionFeedback feedback,
-            String error,
-            InterviewSessionQuestion followUp) {
-        List<InterviewSessionAnswer> answers =
-                session.answers().stream()
-                        .map(
-                                a ->
-                                        questionId.equals(a.questionId())
-                                                ? new InterviewSessionAnswer(
-                                                        a.questionId(),
-                                                        a.answer(),
-                                                        a.answeredAt(),
-                                                        status,
-                                                        feedback,
-                                                        error)
-                                                : a)
-                        .toList();
-        List<InterviewSessionQuestion> questions = new ArrayList<>(session.questions());
-        if (followUp != null) questions.add(followUp);
-        questions.sort(Comparator.comparingInt(InterviewSessionQuestion::order));
-        return new InterviewSession(
-                session.sessionId(),
-                session.studentId(),
-                session.resumeId(),
-                session.jobId(),
-                session.matchId(),
-                session.targetRole(),
-                session.contextSnapshot(),
-                session.status(),
-                List.copyOf(questions),
-                answers,
-                session.report(),
-                session.mocked(),
-                session.createdAt(),
-                Instant.now(),
-                session.completedAt());
-    }
 
     private LearningPlan generateLearningPlan(
             String studentId,
@@ -955,7 +543,8 @@ public class AiCareerCoreService {
                                 task.estimatedHours(),
                                 task.exercise(),
                                 task.acceptanceCriteria(),
-                                task.deliverable()));
+                                task.deliverable(),
+                                task.estimatedMinutes()));
             generated =
                     new CareerPlanResponse(
                             generated.studentId(),
@@ -1136,9 +725,9 @@ public class AiCareerCoreService {
                     result.add(task);
                 }
             }
-            int completedHours = completed.stream().mapToInt(LearningTask::estimatedHours).sum();
-            int remainingHours = weeklyHours - completedHours;
-            if (remainingHours <= 0) {
+            int completedMinutes = completed.stream().mapToInt(AiCareerCoreService::taskMinutes).sum();
+            int remainingMinutes = weeklyHours * 60 - completedMinutes;
+            if (remainingMinutes <= 0) {
                 continue;
             }
             Set<String> selectedTaskIds = new HashSet<>(completedTaskIds);
@@ -1153,10 +742,10 @@ public class AiCareerCoreService {
             }
             for (int index = 0; index < candidates.size(); index++) {
                 LearningTask task = candidates.get(index);
-                int allocatedHours =
-                        remainingHours / candidates.size()
-                                + (index < remainingHours % candidates.size() ? 1 : 0);
-                result.add(copyTaskWithHours(task, allocatedHours));
+                int allocatedMinutes =
+                        remainingMinutes / candidates.size()
+                                + (index < remainingMinutes % candidates.size() ? 1 : 0);
+                result.add(copyTaskWithMinutes(task, allocatedMinutes));
             }
         }
         // A revision can pass through the preservation step more than once
@@ -1267,7 +856,7 @@ public class AiCareerCoreService {
 
     private static void validateReplanBudget(
             List<LearningTask> previousTasks, int weeklyHours, int durationWeeks) {
-        Map<Integer, Integer> completedHoursByWeek = new HashMap<>();
+        Map<Integer, Integer> completedMinutesByWeek = new HashMap<>();
         for (LearningTask task : safeTasks(previousTasks)) {
             if (!"COMPLETED".equals(task.status())) {
                 continue;
@@ -1276,17 +865,21 @@ public class AiCareerCoreService {
                 throw new IllegalArgumentException(
                         "Cannot shorten the plan past a completed task in week " + task.week());
             }
-            completedHoursByWeek.merge(task.week(), task.estimatedHours(), Integer::sum);
+            completedMinutesByWeek.merge(task.week(), taskMinutes(task), Integer::sum);
         }
-        for (Map.Entry<Integer, Integer> entry : completedHoursByWeek.entrySet()) {
-            if (entry.getValue() > weeklyHours) {
+        for (Map.Entry<Integer, Integer> entry : completedMinutesByWeek.entrySet()) {
+            if (entry.getValue() > weeklyHours * 60) {
                 throw new IllegalArgumentException(
                         "weeklyHours is lower than completed work in week " + entry.getKey());
             }
         }
     }
 
-    private static LearningTask copyTaskWithHours(LearningTask task, int estimatedHours) {
+    private static int taskMinutes(LearningTask task) {
+        return task.estimatedMinutes() > 0 ? task.estimatedMinutes() : task.estimatedHours() * 60;
+    }
+
+    private static LearningTask copyTaskWithMinutes(LearningTask task, int estimatedMinutes) {
         return new LearningTask(
                 task.taskId(),
                 task.week(),
@@ -1296,7 +889,7 @@ public class AiCareerCoreService {
                 task.stage(),
                 task.acceptanceCriteria(),
                 task.practiceDeliverable(),
-                estimatedHours,
+                (estimatedMinutes + 59) / 60,
                 task.status(),
                 task.feedback(),
                 task.completedAt(),
@@ -1306,7 +899,7 @@ public class AiCareerCoreService {
                 task.referenceStatus(),
                 safeList(task.evidence()),
                 task.taskDate(),
-                Math.max(0, estimatedHours) * 60,
+                Math.max(0, estimatedMinutes),
                 safeList(task.dependencies()),
                 task.source(),
                 task.actualMinutes(),
@@ -1557,7 +1150,7 @@ public class AiCareerCoreService {
             int weeklyHours,
             List<String> existingSkills,
             List<String> prioritySkills) {
-        Map<Integer, Integer> hours = new HashMap<>();
+        Map<Integer, Integer> minutesByWeek = new HashMap<>();
         List<LearningTask> tasks = new ArrayList<>();
         Set<String> previousSkills =
                 safeList(existingSkills).stream()
@@ -1601,10 +1194,11 @@ public class AiCareerCoreService {
                                                         + " first"));
             pending.remove(task);
 
+            int minutes = task.durationMinutes();
             if (task.week() < 1
                     || task.week() > weeks
-                    || task.estimatedHours() < 1
-                    || task.estimatedHours() > weeklyHours)
+                    || minutes < 1
+                    || minutes > weeklyHours * 60)
                 throw new IllegalStateException(
                         "AI learning task exceeds the requested weekly budget");
             String skill =
@@ -1614,8 +1208,8 @@ public class AiCareerCoreService {
                         com.aicampus.common.evidence.SkillOntology.normalize(prerequisite)))
                     throw new IllegalStateException(
                             "AI learning prerequisite must be scheduled first");
-            hours.merge(task.week(), task.estimatedHours(), Integer::sum);
-            if (hours.get(task.week()) > weeklyHours)
+            minutesByWeek.merge(task.week(), minutes, Integer::sum);
+            if (minutesByWeek.get(task.week()) > weeklyHours * 60)
                 throw new IllegalStateException(
                         "AI learning tasks exceed the requested weekly budget");
             List<LearningReference> references =
@@ -1640,17 +1234,18 @@ public class AiCareerCoreService {
                             safeList(task.prerequisites()),
                             references,
                             references.isEmpty() ? "NO_MATCHING_MATERIAL" : "KNOWLEDGE_BASE",
-                            List.of()));
+                            List.of(),
+                            null, minutes, List.of(), "AI_PLAN", null, false, null));
             previousSkills.add(com.aicampus.common.evidence.SkillOntology.normalize(skill));
         }
         for (int week = 1; week <= weeks; week++)
-            if (!hours.containsKey(week))
+            if (!minutesByWeek.containsKey(week))
                 throw new IllegalStateException(
                         "AI learning tasks must cover every requested week");
         return List.copyOf(tasks);
     }
 
-    private static List<String> effectiveSkillGaps(
+    static List<String> effectiveSkillGaps(
             RecruitmentContextClient.ValidatedContext context, String targetRole) {
         java.util.LinkedHashMap<String, String> gaps = new java.util.LinkedHashMap<>();
         for (String skill : context.missingSkills())
@@ -1700,7 +1295,7 @@ public class AiCareerCoreService {
         return List.copyOf(gaps.values());
     }
 
-    private static String contextMaterial(RecruitmentContextClient.ValidatedContext context) {
+    static String contextMaterial(RecruitmentContextClient.ValidatedContext context) {
         List<String> material = new ArrayList<>();
         if (context.resume() != null) {
             material.add("简历项目原文：" + String.join("；", safeList(context.resume().projects())));

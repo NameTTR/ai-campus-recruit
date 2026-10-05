@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LearningPlan, ResumeDraftData, ResumeWorkspaceProfileData } from '../../api/client'
-import { confirmedResumeProfile, copyResumeProfile, isResumeRevisionConflict, mergeResumeCandidate, moveResumeItem, resumeDraftCanAutoPreview, resumeLearningCandidates, suggestionMatchesDraft, suggestionNeedsProfile, editableResumeLines, editableResumeValues } from './resumeWorkspace'
+import { confirmedResumeProfile, copyResumeProfile, isResumeRevisionConflict, mergeResumeCandidate, moveResumeItem, resumeDraftCanAutoPreview, resumeLearningCandidates, resumeInterviewCandidateRequest, suggestionMatchesDraft, suggestionNeedsProfile, editableResumeLines, editableResumeValues } from './resumeWorkspace'
 
 function profile(): ResumeWorkspaceProfileData {
   return {
@@ -97,8 +97,8 @@ describe('resume source and suggestion checks', () => {
         { taskId: 'evidence', title: '缓存练习', week: 2, description: '', estimatedHours: 3,
           status: 'COMPLETED', updatedAt: '', evidence: [{
             evidenceId: 'e1', planId: 'plan', taskId: 'evidence', studentId: 'student',
-            description: '提交测试说明', links: ['https://example.test/tests'], status: 'EVALUATED', submittedAt: '',
-            evaluation: { score: 70, conclusion: '测试材料已提供', strengths: [], gaps: [], suggestions: [], evidence: [], mocked: true }
+            description: '提交测试说明', links: ['https://example.test/tests'], status: 'CONFIRMED', submittedAt: '', confirmed: true,
+            evaluation: { score: 70, conclusion: '测试材料已提供', strengths: [], gaps: [], suggestions: [], evidence: [], mocked: false }
           }] }
       ]
     }]
@@ -108,5 +108,17 @@ describe('resume source and suggestion checks', () => {
     expect(candidates[0]?.experience.confirmed).toBe(false)
     expect(candidates[0]?.experience.source?.assessment).toBe('测试材料已提供')
     expect(candidates[0]?.experience.source?.sourceId).toBe('e1')
+    plans[0]!.tasks[1]!.evidence![0]!.confirmed = false
+    expect(resumeLearningCandidates(plans)).toEqual([])
+    plans[0]!.tasks[1]!.evidence![0]!.confirmed = true
+    plans[0]!.tasks[1]!.evidence![0]!.evaluation!.mocked = true
+    expect(resumeLearningCandidates(plans)).toEqual([])
+  })
+  it('accepts only complete scalar interview source references', () => {
+    expect(resumeInterviewCandidateRequest({ interviewSessionId: 'IS-1', questionId: 'Q1', attemptId: 'IA-1' }))
+      .toEqual({ sessionId: 'IS-1', questionId: 'Q1', attemptId: 'IA-1' })
+    expect(resumeInterviewCandidateRequest({ interviewSessionId: 'IS-1', questionId: 'Q1' })).toBeUndefined()
+    expect(resumeInterviewCandidateRequest({ interviewSessionId: '../other', questionId: 'Q1', attemptId: 'IA-1' })).toBeUndefined()
+    expect(resumeInterviewCandidateRequest({ interviewSessionId: ['IS-1'], questionId: 'Q1', attemptId: 'IA-1' })).toBeUndefined()
   })
 })

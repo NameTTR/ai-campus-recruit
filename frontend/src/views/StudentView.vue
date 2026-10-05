@@ -32,13 +32,10 @@ import {
 import {
   confirmLearningPlan,
   compareResumeJobs,
-  evaluateInterviewAnswer,
   analyzeResume,
   answerKnowledgeBase,
-  createInterviewSession,
   createLearningPlan,
   deleteResume,
-  finishInterviewSession,
   getProfile,
   getKnowledgeRevision,
   getInterviewSession,
@@ -57,12 +54,10 @@ import {
   replanLearningPlan,
   submitLearningWeeklyReview,
   rewriteResume,
-  saveInterviewSessionAnswer,
   updateLearningTask,
   updateResumeProfile,
   uploadResume,
   type InterviewSession,
-  type InterviewSessionReport,
   type AiSearchResponse,
   type JobSummary,
   type KnowledgeAnswerResponse,
@@ -83,13 +78,11 @@ import {
   filterJobs,
   latestMatchForPair,
   matchUsesCurrentSkills,
-  mergeAnswerDrafts,
   planStatusLabel,
   readStudentDraft,
   resumeProfileIsDirty,
   resumeSummaryFromProfile,
   splitProfileLines,
-  unfinishedQuestionCount,
   validateResumeFile,
   writeStudentDraft
 } from '../features/student/studentWorkflow'
@@ -98,10 +91,9 @@ import ResumeEvidencePanel from '../features/student/ResumeEvidencePanel.vue'
 import ResumeBuilderPanel from '../features/student/ResumeBuilderPanel.vue'
 import StudentModuleNav from '../features/student/StudentModuleNav.vue'
 import LearningEvidenceForm from '../features/student/LearningEvidenceForm.vue'
-import InterviewFeedbackPanel from '../features/student/InterviewFeedbackPanel.vue'
+import InterviewWorkspace from '../features/student/InterviewWorkspace.vue'
 import {
-  citationLocation, comparableInterviewSessions, evaluationCanRetry,
-  firstActionableQuestionIndex, matchContextIsCurrent, retrievalFromAnswer, retrievalModeLabel
+  citationLocation, matchContextIsCurrent, retrievalFromAnswer, retrievalModeLabel
 } from '../features/student/coreDeepening'
 
 const route = useRoute()
@@ -171,6 +163,8 @@ const planActionLoading = ref(false)
 const replanPreview = ref<LearningPlan>()
 const replanPreviewSourceId = ref('')
 const replanPreviewOpen = ref(false)
+let replanRouteRequest = 0
+let restoredReplanRoute = ''
 const planForm = reactive({
   targetRole: '',
   weeklyHours: 6,
@@ -212,16 +206,8 @@ let planVersionRequest = 0
 const interviewSessions = ref<InterviewSession[]>([])
 const selectedSessionId = ref('')
 const selectedCompletedSessionId = ref('')
-const sessionReport = ref<InterviewSessionReport>()
 const interviewLoading = ref(false)
-const interviewActionLoading = ref(false)
-const interviewEvaluatingId = ref('')
-const interviewEvaluationError = ref('')
-const activeQuestionIndex = ref(0)
-const answerDrafts = ref<Record<string, string>>({})
-const interviewQuestionCount = ref(5)
 const interviewTargetRole = ref('')
-let answerDraftSessionId = ''
 let interviewReadRequest = 0
 
 const knowledgeQuery = ref('')
@@ -242,8 +228,6 @@ const selectedJob = computed(() => jobs.value.find((job) => job.jobId === select
 const selectedPlan = computed(() => plans.value.find((plan) => plan.planId === selectedPlanId.value))
 const selectedPlanIsActive = computed(() => selectedPlan.value?.status === 'ACTIVE')
 const selectedSession = computed(() => interviewSessions.value.find((session) => session.sessionId === selectedSessionId.value))
-const activeQuestion = computed(() => selectedSession.value?.questions[activeQuestionIndex.value])
-const interviewHistoryOpen = computed(() => interviewPage.value === 'history')
 const selectedTask = computed(() => selectedPlan.value?.tasks.find(task => task.taskId === route.params.taskId))
 const filteredPlanTasks = computed(() => (selectedPlan.value?.tasks || []).filter(task => !planListWeek.value || task.week === planListWeek.value))
 const pagedPlanTasks = computed(() => filteredPlanTasks.value.slice((planListPage.value - 1) * modulePageSize, planListPage.value * modulePageSize))
@@ -251,7 +235,6 @@ const visibleTodayTasks = computed(() => (todayPlanData.value?.tasks || todayTas
   .filter(task => !['COMPLETED', 'SKIPPED'].includes(taskDisplayStatus(task))).slice(0, 5))
 const pendingEvidenceTasks = computed(() => planTasks.value.filter(task => task.status === 'COMPLETED' && !task.evidence?.length).slice(0, 3))
 const invalidPlan = computed(() => moduleDataReady.plan && Boolean(queryValue('planId')) && !selectedPlan.value)
-const invalidSession = computed(() => moduleDataReady.interview && Boolean(queryValue('sessionId')) && !selectedSession.value)
 const invalidOriginal = computed(() => moduleDataReady.resume && Boolean(route.params.resumeId) && !selectedResume.value)
 const moduleContext = computed<Record<string, string>>(() => {
   const context: Record<string, string> = {}
@@ -352,21 +335,6 @@ const upcomingReminders = computed(() => planTasks.value.filter((task) => {
   const reminder = taskSchedule(task).reminderAt || activePlanSchedule.value.reminderTime
   return Boolean(reminder && !['COMPLETED', 'SKIPPED'].includes(taskDisplayStatus(task)))
 }))
-const selectedSessionProgress = computed(() => {
-  const total = selectedSession.value?.questions.length || 0
-  return total ? Math.round(((selectedSession.value?.answers.length || 0) / total) * 100) : 0
-})
-const firstUnansweredIndex = computed(() => selectedSession.value ? firstActionableQuestionIndex(selectedSession.value) : 0)
-const activeSavedAnswer = computed(() => selectedSession.value?.answers.find((answer) => answer.questionId === activeQuestion.value?.questionId))
-const activeQuestionLocked = computed(() => !selectedSession.value || selectedSession.value.status !== 'IN_PROGRESS'
-  || activeQuestionIndex.value !== firstUnansweredIndex.value || Boolean(activeSavedAnswer.value?.answer.trim()))
-const pendingInterviewEvaluations = computed(() => (selectedSession.value?.answers || []).filter((answer) => answer.evaluationStatus && answer.evaluationStatus !== 'SUCCEEDED').length)
-const comparisonSessions = computed(() => selectedSession.value ? comparableInterviewSessions(selectedSession.value, interviewSessions.value) : [])
-const unfinishedInterviewQuestions = computed(() => selectedSession.value
-  ? unfinishedQuestionCount(selectedSession.value.questions, selectedSession.value.answers)
-  : 0)
-const activeQuestionFeedback = computed(() => activeSavedAnswer.value?.evaluation || sessionReport.value?.questionFeedback
-  ?.find((feedback) => feedback.questionId === activeQuestion.value?.questionId))
 const compatibleCompletedSessions = computed(() => {
   const plan = selectedPlan.value
   return plan
@@ -382,15 +350,6 @@ const compatibleInterviewSessionId = computed(() => {
   return compatibleCompletedSessions.value.some((session) => session.sessionId === selectedCompletedSessionId.value)
     ? selectedCompletedSessionId.value
     : undefined
-})
-const currentAnswer = computed({
-  get: () => activeQuestion.value ? answerDrafts.value[activeQuestion.value.questionId] || '' : '',
-  set: (value: string) => {
-    if (activeQuestion.value && !activeQuestionLocked.value) {
-      answerDrafts.value = { ...answerDrafts.value, [activeQuestion.value.questionId]: value }
-      persistInterviewDraft(selectedSession.value)
-    }
-  }
 })
 
 function renderMarkdown(value: string) {
@@ -458,16 +417,6 @@ function validatePlanSchedule() {
   }
   if (planForm.weeklyHours * 60 > planForm.dailyMinutesCap * planForm.studyDays.length) {
     ElMessage.warning('每周投入时间超过学习日和每天上限的总容量')
-    return false
-  }
-  return true
-}
-
-function validateInterviewQuestionCount() {
-  if (!Number.isInteger(interviewQuestionCount.value)
-    || interviewQuestionCount.value < 1
-    || interviewQuestionCount.value > 8) {
-    ElMessage.warning('面试题数需在 1 到 8 题之间')
     return false
   }
   return true
@@ -1423,35 +1372,15 @@ function openInterviewFollowUpFromEvidence(evidence: LearningEvidence) {
   const plan = selectedPlan.value
   if (plan) interviewTargetRole.value = plan.targetRole
   ElMessage.info('已带入当前目标岗位，请在模拟面试中开始追问练习。')
-  void router.push({ path: '/student/interview', query: { taskId: evidence.taskId, planId: evidence.planId } })
+  void router.push({ path: '/student/interview', query: { taskId: evidence.taskId, planId: evidence.planId, evidenceId: evidence.evidenceId } })
 }
 
-function persistInterviewDraft(session?: InterviewSession) {
-  if (!session) return
-  const pending = session.status === 'IN_PROGRESS'
-    ? Object.fromEntries(session.questions
-      .filter((question) => !session.answers.some((answer) => answer.questionId === question.questionId))
-      .map((question) => [question.questionId, answerDrafts.value[question.questionId] || ''])
-      .filter(([, value]) => Boolean(value)))
-    : {}
-  writeStudentDraft(sessionStorage, profile.value?.userId || '', 'interview', session.sessionId, pending)
-}
-
-function syncSessionDrafts(session?: InterviewSession) {
-  const saved = session?.status === 'IN_PROGRESS'
-    ? readStudentDraft(sessionStorage, profile.value?.userId || '', 'interview', session.sessionId)
-    : {}
-  const existing = answerDraftSessionId === session?.sessionId && session?.status === 'IN_PROGRESS'
-    ? answerDrafts.value : saved
-  answerDrafts.value = mergeAnswerDrafts(existing, session?.answers || [])
-  answerDraftSessionId = session?.sessionId || ''
-  persistInterviewDraft(session)
-  sessionReport.value = session?.report
-  const firstUnanswered = session ? firstActionableQuestionIndex(session) : 0
-  activeQuestionIndex.value = Math.min(
-    Math.max(0, firstUnanswered),
-    Math.max(0, (session?.questions.length || 1) - 1)
-  )
+function updateInterviewWorkspaceSession(session: InterviewSession) {
+  const existing = interviewSessions.value.some(item => item.sessionId === session.sessionId)
+  interviewSessions.value = existing
+    ? interviewSessions.value.map(item => item.sessionId === session.sessionId ? session : item)
+    : [session, ...interviewSessions.value]
+  if (queryValue('sessionId') === session.sessionId || !queryValue('sessionId')) selectedSessionId.value = session.sessionId
 }
 
 async function loadInterviewSessions() {
@@ -1466,7 +1395,6 @@ async function loadInterviewSessions() {
     } else if (!selectedSessionId.value || !interviewSessions.value.some((session) => session.sessionId === selectedSessionId.value)) {
       selectedSessionId.value = interviewSessions.value[0]?.sessionId || ''
     }
-    syncSessionDrafts(selectedSession.value)
   } catch (error) {
     if (requestId === interviewReadRequest) moduleLoadError.value = error instanceof Error ? error.message : '模拟面试会话加载失败'
     ElMessage.error(error instanceof Error ? error.message : '模拟面试会话加载失败')
@@ -1481,145 +1409,15 @@ async function selectSession() {
   }
   const sessionId = selectedSessionId.value
   const requestId = ++interviewReadRequest
-  syncSessionDrafts(selectedSession.value)
   interviewLoading.value = true
   try {
     const session = await getInterviewSession(sessionId)
     if (requestId !== interviewReadRequest || selectedSessionId.value !== sessionId) return
     interviewSessions.value = interviewSessions.value.map((item) => item.sessionId === session.sessionId ? session : item)
-    syncSessionDrafts(session)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '模拟面试会话读取失败')
   } finally {
     if (requestId === interviewReadRequest) interviewLoading.value = false
-  }
-}
-
-async function startInterview() {
-  if (!validateInterviewQuestionCount()) {
-    return
-  }
-  const resolvedTargetRole = interviewTargetRole.value.trim() || selectedJob.value?.title || targetRole.value.trim() || profile.value?.targetPosition
-  if (!resolvedTargetRole) {
-    ElMessage.warning('请填写目标岗位后开始模拟面试。')
-    return
-  }
-  const matchedContext = selectedContextMatch.value
-  const requestPath = route.fullPath
-  interviewActionLoading.value = true
-  try {
-    const session = await createInterviewSession({
-      studentId: profile.value?.userId,
-      resumeId: selectedResume.value?.resumeId,
-      jobId: selectedJob.value?.jobId,
-      matchId: matchedContext?.matchId,
-      targetRole: resolvedTargetRole,
-      questionCount: interviewQuestionCount.value
-    })
-    interviewSessions.value = [session, ...interviewSessions.value]
-    if (route.fullPath === requestPath) {
-      selectedSessionId.value = session.sessionId
-      sessionReport.value = undefined
-      syncSessionDrafts(session)
-      await openInterviewPage('practice', session.sessionId)
-    }
-    ElMessage.success('模拟面试已开始')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '模拟面试创建失败')
-  } finally {
-    interviewActionLoading.value = false
-  }
-}
-
-async function saveCurrentAnswer() {
-  const session = selectedSession.value
-  const question = activeQuestion.value
-  if (!session || !question || !currentAnswer.value.trim()) {
-    ElMessage.warning('请输入本题回答')
-    return
-  }
-  if (activeQuestionLocked.value) {
-    ElMessage.warning('请按题目顺序作答；已保存回答不可修改。')
-    return
-  }
-  interviewActionLoading.value = true
-  try {
-    const updated = await saveInterviewSessionAnswer(session.sessionId, question.questionId, currentAnswer.value)
-    interviewSessions.value = interviewSessions.value.map((item) => item.sessionId === updated.sessionId ? updated : item)
-    if (selectedSessionId.value === updated.sessionId) syncSessionDrafts(updated)
-    else writeStudentDraft(sessionStorage, profile.value?.userId || '', 'interview', updated.sessionId,
-      Object.fromEntries(Object.entries(readStudentDraft(sessionStorage, profile.value?.userId || '', 'interview', updated.sessionId))
-        .filter(([id]) => !updated.answers.some((answer) => answer.questionId === id))))
-    ElMessage.success('回答已保存，正在评价')
-    await evaluateSavedAnswer(updated.sessionId, question.questionId)
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '回答保存失败')
-  } finally {
-    interviewActionLoading.value = false
-  }
-}
-
-async function evaluateSavedAnswer(sessionId: string, questionId: string) {
-  if (interviewEvaluatingId.value) return
-  interviewEvaluatingId.value = questionId
-  interviewEvaluationError.value = ''
-  try {
-    const result = await evaluateInterviewAnswer(sessionId, questionId)
-    const refreshed = await getInterviewSession(sessionId)
-    interviewSessions.value = interviewSessions.value.map((session) => session.sessionId === sessionId ? refreshed : session)
-    if (selectedSessionId.value === sessionId) {
-      syncSessionDrafts(refreshed)
-      if (result.status !== 'SUCCEEDED') {
-        activeQuestionIndex.value = Math.max(0, refreshed.questions.findIndex((question) => question.questionId === questionId))
-        interviewEvaluationError.value = result.error || '回答已保存，评价暂不可用，请重试。'
-      }
-    }
-  } catch (error) {
-    if (selectedSessionId.value === sessionId) {
-      const session = selectedSession.value
-      if (session) activeQuestionIndex.value = Math.max(0, session.questions.findIndex((question) => question.questionId === questionId))
-      interviewEvaluationError.value = error instanceof Error ? `回答已保存；评价失败：${error.message}` : '回答已保存，评价暂不可用，请重试。'
-    }
-  } finally { interviewEvaluatingId.value = '' }
-}
-
-async function finishInterview() {
-  const session = selectedSession.value
-  if (!session || session.status !== 'IN_PROGRESS' || interviewActionLoading.value) {
-    return
-  }
-  const activeQuestionIsSaved = activeQuestion.value
-    ? session.answers.some((answer) => answer.questionId === activeQuestion.value?.questionId && answer.answer.trim())
-    : true
-  if (!activeQuestionIsSaved && currentAnswer.value.trim()) {
-    await saveCurrentAnswer()
-  }
-  if (selectedSessionId.value !== session.sessionId) return
-  const pendingCount = unfinishedQuestionCount(selectedSession.value?.questions || [], selectedSession.value?.answers || [])
-  if (pendingCount > 0) {
-    ElMessage.warning(`还有 ${pendingCount} 题未保存，请逐题完成后再生成报告。`)
-    return
-  }
-  if (pendingInterviewEvaluations.value) {
-    ElMessage.warning('还有已保存答案未完成评价，请先重试逐题评价。')
-    return
-  }
-  interviewActionLoading.value = true
-  const requestPath = route.fullPath
-  try {
-    const report = await finishInterviewSession(session.sessionId)
-    interviewSessions.value = interviewSessions.value.map((item) => item.sessionId === session.sessionId
-      ? { ...item, status: 'COMPLETED', report } : item)
-    writeStudentDraft(sessionStorage, profile.value?.userId || '', 'interview', session.sessionId, {})
-    if (selectedSessionId.value === session.sessionId) {
-      await selectSession()
-      if (route.fullPath === requestPath) await openInterviewPage('report', session.sessionId)
-    }
-    ElMessage.success('模拟面试报告已生成')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '模拟面试完成失败')
-  } finally {
-    interviewActionLoading.value = false
   }
 }
 
@@ -1740,7 +1538,36 @@ async function repeatKnowledgeQuery(query: string) {
   await runKnowledgeSearch()
 }
 
+async function restoreReplanRoute() {
+  const requestId = ++replanRouteRequest
+  const path = route.fullPath
+  const sourceId = queryValue('planId')
+  const revisionId = queryValue('revisionId')
+  if (activeModule.value !== 'plan' || !moduleDataReady.plan || !sourceId || !revisionId) {
+    restoredReplanRoute = ''
+    return
+  }
+  if (restoredReplanRoute === path) return
+  try {
+    const draft = await getLearningPlan(revisionId)
+    if (requestId !== replanRouteRequest || route.fullPath !== path) return
+    if (draft.status !== 'DRAFT' || draft.revisionOfPlanId !== sourceId) {
+      throw new Error('该调整草稿已切换或不属于当前计划，请在历史版本中查看')
+    }
+    replanPreview.value = draft
+    replanPreviewSourceId.value = sourceId
+    replanPreviewOpen.value = true
+    restoredReplanRoute = path
+  } catch (error) {
+    if (requestId !== replanRouteRequest || route.fullPath !== path) return
+    ElMessage.error(error instanceof Error ? error.message : '计划调整草稿加载失败')
+  }
+}
+
 function syncModuleRoute() {
+  if (['plan', 'interview'].includes(activeModule.value) && moduleDataReady[activeModule.value as 'plan' | 'interview']) {
+    restoreRouteMatchContext()
+  }
   if (activeModule.value === 'resume' && moduleDataReady.resume && typeof route.params.resumeId === 'string'
     && selectedResumeId.value !== route.params.resumeId) {
     selectedResumeId.value = route.params.resumeId
@@ -1752,11 +1579,28 @@ function syncModuleRoute() {
     planListWeek.value = undefined
     void loadPlanVersions()
   }
+  void restoreReplanRoute()
   if (activeModule.value === 'interview' && moduleDataReady.interview && queryValue('sessionId') && selectedSessionId.value !== queryValue('sessionId')) {
     selectedSessionId.value = queryValue('sessionId')
     void selectSession()
   }
   if (activeModule.value === 'knowledge' && moduleDataReady.knowledge) void restoreKnowledgeResult()
+}
+
+function restoreRouteMatchContext() {
+  const matchId = queryValue('matchId')
+  if (!matchId) return
+  const match = matches.value.find(item => item.matchId === matchId)
+  if (!match) {
+    moduleLoadError.value = '该岗位匹配已不存在或不可访问，请从岗位匹配中重新选择'
+    return
+  }
+  selectedResumeId.value = match.resumeId
+  selectedJobId.value = match.jobId
+  currentMatch.value = match
+  const title = jobs.value.find(item => item.jobId === match.jobId)?.title
+  if (activeModule.value === 'interview' && title) interviewTargetRole.value = title
+  if (activeModule.value === 'plan' && title) planForm.targetRole = title
 }
 
 async function loadModule(module: string) {
@@ -1773,10 +1617,12 @@ async function loadModule(module: string) {
   } else if (module === 'plan') {
     await loadResumeData()
     await loadJobsData()
+    restoreRouteMatchContext()
     await Promise.all([loadPlans(), loadInterviewSessions()])
   } else if (module === 'interview') {
     await loadResumeData()
     await loadJobsData()
+    restoreRouteMatchContext()
     await loadInterviewSessions()
   } else if (module === 'knowledge') {
     await loadResumeData()
@@ -2153,51 +1999,11 @@ watch(targetRole, (value) => {
     </template>
 
     <template v-else-if="activeModule === 'interview'">
-      <div v-if="invalidSession && !moduleLoadError" class="jobs-unavailable" data-testid="interview-unavailable"><p>这次面试已不存在或不可访问。</p><RouterLink to="/student/interview/history">查看面试历史</RouterLink></div>
-
-      <section v-if="interviewPage === 'start'" class="interview-launch module-form-page" data-testid="interview-start" v-loading="interviewLoading">
-        <div v-if="selectedSession && !invalidSession" class="module-context-bar"><strong>{{ selectedSession.targetRole }}</strong><span>{{ selectedSession.status === 'COMPLETED' ? '已完成' : '进行中' }} · {{ selectedSession.answers.length }}/{{ selectedSession.questions.length }} 题</span><el-button @click="openInterviewPage(selectedSession.status === 'COMPLETED' ? 'report' : 'practice')">{{ selectedSession.status === 'COMPLETED' ? '查看报告' : '继续答题' }} <ArrowUpRight :size="15" /></el-button></div>
-        <div class="interview-launch-actions"><label class="target-role-editor"><span>本次目标岗位</span><el-input v-model="interviewTargetRole" placeholder="例如 Java 后端" /></label><label class="form-field"><span>题目数量</span><el-input-number v-model="interviewQuestionCount" :min="1" :max="8" controls-position="right" aria-label="面试题数" /></label><el-button type="primary" :loading="interviewActionLoading" @click="startInterview"><Bot :size="16" />开始模拟面试</el-button></div>
-      </section>
-
-      <section v-else-if="interviewHistoryOpen" class="interview-history" data-testid="interview-history" v-loading="interviewLoading">
-        <p v-if="!interviewSessions.length" class="compact-empty">暂无面试记录，可开始一次模拟面试。</p>
-        <div v-else class="module-record-list"><button v-for="session in interviewSessions" :key="session.sessionId" class="module-record" :data-session-id="session.sessionId" @click="openInterviewPage(session.status === 'COMPLETED' ? 'report' : 'practice', session.sessionId)"><div><strong>{{ session.targetRole }}</strong><small>{{ session.status === 'COMPLETED' ? '已完成' : '进行中' }} · {{ session.answers.length }}/{{ session.questions.length }} 题 · {{ matchDateLabel(session.completedAt || session.updatedAt) }}</small></div><ArrowUpRight :size="17" /></button></div>
-      </section>
-      <section v-else-if="interviewPage === 'practice'" class="interview-workspace" data-testid="interview-practice" v-loading="interviewLoading">
-        <template v-if="selectedSession && activeQuestion && !invalidSession">
-        <article class="interview-question-card" aria-label="当前面试题目">
-          <div class="question-topline"><span>问题 {{ activeQuestionIndex + 1 }} / {{ selectedSession.questions.length }}</span><span>{{ selectedSessionProgress }}% 已作答</span></div>
-          <div class="tag-row"><el-tag type="info">{{ activeQuestion.category || '综合' }}</el-tag><el-tag>{{ activeQuestion.difficulty || '普通' }}</el-tag><el-tag :type="sourceTagType(activeQuestion.source || activeQuestion.generationSource, selectedSession.mocked)">{{ sourceTagLabel(activeQuestion.source || activeQuestion.generationSource, selectedSession.mocked) }}</el-tag></div>
-          <p class="question-text">{{ activeQuestion.question }}</p>
-          <details v-if="activeQuestion.referencePoints?.length" class="reference-points"><summary>答题参考</summary><ul class="plain-list"><li v-for="point in activeQuestion.referencePoints" :key="point">{{ point }}</li></ul></details>
-          <div class="question-nav"><el-button v-for="(_, index) in selectedSession.questions" :key="index" size="small" :type="index === activeQuestionIndex ? 'primary' : 'default'" @click="activeQuestionIndex = index">第 {{ index + 1 }} 题</el-button></div>
-        </article>
-        <article class="answer-card">
-          <label class="answer-label" for="interview-answer">我的回答</label>
-          <el-input id="interview-answer" v-model="currentAnswer" class="answer-input" type="textarea" :rows="activeQuestionLocked ? 6 : 13" :readonly="activeQuestionLocked || interviewActionLoading" :placeholder="activeQuestionLocked ? '该题已保存或当前会话只读' : '输入回答，保存后可在会话中恢复'" />
-          <p v-if="!activeQuestionLocked" class="form-dirty-note">草稿会在当前浏览器标签页保留，保存回答后才会提交至面试会话。</p>
-          <details v-if="activeQuestionFeedback" class="question-feedback"><summary>查看本题评价</summary><InterviewFeedbackPanel :feedback="activeQuestionFeedback" /></details>
-          <el-alert v-if="!activeQuestionFeedback && activeSavedAnswer && activeSavedAnswer.evaluationStatus !== 'SUCCEEDED' && activeSavedAnswer.evaluationStatus" type="warning" :closable="false" :title="interviewEvaluationError || activeSavedAnswer.evaluationError || '回答已保存，待完成评价。'" />
-          <el-button v-if="!activeQuestionFeedback && activeSavedAnswer && evaluationCanRetry(activeSavedAnswer.evaluationStatus)" :loading="interviewEvaluatingId === activeSavedAnswer.questionId" :disabled="Boolean(interviewEvaluatingId)" @click="evaluateSavedAnswer(selectedSession.sessionId, activeSavedAnswer.questionId)">评价已保存回答 / 重试</el-button>
-          <div v-if="selectedSession.status === 'IN_PROGRESS'" class="answer-actions"><el-button type="primary" :disabled="activeQuestionLocked || !currentAnswer.trim()" :loading="interviewActionLoading || Boolean(interviewEvaluatingId)" @click="saveCurrentAnswer">保存回答</el-button><el-button :disabled="Boolean(interviewEvaluatingId) || pendingInterviewEvaluations > 0 || unfinishedInterviewQuestions > 1 || (unfinishedInterviewQuestions === 1 && (activeQuestionLocked || !currentAnswer.trim()))" :loading="interviewActionLoading" @click="finishInterview">完成并生成报告</el-button></div>
-          <el-button v-if="selectedSession.status === 'COMPLETED'" @click="openInterviewPage('report')">查看面试报告 <ArrowUpRight :size="15" /></el-button>
-        </article>
-        </template>
-        <div v-else-if="!interviewLoading && !invalidSession && !moduleLoadError" class="module-empty"><span>暂无可查看的面试。</span><el-button @click="openInterviewPage('start', '')">开始模拟面试</el-button></div>
-      </section>
-      <section v-else-if="interviewPage === 'report'" class="interview-report" data-testid="interview-report" v-loading="interviewLoading">
-        <template v-if="sessionReport && selectedSession && !invalidSession">
-        <div class="module-actions"><el-button data-testid="interview-view-answers" @click="openInterviewPage('practice')"><ArrowLeft :size="15" />查看回答</el-button></div>
-        <div class="report-score"><div><h2>面试报告</h2><el-tag :type="sourceTagType(undefined, sessionReport.mocked)">{{ sourceTagLabel(undefined, sessionReport.mocked) }}</el-tag></div><strong>{{ sessionReport.overallScore }}<small>分</small></strong></div>
-        <p class="form-dirty-note">{{ sessionReport.comparisonNote || '历史记录缺少评价版本，暂不进行分数比较。' }}</p>
-        <p v-if="sessionReport.difficultyNote" class="form-dirty-note">{{ sessionReport.difficultyNote }}</p>
-        <div v-if="comparisonSessions.length" class="version-actions"><span>同岗位、同评价版本的历史表现：</span><span v-for="session in comparisonSessions" :key="session.sessionId">{{ session.completedAt || session.updatedAt }} · {{ session.report?.overallScore }} 分</span></div>
-        <details v-for="feedback in sessionReport.questionFeedback || []" :key="feedback.questionId" class="resume-diagnosis"><summary>逐题反馈 · {{ feedback.score }} 分</summary><InterviewFeedbackPanel :feedback="feedback" /></details>
-        <div class="report-columns"><div><span>优势</span><ul class="plain-list"><li v-for="item in sessionReport.strengths" :key="item">{{ item }}</li></ul></div><div><span>待改进</span><ul class="plain-list"><li v-for="item in sessionReport.gaps" :key="item">{{ item }}</li></ul></div><div><span>建议</span><ul class="plain-list"><li v-for="item in sessionReport.recommendations" :key="item">{{ item }}</li></ul></div></div>
-        </template>
-        <div v-else-if="!interviewLoading && !invalidSession && !moduleLoadError" class="module-empty"><span>这次面试还没有报告。</span><el-button @click="openInterviewPage('practice')">继续答题</el-button></div>
-      </section>
+      <InterviewWorkspace v-if="moduleDataReady.interview && !moduleLoadError" :page="interviewPage" :user-id="profile?.userId || ''" :sessions="interviewSessions"
+        :loading="interviewLoading" :selected-session-id="selectedSessionId" :resume-id="selectedResumeId"
+        :job-id="selectedJobId" :match-id="selectedContextMatch?.matchId || queryValue('matchId') || undefined"
+        :target-role="interviewTargetRole || targetRole" :resumes="resumes" :jobs="jobs"
+        @session="updateInterviewWorkspaceSession" />
     </template>
 
     <template v-else-if="activeModule === 'knowledge'">

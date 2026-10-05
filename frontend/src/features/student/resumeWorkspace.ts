@@ -99,6 +99,7 @@ export function suggestionMatchesDraft(data: ResumeDraftData, item: ResumeDraftS
 }
 export function resumeSourceLabel(source?: ResumeWorkspaceSourceRef): string {
   if (!source) return '学生填写'
+  if (/interview/i.test(source.kind)) return '面试回答（学生确认）'
   if (/learn|practice/i.test(source.kind)) return '学习成果（学生选择）'
   if (/import|resume/i.test(source.kind)) return '导入原文'
   if (/student|manual/i.test(source.kind)) return '学生填写'
@@ -117,6 +118,8 @@ export function resumeLearningCandidates(plans: LearningPlan[]): ResumeLearningC
   const seen = new Set<string>()
   return plans.flatMap(plan => plan.tasks.flatMap(task => (task.evidence || []).flatMap(evidence => {
     if (seen.has(evidence.evidenceId) || !evidence.description.trim()) return []
+    if (!evidence.confirmed || !evidence.evaluation || evidence.evaluation.mocked
+      || evidence.evaluation.score < 70 || !['SUCCEEDED', 'CONFIRMED', 'RESUME_CANDIDATE'].includes(evidence.status)) return []
     seen.add(evidence.evidenceId)
     const evaluation = evidence.evaluation?.conclusion || ''
     return [{
@@ -131,6 +134,13 @@ export function resumeLearningCandidates(plans: LearningPlan[]): ResumeLearningC
       }
     }]
   })))
+}
+
+export function resumeInterviewCandidateRequest(query: Record<string, unknown>) {
+  const fields = ['interviewSessionId', 'questionId', 'attemptId'] as const
+  const values = fields.map(field => query[field])
+  if (!values.every(value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,200}$/.test(value))) return undefined
+  return { sessionId: values[0] as string, questionId: values[1] as string, attemptId: values[2] as string }
 }
 
 export function resumeExportStatusLabel(status: string): string {

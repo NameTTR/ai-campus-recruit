@@ -5,6 +5,7 @@ import com.aicampus.common.dto.JobSummary;
 import com.aicampus.common.dto.MatchResult;
 import com.aicampus.common.dto.RecruitmentContextSnapshot;
 import com.aicampus.common.dto.ResumeSummary;
+import com.aicampus.common.resume.ResumeWorkspaceModels.MasterProfile;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -84,6 +85,14 @@ public class RecruitmentContextClient {
             throw new IllegalArgumentException("jobId is required");
         }
         return loadJob(jobId.trim(), "internal-screening", "ADMIN");
+    }
+
+    public MasterProfile loadMasterProfile(String studentId, String userRole) {
+        MasterProfile profile = requireData(get(resumeServiceUri + "/api/resumes/master-profile",
+                studentId, userRole, new ParameterizedTypeReference<ApiResponse<MasterProfile>>() {}), "master profile");
+        if (!studentId.equals(profile.userId()))
+            throw new IllegalArgumentException("Master profile is not owned by the current student");
+        return profile;
     }
 
     private ResumeSummary loadResume(String resumeId, String studentId, String userRole) {

@@ -9,6 +9,10 @@ public interface InterviewSessionStore {
 
     boolean replaceInProgress(InterviewSession expectedSession, InterviewSession updatedSession);
 
+    default boolean replace(InterviewSession expectedSession, InterviewSession updatedSession) {
+        return replaceInProgress(expectedSession, updatedSession);
+    }
+
     Optional<InterviewSession> findById(String sessionId);
 
     List<InterviewSession> listByStudent(String studentId, int limit);

@@ -16,4 +16,12 @@ public interface InterviewSessionMapper extends BaseMapper<InterviewSessionEntit
     int updateIfCurrentInProgress(
             @Param("session") InterviewSessionEntity session,
             @Param("expectedSessionSnapshot") String expectedSessionSnapshot);
+
+    @Update("""
+            UPDATE ai_interview_session
+            SET status = #{session.status}, session_snapshot = #{session.sessionSnapshot}, updated_at = #{session.updatedAt}
+            WHERE session_id = #{session.sessionId} AND session_snapshot = #{expectedSessionSnapshot}
+            """)
+    int updateIfCurrent(@Param("session") InterviewSessionEntity session,
+            @Param("expectedSessionSnapshot") String expectedSessionSnapshot);
 }
