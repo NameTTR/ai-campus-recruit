@@ -39,7 +39,8 @@ const navGroups = {
 } as const
 const navGroup = computed(() => navGroups[section.value as keyof typeof navGroups] || navGroups.student)
 const navItems = computed(() => navGroup.value.items)
-const currentPage = computed(() => navItems.value.find(item => item.path === route.path)?.label || navGroup.value.title)
+function isActiveNav(path: string) { return route.path === path || route.path.startsWith(`${path}/`) }
+const currentPage = computed(() => navItems.value.find(item => isActiveNav(item.path))?.label || navGroup.value.title)
 const filteredNavItems = computed(() => navItems.value.filter(item => item.label.includes(searchQuery.value.trim())))
 const workspaceTip = computed(() => section.value === 'company'
   ? { label: '让机会遇见合适的人', description: '清晰的岗位要求，是理想匹配的开始。', action: '发布一个岗位', path: '/company/publish' }
@@ -89,8 +90,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
       <div class="workspace-picker"><span class="workspace-avatar">{{ userInitial }}</span><div><strong>{{ roleLabel }}</strong><span>{{ userName }}</span></div><ShieldCheck :size="16" /></div>
       <nav aria-label="主要功能">
         <span class="nav-section-title">{{ navGroup.title }}</span>
-        <RouterLink v-for="item in navItems" :key="item.path" :to="item.path" class="nav-link" :class="{ active: route.path === item.path }">
-          <component :is="item.icon" :size="18" :stroke-width="1.7" /><span>{{ item.label }}</span><span v-if="route.path === item.path" class="nav-active-dot" />
+        <RouterLink v-for="item in navItems" :key="item.path" :to="item.path" class="nav-link" :class="{ active: isActiveNav(item.path) }">
+          <component :is="item.icon" :size="18" :stroke-width="1.7" /><span>{{ item.label }}</span><span v-if="isActiveNav(item.path)" class="nav-active-dot" />
         </RouterLink>
       </nav>
       <div class="sidebar-bottom">

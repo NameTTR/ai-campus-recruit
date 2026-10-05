@@ -3,8 +3,10 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
+import { ElPagination } from 'element-plus/es/components/pagination/index'
 import MarkdownIt from 'markdown-it'
 import {
+  ArrowLeft,
   ArrowUpRight,
   Bot,
   BrainCircuit,
@@ -14,7 +16,10 @@ import {
   CircleDashed,
   Clock3,
   FileText,
+  GitCompareArrows,
   GraduationCap,
+  History,
+  List,
   MapPin,
   PencilLine,
   RefreshCw,
@@ -89,7 +94,6 @@ import {
 
 import ResumeEvidencePanel from '../features/student/ResumeEvidencePanel.vue'
 import ResumeBuilderPanel from '../features/student/ResumeBuilderPanel.vue'
-import MatchEvidencePanel from '../features/student/MatchEvidencePanel.vue'
 import LearningEvidenceForm from '../features/student/LearningEvidenceForm.vue'
 import InterviewFeedbackPanel from '../features/student/InterviewFeedbackPanel.vue'
 import {
@@ -128,10 +132,22 @@ const compareResult = ref<ResumeCompareResult>()
 const compareLoading = ref(false)
 const currentMatch = ref<MatchResult>()
 const jobsLoading = ref(false)
+const jobsLoadError = ref('')
 const matchLoading = ref(false)
 const jobSearch = ref('')
 const jobCityFilter = ref('')
 const jobSkillFilter = ref('')
+type JobsPage = 'list' | 'detail' | 'match' | 'compare' | 'history'
+const jobsPage = computed(() => (route.meta.jobsPage as JobsPage | undefined) || 'list')
+const jobRouteId = computed(() => typeof route.params.jobId === 'string' ? route.params.jobId : '')
+const routeMatchId = computed(() => typeof route.query.matchId === 'string' ? route.query.matchId : '')
+const jobPage = ref(1)
+const jobPageSize = 12
+const jobsDataLoaded = ref(false)
+let jobsStateUserId = ''
+let hydratingJobsState = false
+let compareRequest = 0
+let jobsReadRequest = 0
 
 const plans = ref<LearningPlan[]>([])
 const selectedPlanId = ref('')
@@ -219,6 +235,11 @@ const filteredJobs = computed(() => filterJobs(jobs.value, {
   city: jobCityFilter.value,
   skill: jobSkillFilter.value
 }))
+const pagedJobs = computed(() => filteredJobs.value.slice((jobPage.value - 1) * jobPageSize, jobPage.value * jobPageSize))
+const compareContextKey = computed(() => JSON.stringify([selectedResumeId.value, selectedCompareJobIds.value]))
+const missingMatchRecord = computed(() => jobsPage.value === 'match' && routeMatchId.value
+  && !matches.value.some((match) => match.matchId === routeMatchId.value && match.jobId === jobRouteId.value))
+const matchJobTitle = computed(() => selectedJob.value?.title || currentMatch.value?.details?.jobSnapshot?.title || '历史岗位')
 const jobCities = computed(() => [...new Set(jobs.value.map((job) => job.city).filter(Boolean))].sort())
 const jobSkills = computed(() => [...new Set(jobs.value.flatMap((job) => job.requiredSkills).filter(Boolean))].sort())
 const selectedPairMatch = computed(() => latestMatchForPair(matches.value, selectedResumeId.value, selectedJobId.value))
@@ -889,21 +910,118 @@ async function removeResume() {
 }
 
 async function loadJobsData() {
+  const requestId = ++jobsReadRequest
   jobsLoading.value = true
+  jobsLoadError.value = ''
   try {
     const [jobList, matchList] = await Promise.all([listJobs(), listMyMatches()])
+    if (requestId !== jobsReadRequest) return
     jobs.value = jobList
     matches.value = matchList
-    if (!selectedJobId.value || !jobs.value.some((job) => job.jobId === selectedJobId.value)) {
+    if (activeModule.value === 'jobs' && jobRouteId.value) {
+      selectedJobId.value = jobRouteId.value
+    } else if (!selectedJobId.value || !jobs.value.some((job) => job.jobId === selectedJobId.value)) {
       const saved = storedSelection()
       selectedJobId.value = jobs.value.find((job) => job.jobId === saved.jobId)?.jobId || jobs.value[0]?.jobId || ''
     }
+    restoreJobsState()
+    jobsDataLoaded.value = true
+    syncJobsRoute()
     syncCurrentMatch()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '岗位数据加载失败')
+    if (requestId !== jobsReadRequest) return
+    jobsLoadError.value = error instanceof Error ? error.message : '岗位数据加载失败'
+    ElMessage.error(jobsLoadError.value)
   } finally {
-    jobsLoading.value = false
+    if (requestId === jobsReadRequest) jobsLoading.value = false
   }
+}
+
+function jobsStateKey() {
+  return profile.value?.userId ? `aicampus.jobs-workspace.${profile.value.userId}` : ''
+}
+
+function restoreJobsState() {
+  const userId = profile.value?.userId || ''
+  if (!userId || jobsStateUserId === userId) return
+  jobsStateUserId = userId
+  hydratingJobsState = true
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(jobsStateKey()) || '{}') as {
+      search?: string, city?: string, skill?: string, page?: number, compareJobIds?: string[]
+    }
+    jobSearch.value = typeof saved.search === 'string' ? saved.search : ''
+    jobCityFilter.value = typeof saved.city === 'string' ? saved.city : ''
+    jobSkillFilter.value = typeof saved.skill === 'string' ? saved.skill : ''
+    selectedCompareJobIds.value = Array.isArray(saved.compareJobIds)
+      ? [...new Set(saved.compareJobIds)].filter((id) => jobs.value.some((job) => job.jobId === id)).slice(0, 3) : []
+    const maxPage = Math.max(1, Math.ceil(filteredJobs.value.length / jobPageSize))
+    const savedPage = typeof saved.page === 'number' && Number.isFinite(saved.page) && saved.page > 0
+      ? Math.floor(saved.page) : 1
+    jobPage.value = Math.min(maxPage, savedPage)
+  } catch {
+    jobPage.value = 1
+  } finally {
+    hydratingJobsState = false
+  }
+}
+
+function persistJobsState() {
+  const key = jobsStateKey()
+  if (!key || hydratingJobsState) return
+  try {
+    sessionStorage.setItem(key, JSON.stringify({
+      search: jobSearch.value, city: jobCityFilter.value, skill: jobSkillFilter.value,
+      page: jobPage.value, compareJobIds: selectedCompareJobIds.value
+    }))
+  } catch {
+    // Navigation remains usable when browser storage is unavailable.
+  }
+}
+
+function syncJobsRoute() {
+  if (activeModule.value !== 'jobs' || !jobsDataLoaded.value) return
+  if (jobsPage.value === 'list' && routeMatchId.value) {
+    const match = matches.value.find((item) => item.matchId === routeMatchId.value)
+    if (match) void router.replace({ path: `/student/jobs/${encodeURIComponent(match.jobId)}/match`, query: { matchId: match.matchId } })
+    return
+  }
+  if (jobsPage.value !== 'detail' && jobsPage.value !== 'match') return
+  selectedJobId.value = jobRouteId.value
+  const requestedMatch = routeMatchId.value
+    ? matches.value.find((match) => match.matchId === routeMatchId.value && match.jobId === jobRouteId.value)
+    : undefined
+  if (requestedMatch) {
+    selectedResumeId.value = requestedMatch.resumeId
+    hydrateResumeForm(selectedResume.value)
+    currentMatch.value = requestedMatch
+  } else if (typeof route.query.resumeId === 'string') {
+    selectedResumeId.value = route.query.resumeId
+    hydrateResumeForm(selectedResume.value)
+  }
+  syncCurrentMatch()
+}
+
+function openJob(jobId: string) {
+  void router.push(`/student/jobs/${encodeURIComponent(jobId)}`)
+}
+
+async function openHistoricalMatch(match: MatchResult) {
+  await router.push({ path: `/student/jobs/${encodeURIComponent(match.jobId)}/match`, query: { matchId: match.matchId } })
+}
+
+function matchDateLabel(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
+  }).format(date)
+}
+
+async function changeMatchResume() {
+  const resumeId = selectedResumeId.value
+  await router.replace({ path: route.path, query: { resumeId } })
+  await selectResume()
 }
 
 async function runMatch() {
@@ -918,13 +1036,17 @@ async function runMatch() {
   }
   const resumeId = resume.resumeId
   const jobId = job.jobId
+  const requestPath = route.fullPath
   matchLoading.value = true
   try {
     const match = await matchResumeJob(resumeId, jobId)
     matches.value = [match, ...matches.value.filter((item) => item.matchId !== match.matchId)]
-    if (selectedResumeId.value === resumeId && selectedJobId.value === jobId) {
+    if (selectedResumeId.value === resumeId && selectedJobId.value === jobId && route.fullPath === requestPath) {
       currentMatch.value = match
       persistSelection()
+      if (activeModule.value === 'jobs' && jobRouteId.value === jobId) {
+        await router.push({ path: `/student/jobs/${encodeURIComponent(jobId)}/match`, query: { matchId: match.matchId } })
+      }
     }
     ElMessage.success('\u5c97\u4f4d\u5339\u914d\u5df2\u5b8c\u6210')
   } catch (error) {
@@ -944,27 +1066,41 @@ async function compareSelectedJobs() {
     ElMessage.warning('\u8bf7\u9009\u62e9\u4e24\u5230\u4e09\u4e2a\u5c97\u4f4d\u8fdb\u884c\u6bd4\u8f83')
     return
   }
+  if (compareLoading.value) return
+  const contextKey = compareContextKey.value
+  const requestId = ++compareRequest
+  const resumeId = selectedResumeId.value
   compareLoading.value = true
   try {
-    compareResult.value = await compareResumeJobs({ resumeId: selectedResumeId.value, jobIds: ids })
+    const result = await compareResumeJobs({ resumeId, jobIds: ids })
+    if (requestId !== compareRequest || contextKey !== compareContextKey.value || jobsPage.value !== 'compare') return
+    compareResult.value = result
     ElMessage.success('\u5c97\u4f4d\u6bd4\u8f83\u5df2\u5b8c\u6210')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '\u5c97\u4f4d\u6bd4\u8f83\u5931\u8d25')
+    if (requestId === compareRequest && contextKey === compareContextKey.value) {
+      ElMessage.error(error instanceof Error ? error.message : '\u5c97\u4f4d\u6bd4\u8f83\u5931\u8d25')
+    }
   } finally {
-    compareLoading.value = false
+    if (requestId === compareRequest) compareLoading.value = false
   }
 }
 
 async function restoreMatch(match: MatchResult) {
   selectedResumeId.value = match.resumeId
   selectedJobId.value = match.jobId
-  await selectResume()
+  if (selectedResume.value) await selectResume()
+  else hydrateResumeForm(undefined)
   currentMatch.value = match
   persistSelection()
 }
 
 function syncCurrentMatch() {
   const saved = storedSelection()
+  if (activeModule.value === 'jobs' && jobsPage.value === 'match' && routeMatchId.value) {
+    currentMatch.value = matches.value.find((match) => match.matchId === routeMatchId.value
+      && match.jobId === jobRouteId.value && match.resumeId === selectedResumeId.value)
+    return
+  }
   const preferredId = currentMatch.value?.matchId || saved.matchId
   currentMatch.value = matches.value.find((match) => match.matchId === preferredId
     && match.resumeId === selectedResumeId.value && match.jobId === selectedJobId.value)
@@ -1460,6 +1596,7 @@ async function loadModule(module: string) {
   if (module === 'resume') {
     await loadResumeData()
   } else if (module === 'jobs') {
+    jobsLoading.value = true
     await loadResumeData()
     await loadJobsData()
   } else if (module === 'plan') {
@@ -1481,6 +1618,26 @@ async function loadModule(module: string) {
 
 onMounted(() => { void loadModule(activeModule.value) })
 watch(activeModule, (module) => { void loadModule(module) })
+watch(() => route.fullPath, () => {
+  syncJobsRoute()
+  if (jobsPage.value !== 'compare') {
+    compareRequest += 1
+    compareLoading.value = false
+  }
+})
+watch([jobSearch, jobCityFilter, jobSkillFilter], () => {
+  if (!hydratingJobsState) jobPage.value = 1
+  persistJobsState()
+}, { flush: 'sync' })
+watch([jobPage, () => selectedCompareJobIds.value.join('|')], persistJobsState, { flush: 'sync' })
+watch(() => filteredJobs.value.length, (total) => {
+  jobPage.value = Math.min(jobPage.value, Math.max(1, Math.ceil(total / jobPageSize)))
+})
+watch(compareContextKey, () => {
+  compareRequest += 1
+  compareResult.value = undefined
+  compareLoading.value = false
+}, { flush: 'sync' })
 watch([selectedResumeId, selectedJobId], () => {
   syncCurrentMatch()
   persistSelection()
@@ -1601,96 +1758,131 @@ watch(targetRole, (value) => {
     </template>
 
     <template v-else-if="activeModule === 'jobs'">
-      <section class="overview-grid" v-loading="jobsLoading">
-        <article class="overview-card accent-mint"><span>开放岗位</span><strong>{{ jobs.length }}</strong><BriefcaseBusiness :size="22" /></article>
-        <article class="overview-card accent-lavender"><span>已完成匹配</span><strong>{{ matches.length }}</strong><Sparkles :size="22" /></article>
-        <article class="overview-card accent-peach"><span>当前岗位技能</span><strong>{{ selectedJob?.requiredSkills.length || 0 }}</strong><GraduationCap :size="22" /></article>
-        <article class="overview-card accent-plain"><span>当前覆盖率</span><strong>{{ currentMatch?.analysisSource === 'RULE_INSUFFICIENT_JOB_SKILLS' ? '—' : currentMatch?.score ?? '—' }}<small v-if="currentMatch && currentMatch.analysisSource !== 'RULE_INSUFFICIENT_JOB_SKILLS'">%</small></strong><TrendingUp :size="22" /></article>
+      <nav class="jobs-subnav" aria-label="岗位匹配导航" data-testid="jobs-subnav">
+        <RouterLink to="/student/jobs" data-testid="jobs-nav-list" :class="{ active: ['list', 'detail', 'match'].includes(jobsPage) }" :aria-current="['list', 'detail', 'match'].includes(jobsPage) ? 'page' : undefined"><List :size="16" />岗位列表</RouterLink>
+        <RouterLink to="/student/jobs/compare" data-testid="jobs-nav-compare" :class="{ active: jobsPage === 'compare' }" :aria-current="jobsPage === 'compare' ? 'page' : undefined"><GitCompareArrows :size="16" />岗位比较</RouterLink>
+        <RouterLink to="/student/jobs/history" data-testid="jobs-nav-history" :class="{ active: jobsPage === 'history' }" :aria-current="jobsPage === 'history' ? 'page' : undefined"><History :size="16" />匹配记录</RouterLink>
+      </nav>
+      <div v-if="jobsLoadError" class="jobs-load-error" role="alert"><span>{{ jobsLoadError }}</span><el-button data-testid="jobs-load-retry" @click="loadJobsData">重新加载</el-button></div>
+
+      <div v-if="jobsPage === 'detail' || jobsPage === 'match'" class="jobs-breadcrumb">
+        <RouterLink to="/student/jobs" data-testid="jobs-back"><ArrowLeft :size="15" />岗位列表</RouterLink>
+        <span aria-hidden="true">/</span>
+        <RouterLink v-if="jobsPage === 'match' && selectedJob" :to="`/student/jobs/${encodeURIComponent(selectedJob.jobId)}`">{{ matchJobTitle }}</RouterLink>
+        <span v-else>{{ selectedJob?.title || matchJobTitle }}</span>
+        <template v-if="jobsPage === 'match'"><span aria-hidden="true">/</span><span>匹配分析</span></template>
+      </div>
+
+      <section v-if="jobsPage === 'list'" class="jobs-list-page" data-testid="jobs-list" v-loading="jobsLoading">
+        <div class="jobs-search-bar">
+          <el-input v-model="jobSearch" clearable class="job-search" placeholder="搜索岗位、公司、城市或技能" aria-label="搜索岗位" data-testid="jobs-search"><template #prefix><Search :size="17" /></template></el-input>
+          <el-select v-model="jobCityFilter" clearable placeholder="城市" aria-label="筛选城市" data-testid="jobs-city-filter"><el-option v-for="city in jobCities" :key="city" :label="city" :value="city" /></el-select>
+          <el-select v-model="jobSkillFilter" clearable filterable placeholder="技能" aria-label="筛选技能" data-testid="jobs-skill-filter"><el-option v-for="skill in jobSkills" :key="skill" :label="skill" :value="skill" /></el-select>
+        </div>
+        <div class="jobs-list-caption"><span>{{ filteredJobs.length }} 个岗位</span><el-button v-if="jobSearch || jobCityFilter || jobSkillFilter" text size="small" @click="jobSearch = ''; jobCityFilter = ''; jobSkillFilter = ''">清除筛选</el-button></div>
+        <div class="job-card-list">
+          <button v-for="job in pagedJobs" :key="job.jobId" class="job-card" :data-job-id="job.jobId" @click="openJob(job.jobId)">
+            <span class="job-card-mark">{{ job.companyName.slice(0, 1) }}</span>
+            <span class="job-card-copy"><strong>{{ job.title }}</strong><small>{{ job.companyName }} · {{ job.city }}</small><em>{{ job.salaryRange }}</em></span>
+            <ArrowUpRight :size="18" />
+          </button>
+        </div>
+        <p v-if="!jobsLoading && !jobsLoadError && !filteredJobs.length" class="compact-empty">{{ jobs.length ? '没有符合条件的岗位。' : '暂无开放岗位。' }}</p>
+        <el-pagination v-if="filteredJobs.length > jobPageSize" v-model:current-page="jobPage" class="jobs-pagination" data-testid="jobs-pagination" layout="prev, pager, next" :page-size="jobPageSize" :total="filteredJobs.length" :pager-count="5" />
       </section>
 
-      <section class="jobs-layout" v-loading="jobsLoading">
-        <article class="panel job-browser">
-          <div class="section-heading"><div><h2>岗位列表</h2></div><span class="result-count">{{ filteredJobs.length }} 个结果</span></div>
-          <el-input v-model="jobSearch" class="job-search" placeholder="搜索岗位、公司、城市或技能">
-            <template #prefix><Search :size="17" /></template>
-          </el-input>
-          <div class="job-filter-row">
-            <el-select v-model="jobCityFilter" clearable placeholder="城市"><el-option v-for="city in jobCities" :key="city" :label="city" :value="city" /></el-select>
-            <el-select v-model="jobSkillFilter" clearable placeholder="技能"><el-option v-for="skill in jobSkills" :key="skill" :label="skill" :value="skill" /></el-select>
+      <section v-else-if="jobsPage === 'detail'" class="jobs-detail-page" data-testid="jobs-detail" v-loading="jobsLoading">
+        <template v-if="selectedJob">
+          <header class="jobs-detail-heading"><h2>{{ selectedJob.title }}</h2><el-tag :type="selectedJob.status === 'CLOSED' ? 'info' : 'success'">{{ selectedJob.status === 'CLOSED' ? '已关闭' : '招聘中' }}</el-tag></header>
+          <div class="job-detail-meta"><span><BriefcaseBusiness :size="15" />{{ selectedJob.companyName }}</span><span><MapPin :size="15" />{{ selectedJob.city }}</span><strong>{{ selectedJob.salaryRange }}</strong></div>
+          <div class="job-description">{{ selectedJob.description || '岗位暂未提供详细说明。' }}</div>
+          <div v-if="selectedJob.requiredSkills.length" class="tag-row"><el-tag v-for="skill in selectedJob.requiredSkills" :key="skill">{{ skill }}</el-tag></div>
+          <div class="jobs-primary-action">
+            <label class="form-field"><span>匹配简历</span><el-select v-model="selectedResumeId" placeholder="选择简历" aria-label="匹配简历" @change="selectResume"><el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" /></el-select></label>
+            <el-button type="primary" :loading="matchLoading" :disabled="!selectedResume" data-testid="jobs-detail-match" @click="runMatch">匹配这个岗位 <ArrowUpRight :size="15" /></el-button>
           </div>
-           <div class="compare-toolbar">
-             <el-select v-model="selectedCompareJobIds" multiple collapse-tags :max-collapse-tags="3" placeholder="选择 2-3 个岗位比较">
-               <el-option v-for="job in jobs" :key="`compare-${job.jobId}`" :label="`${job.title} ? ${job.companyName}`" :value="job.jobId" />
-             </el-select>
-             <el-button type="primary" plain :loading="compareLoading" :disabled="selectedCompareJobIds.length < 2" @click="compareSelectedJobs">比较岗位</el-button>
-           </div>
-          <div class="job-card-list">
-            <button v-for="job in filteredJobs" :key="job.jobId" class="job-card" :class="{ selected: job.jobId === selectedJobId }" @click="selectedJobId = job.jobId">
-              <span class="job-card-mark">{{ job.companyName.slice(0, 1) }}</span>
-              <span class="job-card-copy"><strong>{{ job.title }}</strong><small>{{ job.companyName }} · {{ job.city }}</small><em>{{ job.salaryRange }}</em></span>
-              <ArrowUpRight :size="18" />
-            </button>
-          </div>
-          <p v-if="!filteredJobs.length" class="compact-empty">没有符合条件的岗位，可调整搜索词或筛选条件。</p>
-        </article>
+          <p v-if="!resumes.length" class="compact-empty">暂无可匹配的简历。<RouterLink to="/student/resume">去创建简历</RouterLink></p>
+        </template>
+        <div v-else-if="!jobsLoading && !jobsLoadError" class="jobs-unavailable" data-testid="jobs-unavailable"><p>这个岗位已下架或不存在。</p><RouterLink to="/student/jobs">返回岗位列表</RouterLink></div>
+      </section>
 
-        <div class="job-detail-stack">
-          <article v-if="compareResult" class="panel comparison-panel">
-            <div class="section-heading"><div><h2>岗位条件与证据比较</h2></div><el-button text @click="compareResult = undefined">关闭</el-button></div>
-            <p class="form-dirty-note">各岗位使用同一份选定简历。覆盖率表示要求覆盖情况；缺少安排或岗位条件时保留“信息不足”。</p>
-            <div class="comparison-grid">
-              <article v-for="item in compareResult.jobs" :key="item.job.jobId">
-                <strong>{{ item.job.title }}</strong><small>{{ item.job.companyName }} · {{ item.job.city }}</small>
-                <p class="comparison-evidence">技能覆盖 {{ item.match.score }}% · 当前简历证据覆盖 {{ item.match.details?.evidenceCoverage ?? '—' }}%</p>
-                <details v-for="req in item.requirements" :key="`${item.job.jobId}-${req.skill}`" class="comparison-requirement">
-                  <summary><el-tag size="small" :type="req.tier === 'REQUIRED' ? 'danger' : req.tier === 'PREFERRED' ? 'warning' : 'info'">{{ ({ REQUIRED: '明确必需', PREFERRED: '明确优先', UNSPECIFIED: '未注明' } as Record<string, string>)[req.tier] || '未注明' }}</el-tag> {{ req.skill }}</summary>
-                  <p>岗位原文：{{ req.quote || '技能清单中列出，正文未找到明确说明' }}</p>
-                  <template v-for="evidence in item.availableEvidence.filter(e => e.skill === req.skill)" :key="evidence.skill">
-                    <p>主资料：{{ evidence.declaredInMaster ? '已声明' : '尚未声明' }} · {{ evidence.supportedInMaster ? '已有材料支撑' : '材料中尚未体现实践' }}</p>
-                    <p>{{ evidence.shownInResume ? '当前简历已体现实践证据' : evidence.supportedInMaster ? '主资料已有，当前简历未体现：建议补充已有经历的表达' : '待补材料：可先核对已有经历，再安排学习或练习' }}</p>
-                    <p v-for="(source, index) in evidence.sources" :key="`${source.sourceId}-${index}`">资料依据：{{ source.quote || source.sourceId }}<span v-if="source.assessment"> · {{ source.assessment }}</span></p>
-                  </template>
-                </details>
-                <p v-for="condition in item.conditions" :key="`${item.job.jobId}-${condition.type}`"><b>{{ ({ EDUCATION: '学历', LOCATION: '工作地点', GRADUATION: '毕业时间', START_DATE: '到岗日期', WEEKLY_DAYS: '每周出勤', CONTINUOUS_MONTHS: '连续实习时长' } as Record<string, string>)[condition.type] || condition.type }}</b>：{{ ({ SATISFIED: '满足', NOT_SATISFIED: '不满足', UNKNOWN: '信息不足' } as Record<string, string>)[condition.status] || '信息不足' }}<small>{{ condition.requirement }} · {{ condition.explanation }}</small></p>
-              </article>
+      <section v-else-if="jobsPage === 'match'" class="jobs-analysis-page" data-testid="jobs-analysis" v-loading="jobsLoading">
+        <div v-if="missingMatchRecord && !jobsLoading && !jobsLoadError" class="jobs-unavailable" data-testid="jobs-unavailable"><p>这条匹配记录已不存在或不可访问。</p><RouterLink to="/student/jobs/history">返回匹配记录</RouterLink></div>
+        <template v-else>
+          <div v-if="selectedJob && (!currentMatch || selectedResume)" class="jobs-primary-action match-launcher">
+            <label class="form-field"><span>匹配简历</span><el-select v-model="selectedResumeId" placeholder="选择简历" aria-label="匹配简历" @change="changeMatchResume"><el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" /></el-select></label>
+            <el-button type="primary" :disabled="!selectedResume" :loading="matchLoading" data-testid="jobs-run-match" @click="runMatch">{{ currentMatch ? '重新匹配' : '开始匹配' }}</el-button>
+          </div>
+          <p v-else-if="currentMatch && (!selectedJob || !selectedResume)" class="compact-empty">原{{ !selectedJob && !selectedResume ? '岗位与简历' : !selectedJob ? '岗位' : '简历' }}已不可用，下方保留历史匹配结果。</p>
+          <article v-if="currentMatch" class="match-result">
+            <div class="jobs-result-meta"><span>{{ resumes.find(resume => resume.resumeId === currentMatch?.resumeId)?.fileName || '原简历已不可用' }}</span></div>
+            <div class="jobs-coverage-summary">
+              <div><strong>{{ matchScoreLabel(currentMatch) }}</strong><span>技能覆盖率</span></div>
+              <div v-if="currentMatch.details"><strong>{{ currentMatch.details.evidenceCoverage }}%</strong><span>材料证据覆盖率</span></div>
             </div>
-          </article>
-          <article class="panel job-detail">
-            <template v-if="selectedJob">
-              <div class="section-heading"><div><h2>{{ selectedJob.title }}</h2></div><el-tag type="success">{{ selectedJob.status || 'OPEN' }}</el-tag></div>
-              <div class="job-detail-meta"><span><BriefcaseBusiness :size="15" />{{ selectedJob.companyName }}</span><span><MapPin :size="15" />{{ selectedJob.city }}</span><strong>{{ selectedJob.salaryRange }}</strong></div>
-              <p>{{ selectedJob.description }}</p>
-              <div class="tag-row"><el-tag v-for="skill in selectedJob.requiredSkills" :key="skill">{{ skill }}</el-tag></div>
-            </template>
-            <p v-else class="compact-empty">选择岗位后查看要求与条件。</p>
-          </article>
-          <article class="panel match-launcher">
-            <div class="match-controls">
-              <label class="form-field"><span>匹配简历</span><el-select v-model="selectedResumeId" placeholder="选择简历" aria-label="匹配简历" @change="selectResume"><el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" /></el-select></label>
-              <label class="form-field"><span>目标岗位</span><el-select v-model="selectedJobId" placeholder="选择岗位" aria-label="匹配岗位"><el-option v-for="job in jobs" :key="job.jobId" :label="`${job.title} · ${job.companyName}`" :value="job.jobId" /></el-select></label>
-              <el-button type="primary" :loading="matchLoading" @click="runMatch">匹配</el-button>
+            <p v-if="currentMatch.analysisSource === 'RULE_INSUFFICIENT_JOB_SKILLS'" class="compact-empty">岗位要求缺少可比技能，暂不生成覆盖率。</p>
+            <div v-if="currentMatch.strengths.length || currentMatch.gaps.length" class="match-insights">
+              <div v-if="currentMatch.strengths.length"><span>已覆盖</span><p>{{ currentMatch.strengths.join('；') }}</p></div>
+              <div v-if="currentMatch.gaps.length"><span>待补材料或能力</span><p>{{ currentMatch.gaps.join('；') }}</p></div>
             </div>
+            <details v-if="currentMatch.details" class="jobs-result-details" data-testid="jobs-match-evidence">
+              <summary>逐项要求与材料证据</summary>
+              <div v-for="item in currentMatch.details.requirements || []" :key="item.skill" class="jobs-evidence-row">
+                <div><strong>{{ item.skill }}</strong><el-tag size="small" :type="item.declared ? 'success' : 'info'">{{ item.declared ? '已声明' : '未声明' }}</el-tag><el-tag size="small" :type="item.supported ? 'success' : 'warning'">{{ item.supported ? '已有材料支撑' : '待补材料' }}</el-tag></div>
+                <blockquote v-if="item.evidence?.quote">{{ item.evidence.quote }}</blockquote>
+                <p>{{ item.evidence?.explanation || '材料中尚未体现。' }}</p>
+                <p>{{ item.suggestion }}</p>
+                <small v-if="item.evidence?.sourceReference">来源：{{ item.evidence.sourceReference }}</small>
+              </div>
+            </details>
+            <details v-if="currentMatch.details?.conditions?.length" class="jobs-result-details" data-testid="jobs-match-conditions">
+              <summary>学历与实习条件</summary>
+              <div v-for="condition in currentMatch.details.conditions" :key="`${condition.type}-${condition.requirement}`" class="jobs-evidence-row">
+                <div><strong>{{ condition.requirement }}</strong><el-tag size="small" :type="condition.status === 'SATISFIED' ? 'success' : condition.status === 'NOT_SATISFIED' ? 'danger' : 'info'">{{ ({ SATISFIED: '满足', NOT_SATISFIED: '不满足', UNKNOWN: '信息不足' } as Record<string, string>)[condition.status] || '信息不足' }}</el-tag></div>
+                <p>{{ condition.explanation }}</p><small>{{ condition.observed }}</small>
+              </div>
+            </details>
+            <details v-if="currentMatch.suggestions.length" class="jobs-result-details" data-testid="jobs-match-suggestions"><summary>改善建议</summary><ul class="plain-list"><li v-for="suggestion in currentMatch.suggestions" :key="suggestion">{{ suggestion }}</li></ul></details>
+            <details class="jobs-result-details"><summary>结果来源与历史快照</summary><div class="jobs-evidence-row"><p>{{ matchSourceLabel(currentMatch.analysisSource) }}</p><template v-if="currentMatch.details?.metadata"><p>{{ currentMatch.details.metadata.algorithmVersion }}<template v-if="currentMatch.details.metadata.generatedAt"> · {{ matchDateLabel(currentMatch.details.metadata.generatedAt) }}</template></p><p>{{ currentMatch.details.jobSnapshot?.title }} · {{ currentMatch.details.jobSnapshot?.requiredSkills?.join('、') }}</p><p>{{ currentMatch.details.profileSnapshot?.education }}</p><p>{{ currentMatch.details.profileSnapshot?.skills?.join('、') }}</p><p v-for="project in currentMatch.details.profileSnapshot?.projects || []" :key="project">{{ project }}</p></template></div></details>
+            <el-alert v-if="currentMatchStale" title="来源简历或岗位已更新，或已不可用。重新匹配后才能用于学习计划和面试。" type="warning" :closable="false" show-icon />
+            <div class="match-next-actions"><el-button :disabled="currentMatchStale" @click="openMatchWorkspace('plan')">生成学习计划 <ArrowUpRight :size="15" /></el-button><el-button type="primary" :disabled="currentMatchStale" @click="openMatchWorkspace('interview')">进入模拟面试 <ArrowUpRight :size="15" /></el-button></div>
+          </article>
+          <div v-else-if="!selectedJob && !jobsLoading && !jobsLoadError" class="jobs-unavailable" data-testid="jobs-unavailable"><p>这个岗位已下架或不存在。</p><RouterLink to="/student/jobs">返回岗位列表</RouterLink></div>
+          <p v-else-if="!jobsLoading && !resumes.length" class="compact-empty">暂无可匹配的简历。<RouterLink to="/student/resume">去创建简历</RouterLink></p>
+          <p v-else-if="!currentMatch && !jobsLoading && !jobsLoadError" class="compact-empty">这份简历尚未匹配此岗位。</p>
+        </template>
+      </section>
+
+      <section v-else-if="jobsPage === 'compare'" class="jobs-compare-page" data-testid="jobs-compare" v-loading="jobsLoading">
+        <div class="jobs-compare-controls">
+          <label class="form-field"><span>使用简历</span><el-select v-model="selectedResumeId" placeholder="选择简历" aria-label="比较简历" data-testid="jobs-compare-resume" @change="selectResume"><el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" /></el-select></label>
+          <label class="form-field"><span>比较岗位（2–3 个）</span><el-select v-model="selectedCompareJobIds" multiple filterable :multiple-limit="3" collapse-tags :max-collapse-tags="3" placeholder="选择岗位" aria-label="比较岗位" data-testid="jobs-compare-selection"><el-option v-for="job in jobs" :key="`compare-${job.jobId}`" :label="`${job.title} · ${job.companyName}`" :value="job.jobId" :disabled="selectedCompareJobIds.length >= 3 && !selectedCompareJobIds.includes(job.jobId)" /></el-select></label>
+          <el-button type="primary" :loading="compareLoading" :disabled="!selectedResume || selectedCompareJobIds.length < 2 || selectedCompareJobIds.length > 3" data-testid="jobs-run-compare" @click="compareSelectedJobs">比较岗位</el-button>
+        </div>
+        <p v-if="!jobsLoading && !resumes.length" class="compact-empty">暂无可比较的简历。<RouterLink to="/student/resume">去创建简历</RouterLink></p>
+        <div v-if="compareResult" class="comparison-grid" data-testid="jobs-compare-results">
+          <article v-for="item in compareResult.jobs" :key="item.job.jobId">
+            <RouterLink :to="`/student/jobs/${encodeURIComponent(item.job.jobId)}`"><strong>{{ item.job.title }}</strong></RouterLink><small>{{ item.job.companyName }} · {{ item.job.city }}</small>
+            <div class="comparison-coverage"><span>技能覆盖 <b>{{ matchScoreLabel(item.match) }}</b></span><span>证据覆盖 <b>{{ item.match.details?.evidenceCoverage ?? '—' }}{{ item.match.details ? '%' : '' }}</b></span></div>
+            <details class="comparison-requirement"><summary>岗位要求与材料证据</summary>
+              <div v-for="req in item.requirements" :key="`${item.job.jobId}-${req.skill}`" class="jobs-evidence-row">
+                <div><strong>{{ req.skill }}</strong><el-tag size="small" :type="req.tier === 'REQUIRED' ? 'danger' : req.tier === 'PREFERRED' ? 'warning' : 'info'">{{ ({ REQUIRED: '必需', PREFERRED: '优先', UNSPECIFIED: '未注明' } as Record<string, string>)[req.tier] || '未注明' }}</el-tag></div>
+                <p>岗位原文：{{ req.quote || '正文未注明，来自技能清单' }}</p>
+                <template v-for="evidence in item.availableEvidence.filter(e => e.skill === req.skill)" :key="evidence.skill">
+                  <p>主资料：{{ evidence.declaredInMaster ? '已声明' : '尚未声明' }} · {{ evidence.supportedInMaster ? '已有材料支撑' : '尚未体现实践' }}</p>
+                  <p>{{ evidence.shownInResume ? '当前简历已体现实践证据' : evidence.supportedInMaster ? '主资料已有，当前简历未体现，可补充经历表达。' : '材料中尚未体现，可核对经历或安排练习。' }}</p>
+                  <p v-for="(source, index) in evidence.sources" :key="`${source.sourceId}-${index}`">依据：{{ source.quote || source.sourceId }}<span v-if="source.assessment"> · {{ source.assessment }}</span></p>
+                </template>
+              </div>
+            </details>
+            <details v-if="item.conditions.length" class="comparison-requirement"><summary>学历与实习条件</summary><div v-for="condition in item.conditions" :key="`${item.job.jobId}-${condition.type}`" class="comparison-condition"><b>{{ ({ EDUCATION: '学历', LOCATION: '地点', GRADUATION: '毕业时间', START_DATE: '到岗日期', WEEKLY_DAYS: '每周出勤', CONTINUOUS_MONTHS: '实习时长' } as Record<string, string>)[condition.type] || condition.type }}</b><span>{{ ({ SATISFIED: '满足', NOT_SATISFIED: '不满足', UNKNOWN: '信息不足' } as Record<string, string>)[condition.status] || '信息不足' }}</span><p>{{ condition.requirement }} · {{ condition.explanation }}</p></div></details>
           </article>
         </div>
       </section>
 
-      <section class="match-history-grid">
-        <article v-if="currentMatch" class="panel match-result">
-          <div class="section-heading"><div><h2>本次匹配结果</h2></div><CheckCircle2 :size="21" /></div>
-          <MatchEvidencePanel v-if="currentMatch.details" :details="currentMatch.details" />
-          <div v-else class="coverage-score"><strong>{{ matchScoreLabel(currentMatch) }}</strong><div><b>技能覆盖率</b><span>{{ currentMatch.analysisSource === 'RULE_INSUFFICIENT_JOB_SKILLS' ? '岗位要求缺少可比技能，暂不生成覆盖率。' : '根据岗位要求与简历技能计算' }}</span></div></div>
-          <div class="tag-row"><el-tag :type="sourceTagType(currentMatch.analysisSource)">{{ matchSourceLabel(currentMatch.analysisSource) }}</el-tag></div>
-          <div class="match-insights"><div><span>优势</span><p>{{ currentMatch.strengths.join('；') || '等待匹配结果' }}</p></div><div><span>待补齐</span><p>{{ currentMatch.gaps.join('；') || '暂无明显缺口' }}</p></div></div>
-          <div v-if="currentMatch.matchedSkills?.length || currentMatch.missingSkills?.length" class="tag-row"><el-tag v-for="skill in currentMatch.matchedSkills" :key="`matched-${skill}`" type="success">已声明 · {{ skill }}</el-tag><el-tag v-for="skill in currentMatch.missingSkills" :key="`missing-${skill}`" type="warning">待补齐 · {{ skill }}</el-tag></div>
-          <ul v-if="currentMatch.suggestions.length" class="plain-list"><li v-for="suggestion in currentMatch.suggestions" :key="suggestion">{{ suggestion }}</li></ul>
-          <el-alert v-if="currentMatchStale" title="这条历史记录的简历资料或岗位要求已变化，或来源已不可用，请重新匹配后生成计划或面试。" type="warning" :closable="false" show-icon />
-          <div class="match-next-actions"><el-button :disabled="currentMatchStale" @click="openMatchWorkspace('plan')">生成学习计划 <ArrowUpRight :size="15" /></el-button><el-button type="primary" :disabled="currentMatchStale" @click="openMatchWorkspace('interview')">进入模拟面试 <ArrowUpRight :size="15" /></el-button></div>
-        </article>
-        <article class="panel match-history">
-          <div class="section-heading"><div><h2>匹配记录</h2></div><Sparkles :size="20" /></div>
-          <p v-if="!matches.length" class="compact-empty">暂无匹配记录。</p>
-          <div v-else class="match-records"><button v-for="match in matches" :key="match.matchId" class="match-record" :data-match-id="match.matchId" @click="restoreMatch(match)"><div><strong>{{ jobs.find((job) => job.jobId === match.jobId)?.title || match.jobId }}</strong><span>{{ matchSourceLabel(match.analysisSource) }}</span></div><b>{{ matchScoreLabel(match) }}</b></button></div>
-        </article>
+      <section v-else-if="jobsPage === 'history'" class="jobs-history-page" data-testid="jobs-history" v-loading="jobsLoading">
+        <p v-if="!jobsLoading && !jobsLoadError && !matches.length" class="compact-empty">暂无匹配记录。</p>
+        <div v-else class="match-records"><button v-for="match in matches" :key="match.matchId" class="match-record" :data-match-id="match.matchId" @click="openHistoricalMatch(match)"><div><strong>{{ jobs.find(job => job.jobId === match.jobId)?.title || match.details?.jobSnapshot?.title || '历史岗位' }}</strong><span>{{ resumes.find(resume => resume.resumeId === match.resumeId)?.fileName || '原简历已不可用' }}<template v-if="match.details?.metadata?.generatedAt"> · {{ matchDateLabel(match.details.metadata.generatedAt) }}</template></span></div><b>{{ matchScoreLabel(match) }}</b><ArrowUpRight :size="17" /></button></div>
       </section>
     </template>
 
@@ -2062,8 +2254,6 @@ watch(targetRole, (value) => {
 .diagnosis-item :deep(.el-tag__content) { white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
 
 .resume-workspace,
-.jobs-layout,
-.match-history-grid,
 .plan-layout,
 .interview-workspace {
   display: grid;
@@ -2073,9 +2263,6 @@ watch(targetRole, (value) => {
 .resume-workspace { grid-template-columns: minmax(0, 1.25fr) minmax(330px, 0.75fr); }
 .profile-panel,
 .diagnosis-panel,
-.job-browser,
-.job-detail,
-.match-launcher,
 .task-panel,
 .interview-question-card,
 .answer-card,
@@ -2121,51 +2308,76 @@ watch(targetRole, (value) => {
 .diagnosis-copy { max-height: 85px; overflow: auto; color: var(--muted, #66716c); font-size: 12px; line-height: 1.6; }
 .diagnosis-copy :deep(p) { margin: 0; }
 
-.jobs-layout { grid-template-columns: minmax(310px, 0.75fr) minmax(0, 1.25fr); align-items: start; }
-.job-browser { display: grid; align-content: start; gap: 15px; }
-.result-count { padding: 6px 9px; border-radius: 7px; background: #f0f3f1; color: var(--muted, #66716c); font-size: 12px; font-weight: 700; white-space: nowrap; }
-.job-card-list { display: grid; gap: 8px; max-height: 420px; overflow: auto; padding-right: 2px; }
-.job-card { display: grid; grid-template-columns: 36px minmax(0, 1fr) 18px; gap: 10px; align-items: center; width: 100%; padding: 11px; border: 1px solid transparent; border-radius: 11px; background: transparent; color: var(--ink, #1f2724); cursor: pointer; text-align: left; }
-.job-card:hover,
-.job-card.selected { border-color: #cfe7d9; background: #f2fbf5; }
-.job-card-mark { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; background: #e6f5ec; color: var(--accent, #28664f); font-size: 14px; font-weight: 800; }
-.job-card-copy { display: grid; gap: 3px; }
-.job-card-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.job-card-copy small { color: var(--muted, #66716c); font-size: 11px; }
-.job-card-copy em { color: var(--accent, #28664f); font-size: 11px; font-style: normal; font-weight: 700; }
-.job-filter-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.jobs-subnav { display: flex; gap: 4px; border-bottom: 1px solid var(--line, #e8ebea); }
+.jobs-subnav a { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 12px 16px; border-bottom: 2px solid transparent; color: var(--muted, #66716c); text-decoration: none; font-size: 13px; font-weight: 650; }
+.jobs-subnav a:hover { color: var(--accent, #28664f); background: #f4faf6; }
+.jobs-subnav a.active { border-bottom-color: var(--accent, #28664f); color: var(--accent, #28664f); }
+.jobs-subnav svg { flex: none; }
+.jobs-breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted, #66716c); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.jobs-breadcrumb a { display: inline-flex; align-items: center; gap: 5px; color: inherit; text-decoration: none; }
+.jobs-breadcrumb a:hover { color: var(--accent, #28664f); }
+.jobs-breadcrumb > a:first-child { flex: none; }
+.jobs-load-error { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 0; color: #a54b3d; font-size: 13px; overflow-wrap: anywhere; }
+.jobs-list-page, .jobs-detail-page, .jobs-analysis-page, .jobs-compare-page, .jobs-history-page { min-width: 0; }
+.jobs-search-bar { display: grid; grid-template-columns: minmax(0, 1fr) 150px 170px; gap: 10px; }
+.jobs-list-caption { display: flex; justify-content: space-between; align-items: center; min-height: 42px; color: var(--muted, #66716c); font-size: 12px; }
+.job-card-list { display: grid; }
+.job-card { display: grid; grid-template-columns: 36px minmax(0, 1fr) 18px; gap: 12px; align-items: center; width: 100%; padding: 14px 4px; border: 0; border-top: 1px solid var(--line, #e8ebea); background: transparent; color: var(--ink, #1f2724); cursor: pointer; text-align: left; }
+.job-card:hover { background: #f3f9f5; }
+.job-card-mark { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 6px; background: #e9f5ed; color: var(--accent, #28664f); font-size: 14px; font-weight: 700; }
+.job-card-copy { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 18px; min-width: 0; }
+.job-card-copy strong { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.job-card-copy small { grid-column: 1; color: var(--muted, #66716c); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.job-card-copy em { grid-column: 2; grid-row: 1 / 3; align-self: center; color: var(--accent, #28664f); font-size: 12px; font-style: normal; font-weight: 700; overflow-wrap: anywhere; }
 .job-card > svg { color: var(--muted, #66716c); }
-.job-detail-stack { display: grid; align-content: start; gap: 14px; }
-.job-detail { display: grid; align-content: start; gap: 14px; }
-.job-detail-meta { justify-content: flex-start; flex-wrap: wrap; gap: 14px; color: var(--muted, #66716c); font-size: 13px; }
-.job-detail-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.jobs-pagination { display: flex; justify-content: center; padding-top: 18px; }
+.jobs-detail-page { display: grid; align-content: start; gap: 18px; }
+.jobs-detail-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.jobs-detail-heading h2 { margin: 0; font-size: 20px; line-height: 1.5; overflow-wrap: anywhere; }
+.jobs-detail-heading :deep(.el-tag) { flex: none; margin-top: 4px; }
+.job-detail-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 9px 18px; color: var(--muted, #66716c); font-size: 13px; }
+.job-detail-meta span { display: inline-flex; align-items: center; gap: 5px; overflow-wrap: anywhere; }
+.job-detail-meta span svg { flex: none; }
 .job-detail-meta strong { color: var(--accent, #28664f); }
-.job-detail p { max-width: 720px; }
-.match-launcher { background: #f6fbf8; }
-.match-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; align-items: end; }
-.match-history-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.match-result { display: grid; gap: 17px; }
-.coverage-score { display: flex; align-items: center; gap: 16px; }
-.coverage-score > strong { color: var(--accent, #28664f); font-size: 52px; line-height: 1; }
-.coverage-score > strong small { font-size: 18px; }
-.coverage-score b,
-.coverage-score span { display: block; }
-.coverage-score b { font-size: 14px; }
-.coverage-score span { margin-top: 4px; color: var(--muted, #66716c); font-size: 12px; }
-.match-insights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.match-insights > div { padding: 13px; border-radius: 11px; background: #f7f8f7; }
-.match-insights span { color: var(--muted, #66716c); font-size: 11px; font-weight: 800; }
-.match-insights p { margin: 6px 0 0; font-size: 13px; line-height: 1.55; }
-.match-next-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-.match-history { display: grid; align-content: start; gap: 16px; }
+.job-description { max-width: 850px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.9; }
+.jobs-primary-action { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; width: 100%; max-width: 650px; padding-block: 16px; border-block: 1px solid var(--line, #e8ebea); }
+.jobs-primary-action :deep(.el-select), .jobs-compare-controls :deep(.el-select) { min-width: 0; width: 100%; }
+.jobs-primary-action :deep(.el-button) { margin: 0; }
+.jobs-primary-action :deep(.el-button > span) { gap: 6px; }
+.match-launcher { background: transparent; }
+.match-result { display: grid; gap: 14px; padding-top: 16px; }
+.jobs-result-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--muted, #66716c); font-size: 12px; overflow-wrap: anywhere; }
+.jobs-coverage-summary { display: flex; flex-wrap: wrap; gap: 18px 42px; padding-block: 8px; }
+.jobs-coverage-summary > div { display: grid; gap: 6px; }
+.jobs-coverage-summary strong { color: var(--accent, #28664f); font-size: 30px; line-height: 1.25; }
+.jobs-coverage-summary span { color: var(--muted, #66716c); font-size: 12px; }
+.match-insights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; padding-block: 12px; }
+.match-insights span { font-size: 12px; font-weight: 700; }
+.match-insights p { margin: 7px 0 0; color: var(--muted, #66716c); font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.jobs-result-details { min-width: 0; border-top: 1px solid var(--line, #e8ebea); }
+.jobs-result-details > summary { padding: 10px 0; color: var(--muted, #66716c); cursor: pointer; font-size: 13px; }
+.jobs-evidence-row { padding: 12px 0; border-top: 1px solid var(--line, #e8ebea); min-width: 0; }
+.jobs-evidence-row > div { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.jobs-evidence-row strong { font-size: 13px; }
+.jobs-evidence-row blockquote { margin: 10px 0; padding-left: 10px; border-left: 2px solid #91b8a2; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; }
+.jobs-evidence-row p, .jobs-evidence-row small { margin: 6px 0 0; color: var(--muted, #66716c); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.match-next-actions { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 8px; }
+.match-next-actions :deep(.el-button) { margin: 0; }
+.match-next-actions :deep(.el-button > span) { gap: 6px; }
 .match-records { display: grid; }
-.match-record { padding: 12px 0; border-top: 1px solid var(--line, #e8ebea); }
-.match-record { width: 100%; border-right: 0; border-bottom: 0; border-left: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.match-record { display: grid; grid-template-columns: minmax(0, 1fr) auto 17px; align-items: center; gap: 16px; width: 100%; padding: 16px 4px; border: 0; border-top: 1px solid var(--line, #e8ebea); background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.match-record:first-child { border-top: 0; }
 .match-record:hover { background: #f4fbf6; }
-.match-record div { display: grid; gap: 4px; }
-.match-record strong { font-size: 13px; }
-.match-record span { color: var(--muted, #66716c); font-size: 11px; }
+.match-record div { display: grid; gap: 5px; min-width: 0; }
+.match-record strong { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.match-record span { color: var(--muted, #66716c); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .match-record b { color: var(--accent, #28664f); font-size: 20px; }
+.match-record > svg { color: var(--muted, #66716c); }
+.jobs-unavailable { padding: 12px 0; color: var(--muted, #66716c); font-size: 14px; }
+.jobs-unavailable a, .jobs-detail-page .compact-empty a, .jobs-analysis-page .compact-empty a, .jobs-compare-page .compact-empty a { color: var(--accent, #28664f); margin-left: 5px; }
+.jobs-compare-controls { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr) auto; gap: 12px; align-items: end; padding-bottom: 20px; }
+.jobs-compare-controls :deep(.el-select__selected-item) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.jobs-compare-controls :deep(.el-select__tags-text) { overflow: hidden; text-overflow: ellipsis; }
 
 .plan-builder { display: grid; gap: 14px; }
 .plan-builder:has(.plan-builder-collapsed) { padding-block: 14px; }
@@ -2318,19 +2530,16 @@ watch(targetRole, (value) => {
 @media (max-width: 1180px) {
   .resume-hero-content { grid-template-columns: minmax(180px, 1fr) 112px minmax(230px, 1.1fr); }
   .resume-status { grid-column: 1 / -1; grid-template-columns: auto 1fr; align-items: center; padding-top: 15px; border-top: 1px solid var(--line, #e8ebea); }
-  .jobs-layout { grid-template-columns: minmax(280px, 0.7fr) minmax(0, 1.3fr); }
   .session-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 900px) {
   .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .resume-workspace,
-  .jobs-layout,
   .plan-layout,
   .interview-workspace { grid-template-columns: 1fr; }
   .resume-hero-content { grid-template-columns: minmax(180px, 1fr) 112px; }
   .resume-summary { grid-column: 1 / -1; }
-  .match-history-grid { grid-template-columns: 1fr; }
   .plan-builder-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .plan-builder-fields > .el-button { justify-self: end; }
   .plan-advanced-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -2342,16 +2551,12 @@ watch(targetRole, (value) => {
   .overview-grid { gap: 10px; }
   .overview-card { min-height: 62px; padding: 10px 12px; }
   .overview-card strong { font-size: 21px; }
-  .job-card-list { max-height: 250px; }
   .resume-hero,
   .plan-builder,
   .interview-launch,
   .knowledge-shell,
   .profile-panel,
   .diagnosis-panel,
-  .job-browser,
-  .job-detail,
-  .match-launcher,
   .task-panel,
   .interview-question-card,
   .answer-card,
@@ -2361,7 +2566,6 @@ watch(targetRole, (value) => {
   .profile-form,
   .plan-builder-fields,
   .plan-advanced-fields,
-  .match-controls,
   .report-columns,
   .match-insights { grid-template-columns: 1fr; }
   .resume-score { padding: 15px 0 0; border-top: 1px solid var(--line, #e8ebea); border-left: 0; }
@@ -2385,34 +2589,46 @@ watch(targetRole, (value) => {
   .knowledge-search :deep(.el-button) { width: 100%; }
 }
 
-.compare-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  margin: 12px 0 16px;
-}
-.compare-toolbar :deep(.el-select) { min-width: 0; }
-.comparison-panel { margin-bottom: 16px; }
 .comparison-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+  gap: 20px;
 }
 .comparison-grid > article {
-  padding: 14px;
-  border: 1px solid var(--line, #e8ebea);
-  border-radius: 12px;
-  background: var(--surface-soft, #fbfcfb);
+  min-width: 0;
+  padding-top: 16px;
+  border-top: 2px solid #bad5c6;
 }
+.comparison-grid a { color: var(--ink, #1f2724); text-decoration: none; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.comparison-grid a:hover { color: var(--accent, #28664f); }
 .comparison-grid small { display: block; margin-top: 4px; color: var(--muted, #75807c); }
-.comparison-grid p { margin: 8px 0 0; color: var(--muted, #596560); line-height: 1.5; }
+.comparison-grid p { margin: 8px 0 0; color: var(--muted, #596560); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.comparison-grid small { overflow-wrap: anywhere; }
+.comparison-coverage { display: grid; gap: 8px; margin-top: 16px; font-size: 12px; }
+.comparison-coverage > span { display: flex; justify-content: space-between; gap: 10px; color: var(--muted, #66716c); }
+.comparison-coverage b { color: var(--accent, #28664f); font-size: 15px; }
+.comparison-condition { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; margin-top: 12px; font-size: 12px; }
+.comparison-condition span { color: var(--muted, #66716c); }
+.comparison-condition p { grid-column: 1 / -1; }
 .comparison-requirement { margin-top: 12px; }
-.comparison-requirement summary { cursor: pointer; line-height: 1.8; }
+.comparison-requirement summary { color: var(--muted, #66716c); cursor: pointer; font-size: 12px; line-height: 1.8; }
 .comparison-requirement p { overflow-wrap: anywhere; }
-.comparison-evidence { font-weight: 600; color: var(--ink, #1f2b27) !important; }
 @media (max-width: 700px) {
-  .compare-toolbar { grid-template-columns: 1fr; }
-  .compare-toolbar :deep(.el-button) { width: 100%; }
+  .jobs-search-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .jobs-search-bar .job-search { grid-column: 1 / -1; }
+  .jobs-compare-controls { grid-template-columns: 1fr; }
+  .jobs-compare-controls :deep(.el-button) { width: 100%; margin: 0; }
+}
+@media (max-width: 480px) {
+  .jobs-subnav { gap: 0; }
+  .jobs-subnav a { flex: 1; padding: 10px 3px; gap: 5px; font-size: 12px; white-space: nowrap; }
+  .jobs-subnav svg { width: 14px; height: 14px; }
+  .job-card-copy { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .job-card-copy em { grid-column: 1; grid-row: auto; }
+  .jobs-primary-action { grid-template-columns: 1fr; }
+  .jobs-primary-action :deep(.el-button) { width: 100%; }
+  .match-next-actions { display: grid; grid-template-columns: 1fr; }
+  .jobs-coverage-summary { gap: 18px 26px; }
+  .jobs-detail-heading h2 { font-size: 18px; }
 }
 </style>

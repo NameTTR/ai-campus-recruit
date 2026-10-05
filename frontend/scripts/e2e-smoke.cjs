@@ -71,6 +71,7 @@ async function main() {
     await assertText(client, ['岗位匹配', '岗位列表'])
     await assertStudentWorkspace(client, 'jobs')
     await assertNoHorizontalOverflow(client)
+    await verifyJobsNavigation(client, coreFixture)
     await fillInput(client, '.job-search input', '__e2e_no_match__')
     await assertText(client, ['没有符合条件的岗位'])
     await fillInput(client, '.job-search input', '')
@@ -333,25 +334,264 @@ async function verifyResumeDraftPersistence(client, fixture, resume) {
 }
 
 async function verifyMatchHistoryRestoreAndContext(client, match, resume, job) {
-  await navigate(client, `${baseUrl}/student/jobs`)
+  const analysisPath = `/student/jobs/${encodeURIComponent(job.jobId)}/match`
+  const analysisUrl = `${baseUrl}${analysisPath}?matchId=${encodeURIComponent(match.matchId)}`
+  await navigate(client, `${baseUrl}/student/jobs/history`)
   await waitForExpression(client, "Boolean(document.querySelector('button.match-record'))")
   await clickElementByData(client, '.match-records button.match-record', 'matchId', match.matchId)
+  await waitForExpression(client, `location.pathname === ${JSON.stringify(analysisPath)} && new URLSearchParams(location.search).get('matchId') === ${JSON.stringify(match.matchId)}`)
   await assertMatchSelection(client, resume.fileName, job.title)
+  const expectedScore = match.analysisSource === 'RULE_INSUFFICIENT_JOB_SKILLS' ? '—' : `${match.score}%`
+  await waitForExpression(client, `document.querySelector('.jobs-coverage-summary strong')?.innerText === ${JSON.stringify(expectedScore)}`)
+  const expandedEvidence = await elementBox(client, "Boolean(document.querySelector('[data-testid=\"jobs-analysis\"] details[open]'))")
+  if (expandedEvidence) throw new Error('Matching evidence should be collapsed until requested')
+  for (const testId of ['jobs-match-evidence', 'jobs-match-suggestions']) {
+    const selector = `[data-testid="${testId}"]`
+    if (await elementBox(client, `Boolean(document.querySelector(${JSON.stringify(selector)}))`)) {
+      await setDetailsOpen(client, selector, true)
+      await setDetailsOpen(client, selector, false)
+    }
+  }
   await screenshot(client, '00b-match-history-restored.png')
 
-  await navigate(client, `${baseUrl}/student/jobs`)
+  await navigate(client, analysisUrl)
   await assertMatchSelection(client, resume.fileName, job.title)
   await clickSelector(client, '.match-next-actions button')
   await waitForExpression(client, "location.pathname === '/student/plan'")
   await waitForText(client, '已关联岗位匹配')
   await waitForText(client, `技能覆盖 ${match.score}%`)
 
-  await navigate(client, `${baseUrl}/student/jobs`)
+  await navigate(client, analysisUrl)
   await assertMatchSelection(client, resume.fileName, job.title)
   await clickSelector(client, '.match-next-actions .el-button--primary')
   await waitForExpression(client, "location.pathname === '/student/interview'")
   await assertInputValue(client, '.target-role-editor input', job.title)
   await screenshot(client, '00c-match-interview-context.png')
+}
+
+async function verifyJobsNavigation(client, fixture) {
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"jobs-list\"]'))")
+  await waitForExpression(client, "!document.querySelector('[data-testid=\"jobs-list\"] .el-loading-mask')")
+  await assertNoJobsPanelsExcept(client, 'jobs-list')
+  const initial = await elementBox(client, `(() => ({
+    cards: [...document.querySelectorAll('button.job-card[data-job-id]')].map((card) => ({
+      id: card.dataset.jobId, title: card.querySelector('strong')?.innerText,
+      compareLabel: card.querySelector('strong')?.innerText + ' · ' + card.querySelector('small')?.innerText.split(' · ')[0]
+    })),
+    redundantStats: Boolean(document.querySelector('.student-workspace .overview-grid')),
+    comparisonControls: Boolean(document.querySelector('[data-testid="jobs-compare-selection"]')),
+    matchResult: Boolean(document.querySelector('.match-result'))
+  }))()`)
+  if (initial.redundantStats || initial.comparisonControls || initial.matchResult || initial.cards.length > 12) {
+    throw new Error(`Jobs list is not limited to one navigational level: ${JSON.stringify(initial)}`)
+  }
+  for (const name of ['list', 'compare', 'history']) {
+    await waitForExpression(client, `Boolean(document.querySelector('[data-testid="jobs-nav-${name}"]'))`)
+  }
+
+  const firstJob = initial.cards[0]
+  if (firstJob) {
+    await fillInput(client, '[data-testid="jobs-search"]', firstJob.title)
+    await waitForExpression(client, `Boolean(document.querySelector('button.job-card[data-job-id="${firstJob.id}"]'))`)
+    await clickElementByData(client, 'button.job-card', 'jobId', firstJob.id)
+    await waitForExpression(client, `location.pathname === ${JSON.stringify(`/student/jobs/${encodeURIComponent(firstJob.id)}`)}`)
+    await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"jobs-detail\"]'))")
+    await assertNoJobsPanelsExcept(client, 'jobs-detail')
+    await clickSelector(client, '[data-testid="jobs-detail-match"]')
+    await waitForExpression(client, `location.pathname === ${JSON.stringify(`/student/jobs/${encodeURIComponent(firstJob.id)}/match`)}`)
+    await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"jobs-analysis\"]'))")
+    await assertNoJobsPanelsExcept(client, 'jobs-analysis')
+    const controls = await elementBox(client, `(() => ({
+      resume: Boolean(document.querySelector('[data-testid="jobs-analysis"] [aria-label="匹配简历"]')),
+      targetJob: Boolean(document.querySelector('[data-testid="jobs-analysis"] [aria-label="匹配岗位"]'))
+    }))()`)
+    if (!controls.resume || controls.targetJob) {
+      throw new Error(`Analysis should use the selected job and one resume selector: ${JSON.stringify(controls)}`)
+    }
+    await browserBack(client)
+    await waitForExpression(client, `location.pathname === ${JSON.stringify(`/student/jobs/${encodeURIComponent(firstJob.id)}`)}`)
+    await clickSelector(client, '[data-testid="jobs-back"]')
+    await waitForExpression(client, "location.pathname === '/student/jobs'")
+    await assertInputValue(client, '[data-testid="jobs-search"]', firstJob.title)
+    await client.send('Page.reload')
+    await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"jobs-list\"]'))")
+    await assertInputValue(client, '[data-testid="jobs-search"]', firstJob.title)
+    await fillInput(client, '[data-testid="jobs-search"]', '')
+  }
+
+  const nextPageAvailable = await elementBox(client, "Boolean(document.querySelector('[data-testid=\"jobs-pagination\"] .btn-next:not(:disabled)'))")
+  if (nextPageAvailable) {
+    await clickSelector(client, '[data-testid="jobs-pagination"] .btn-next')
+    const pageState = await elementBox(client, `(() => ({
+      page: document.querySelector('[data-testid="jobs-pagination"] .number.is-active')?.innerText,
+      firstJob: document.querySelector('button.job-card[data-job-id]')?.dataset.jobId,
+      count: document.querySelectorAll('button.job-card[data-job-id]').length
+    }))()`)
+    if (pageState.page !== '2' || !pageState.firstJob || pageState.count > 12) {
+      throw new Error(`Jobs page size or next-page navigation is incorrect: ${JSON.stringify(pageState)}`)
+    }
+    await clickSelector(client, 'button.job-card[data-job-id]')
+    await clickSelector(client, '[data-testid="jobs-back"]')
+    await waitForExpression(client, "location.pathname === '/student/jobs'")
+    await waitForExpression(client, "document.querySelector('[data-testid=\"jobs-pagination\"] .number.is-active')?.innerText === '2'")
+    await client.send('Page.reload')
+    await waitForExpression(client, `document.querySelector('button.job-card[data-job-id]')?.dataset.jobId === ${JSON.stringify(pageState.firstJob)}`)
+    await waitForExpression(client, "document.querySelector('[data-testid=\"jobs-pagination\"] .number.is-active')?.innerText === '2'")
+    await clickSelector(client, '[data-testid="jobs-pagination"] .btn-prev')
+    await waitForExpression(client, "document.querySelector('[data-testid=\"jobs-pagination\"] .number.is-active')?.innerText === '1'")
+  }
+
+  await clickSelector(client, '[data-testid="jobs-nav-compare"]')
+  await waitForExpression(client, "location.pathname === '/student/jobs/compare'")
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"jobs-compare\"]'))")
+  await assertNoJobsPanelsExcept(client, 'jobs-compare')
+  await verifyCompareBoundaries(client, initial.cards)
+  await clickSelector(client, '[data-testid="jobs-nav-history"]')
+  await waitForExpression(client, "location.pathname === '/student/jobs/history'")
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"jobs-history\"]'))")
+  await assertNoJobsPanelsExcept(client, 'jobs-history')
+  if (fixture?.matchId) {
+    await clickElementByData(client, 'button.match-record', 'matchId', fixture.matchId)
+    await waitForExpression(client, `new URLSearchParams(location.search).get('matchId') === ${JSON.stringify(fixture.matchId)}`)
+    await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"jobs-analysis\"] .match-result'))")
+    await browserBack(client)
+    await waitForExpression(client, "location.pathname === '/student/jobs/history'")
+  }
+
+  for (const suffix of ['', '/match']) {
+    await navigate(client, `${baseUrl}/student/jobs/__e2e_invalid_job__${suffix}`)
+    await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"jobs-unavailable\"]'))")
+    const enabledMatching = await elementBox(client, "Boolean(document.querySelector('[data-testid=\"jobs-run-match\"]:not(:disabled)'))")
+    if (enabledMatching) throw new Error('An unavailable job allows matching')
+  }
+  if (firstJob) {
+    await navigate(client, `${baseUrl}/student/jobs/${encodeURIComponent(firstJob.id)}/match?matchId=__e2e_invalid_match__`)
+    await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"jobs-unavailable\"]')) && !document.querySelector('.match-result')")
+  }
+  if (!demoMode) await verifyJobsFailureAndEmptyStates(client, firstJob)
+  await navigate(client, `${baseUrl}/student/jobs`)
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"jobs-list\"]'))")
+  await screenshot(client, '03a-jobs-list-navigation.png')
+}
+
+async function assertNoJobsPanelsExcept(client, expected) {
+  const panels = await elementBox(client, `(() => ['jobs-list', 'jobs-detail', 'jobs-analysis', 'jobs-compare', 'jobs-history']
+    .filter((name) => document.querySelector('[data-testid="' + name + '"]')?.getClientRects().length))()`)
+  if (panels.length !== 1 || panels[0] !== expected) {
+    throw new Error(`Jobs navigation rendered multiple levels; expected ${expected}: ${JSON.stringify(panels)}`)
+  }
+}
+
+async function verifyCompareBoundaries(client, jobs) {
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"jobs-compare-selection\"]'))")
+  await waitForExpression(client, "!document.querySelector('[data-testid=\"jobs-compare\"] .el-loading-mask')")
+  const runButton = '[data-testid="jobs-run-compare"]'
+  const zeroDisabled = await elementBox(client, `Boolean(document.querySelector(${JSON.stringify(runButton)})?.disabled)`)
+  if (!zeroDisabled) throw new Error('Comparison must be disabled with zero jobs')
+  if (jobs.length < 2) return
+
+  for (let index = 0; index < Math.min(4, jobs.length); index += 1) {
+    await clickSelector(client, '[data-testid="jobs-compare-selection"]')
+    const option = await elementBox(client, `(() => {
+      const item = [...document.querySelectorAll('.el-select-dropdown__item')]
+        .find((element) => element.getClientRects().length && !element.classList.contains('is-selected')
+          && element.innerText.trim() === ${JSON.stringify(jobs[index].compareLabel)});
+      return item ? { disabled: item.classList.contains('is-disabled'), selected: item.classList.contains('is-selected') } : null;
+    })()`)
+    if (!option) throw new Error(`Comparison option not available: ${jobs[index].title}`)
+    if (index === 3 && !option.disabled) throw new Error('The fourth comparison option must be disabled at the three-job limit')
+    if (!option.disabled) {
+      await clickElementContaining(client, '.el-select-dropdown__item:not(.is-selected)', jobs[index].compareLabel)
+    }
+    await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+    await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+    const state = await elementBox(client, `(() => ({
+      disabled: Boolean(document.querySelector(${JSON.stringify(runButton)})?.disabled),
+      count: document.querySelector('[data-testid="jobs-compare-selection"]')?.querySelectorAll('.el-tag').length || 0
+    }))()`)
+    const attempted = index + 1
+    if (state.count !== Math.min(attempted, 3)) {
+      throw new Error(`Comparison did not preserve the expected job count after ${attempted} choices: ${JSON.stringify(state)}`)
+    }
+    if (attempted <= 3 && state.disabled !== (attempted === 1)) {
+      throw new Error(`Comparison selection boundary failed for ${attempted} jobs: ${JSON.stringify(state)}`)
+    }
+  }
+}
+
+async function browserBack(client) {
+  const navigation = await client.send('Page.getNavigationHistory')
+  const previous = navigation.entries[navigation.currentIndex - 1]
+  if (!previous) throw new Error('No previous browser history entry exists')
+  await client.send('Page.navigateToHistoryEntry', { entryId: previous.id })
+  await sleep(600)
+}
+
+async function verifyJobsFailureAndEmptyStates(client, firstJob) {
+  await withApiOverrides(client, [{ path: '/api/jobs', data: [] }], async () => {
+    await navigate(client, `${baseUrl}/student/jobs`)
+    await assertText(client, ['暂无开放岗位'])
+    await waitForExpression(client, "document.querySelectorAll('button.job-card').length === 0")
+    await assertNoHorizontalOverflow(client)
+    await screenshot(client, '03b-jobs-empty.png')
+  })
+  await withApiOverrides(client, [{ path: '/api/jobs', code: 503, message: 'E2E jobs temporarily unavailable', times: 1 }], async () => {
+    await navigate(client, `${baseUrl}/student/jobs`)
+    await waitForExpression(client, "Boolean(document.querySelector('.jobs-load-error'))")
+    await clickSelector(client, '[data-testid="jobs-load-retry"]')
+    await waitForExpression(client, "!document.querySelector('.jobs-load-error') && !document.querySelector('[data-testid=\"jobs-list\"] .el-loading-mask')")
+    if (firstJob) await waitForExpression(client, "Boolean(document.querySelector('button.job-card'))")
+    await screenshot(client, '03c-jobs-load-recovered.png')
+  })
+  if (firstJob) {
+    await withApiOverrides(client, [{ path: '/api/resumes', data: [] }], async () => {
+      await navigate(client, `${baseUrl}/student/jobs/${encodeURIComponent(firstJob.id)}`)
+      await assertText(client, ['暂无可匹配的简历'])
+      await waitForExpression(client, "document.querySelector('[data-testid=\"jobs-detail-match\"]')?.disabled === true")
+      await clickSelector(client, '[data-testid="jobs-nav-compare"]')
+      await assertText(client, ['暂无可比较的简历'])
+      await waitForExpression(client, "document.querySelector('[data-testid=\"jobs-run-compare\"]')?.disabled === true")
+      await screenshot(client, '03d-jobs-no-resume.png')
+    })
+  }
+}
+
+async function withApiOverrides(client, overrides, action) {
+  const intercepted = new Map()
+  let interceptionError
+  const stopListening = client.on('Fetch.requestPaused', (params) => {
+    void (async () => {
+      try {
+        const apiPath = new URL(params.request.url).pathname
+        const rule = overrides.find((item) => item.path === apiPath
+          && (intercepted.get(item.path) || 0) < (item.times ?? Infinity))
+        if (!rule) {
+          await client.send('Fetch.continueRequest', { requestId: params.requestId })
+          return
+        }
+        intercepted.set(rule.path, (intercepted.get(rule.path) || 0) + 1)
+        await client.send('Fetch.fulfillRequest', {
+          requestId: params.requestId,
+          responseCode: rule.code || 200,
+          responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
+          body: Buffer.from(JSON.stringify({ code: rule.code || 0, message: rule.message || 'success', data: rule.data ?? null })).toString('base64')
+        })
+      } catch (error) {
+        interceptionError = error
+      }
+    })()
+  })
+  try {
+    await client.send('Fetch.enable', { patterns: overrides.map((rule) => ({ urlPattern: `*${rule.path}`, requestStage: 'Request' })) })
+    await action()
+    if (interceptionError) throw interceptionError
+    for (const rule of overrides) {
+      if (!intercepted.has(rule.path)) throw new Error(`Boundary response was not intercepted: ${rule.path}`)
+    }
+  } finally {
+    await client.send('Fetch.disable')
+    stopListening()
+  }
 }
 
 async function verifyTaskSaveFailureRetention(client, plan) {
@@ -669,7 +909,8 @@ async function loginAs(client, username, role, expectedPath, password = '123456'
 
 async function fillInput(client, selector, value) {
   const success = await elementBox(client, `(() => {
-    const input = document.querySelector(${JSON.stringify(selector)});
+    const root = document.querySelector(${JSON.stringify(selector)});
+    const input = root && /^(INPUT|TEXTAREA)$/.test(root.tagName) ? root : root?.querySelector('input, textarea');
     if (!input) return false;
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
     setter?.call(input, ${JSON.stringify(value)});
@@ -792,15 +1033,18 @@ async function selectElementPlusOption(client, selector, expectedText) {
 }
 
 async function assertMatchSelection(client, resumeFileName, jobTitle) {
-  await waitForExpression(client, `Boolean([...document.querySelectorAll('.match-launcher .el-select')]
+  await waitForExpression(client, `Boolean([...document.querySelectorAll('[data-testid="jobs-analysis"] .el-select')]
     .some((select) => select.innerText.includes(${JSON.stringify(resumeFileName)})))`)
-  await waitForExpression(client, `Boolean(document.querySelector('.job-card.selected')?.innerText.includes(${JSON.stringify(jobTitle)}))`)
+  await waitForExpression(client, `Boolean(document.querySelector('.jobs-breadcrumb')?.innerText.includes(${JSON.stringify(jobTitle)}))`)
   await waitForExpression(client, "Boolean(document.querySelector('.match-result'))")
 }
 
 async function assertInputValue(client, selector, expectedValue) {
   await waitForExpression(client, `Boolean([...document.querySelectorAll(${JSON.stringify(selector)})]
-    .some((input) => input.value === ${JSON.stringify(expectedValue)}))`)
+    .some((root) => {
+      const input = /^(INPUT|TEXTAREA)$/.test(root.tagName) ? root : root.querySelector('input, textarea');
+      return input?.value === ${JSON.stringify(expectedValue)};
+    }))`)
 }
 
 async function assertReadOnlyPersistedTask(client, feedback) {

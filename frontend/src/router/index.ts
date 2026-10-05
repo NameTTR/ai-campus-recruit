@@ -13,7 +13,12 @@ const router = createRouter({
     { path: '/login', component: LoginView },
     { path: '/student', redirect: '/student/resume' },
     { path: '/student/history', redirect: { path: '/student/interview', query: { tab: 'history' } } },
-    { path: '/student/:module(resume|jobs|plan|interview|knowledge)', component: StudentView },
+    { path: '/student/:module(jobs)/compare', component: StudentView, meta: { jobsPage: 'compare' } },
+    { path: '/student/:module(jobs)/history', component: StudentView, meta: { jobsPage: 'history' } },
+    { path: '/student/:module(jobs)/:jobId/match', component: StudentView, meta: { jobsPage: 'match' } },
+    { path: '/student/:module(jobs)/:jobId', component: StudentView, meta: { jobsPage: 'detail' } },
+    { path: '/student/:module(jobs)', component: StudentView, meta: { jobsPage: 'list' } },
+    { path: '/student/:module(resume|plan|interview|knowledge)', component: StudentView },
     { path: '/student/:pathMatch(.*)*', redirect: '/student/resume' },
     { path: '/company', redirect: '/company/jobs' },
     { path: '/company/:module(publish|jobs)', component: CompanyView },
@@ -22,7 +27,10 @@ const router = createRouter({
     { path: '/admin/:module(accounts|ai)', component: AdminView },
     { path: '/admin/:pathMatch(.*)*', redirect: { path: '/admin/ai', query: { tab: 'documents' } } },
     { path: '/:pathMatch(.*)*', redirect: '/login' }
-  ]
+  ],
+  scrollBehavior(to, from, savedPosition) {
+    if (to.meta.jobsPage || from.meta.jobsPage) return savedPosition || { top: 0 }
+  }
 })
 
 router.beforeEach((to) => {
