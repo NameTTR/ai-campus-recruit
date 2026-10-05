@@ -4156,6 +4156,7 @@ function fallbackKnowledgeAnswer(payload: KnowledgeAnswerRequest): KnowledgeAnsw
     citations,
     mocked: true,
     provider: 'local-rag-fallback',
+    permissionVersion: 'demo',
     generatedAt: new Date().toISOString()
   }
 }
@@ -4169,6 +4170,10 @@ export function answerKnowledgeBase(payload: KnowledgeAnswerRequest) {
     method: 'POST',
     body: JSON.stringify(body)
   }, fallbackKnowledgeAnswer(body))
+}
+
+export function getKnowledgeRevision() {
+  return strictRequest<string>('/api/ai/knowledge/revision', { method: 'GET' }, 'demo')
 }
 
 export function listKnowledgeDocuments(keyword = '', role: string = currentRole() || 'STUDENT', limit = 20) {

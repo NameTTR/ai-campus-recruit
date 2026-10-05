@@ -52,7 +52,7 @@ async function waitFor(expression, label, timeout = 30000) {
 async function click(selector, label) {
   const deadline = Date.now() + 15000
   while (Date.now() < deadline) {
-    const box = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e || !e.getClientRects().length || e.disabled) return null; e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`)
+    const box = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e || !e.getClientRects().length || e.disabled) return null; e.scrollIntoView({ block: 'nearest', behavior: 'instant' }); const r = e.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; const hit = document.elementFromPoint(x, y); return hit && (hit === e || e.contains(hit)) ? { x, y } : null })()`)
     if (box) {
       await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: box.x, y: box.y, button: 'left', clickCount: 1 })
       await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: box.x, y: box.y, button: 'left', clickCount: 1 })
@@ -69,7 +69,7 @@ async function fill(selector, value) {
 }
 const byId = id => `[data-testid="${id}"]`
 const inputById = id => `input${byId(id)}, textarea${byId(id)}, ${byId(id)} input, ${byId(id)} textarea`
-const canvasReady = `(() => { const c = document.querySelector('[data-resume-pdf-page="1"]'); const download = document.querySelector('[data-testid="resume-download-pdf"]'); if (!c || !c.getClientRects().length || c.width < 400 || c.height < 600 || !download || download.disabled || document.querySelector('.preview-notice') || document.querySelector('[data-testid="resume-update-preview"]').classList.contains('is-loading') || document.querySelector('[data-testid="resume-save-draft"]').classList.contains('is-loading')) return false; const a = c.getContext('2d').getImageData(0,0,c.width,c.height).data; let ink = 0; for (let i=0;i<a.length;i+=16) if(a[i]<230 || a[i+1]<230 || a[i+2]<230) ink++; return ink > 150 })()`
+const canvasReady = `(() => { const c = document.querySelector('[data-resume-pdf-page="1"]'); const download = document.querySelector('[data-testid="resume-download-pdf"]'); if (!c || !c.getClientRects().length || c.width < 400 || c.height < 600 || !download || download.disabled || document.querySelector('.preview-notice') || document.querySelector('[data-testid="resume-update-preview"]')?.classList.contains('is-loading') || document.querySelector('[data-testid="resume-save-draft"]')?.classList.contains('is-loading')) return false; const a = c.getContext('2d').getImageData(0,0,c.width,c.height).data; let ink = 0; for (let i=0;i<a.length;i+=16) if(a[i]<230 || a[i+1]<230 || a[i+2]<230) ink++; return ink > 150 })()`
 async function waitCanvas(label) {
   await waitFor(canvasReady, label, 180000)
   check(label, true)
@@ -153,7 +153,7 @@ async function checkTwoPagePreview(draft) {
     ] }))
   const latest = await api(`/api/resumes/drafts/${draft.id}`)
   await api(`/api/resumes/drafts/${draft.id}`, { method: 'PATCH', body: JSON.stringify({ expectedRevision: latest.revision, templateId: 'T08', data, confirm: true }) })
-  await navigate('/student/resume')
+  await navigate(`/student/resume?draftId=${encodeURIComponent(draft.id)}`)
   await waitCanvas('two-page exported PDF renders')
   await waitFor("document.querySelectorAll('[data-resume-pdf-page]').length === 2", 'two-page PDF fixture')
   await fitAndCheckViewer('two-page first page fits all four edges')
@@ -201,7 +201,9 @@ async function screenshot(name) {
 }
 async function navigate(route) {
   await client.send('Page.navigate', { url: `${baseUrl}${route}` })
-  await waitFor(`location.pathname === ${JSON.stringify(route)} && document.readyState === 'complete'`, route)
+  const target = new URL(route, baseUrl)
+  const expectedParams = [...target.searchParams.entries()]
+  await waitFor(`location.pathname === ${JSON.stringify(target.pathname)} && ${JSON.stringify(expectedParams)}.every(([key, value]) => new URLSearchParams(location.search).get(key) === value) && document.readyState === 'complete'`, route)
 }
 async function startBrowser() {
   const browserPath = process.env.E2E_BROWSER || [
@@ -283,10 +285,16 @@ async function main() {
     await waitFor("location.pathname === '/student/resume' && Boolean(document.querySelector('.resume-builder'))", 'resume workspace')
     await waitFor("!document.querySelector('.resume-builder .el-loading-mask')", 'resume workspace loading')
     check('resume workspace loaded', true)
-    await click(byId('resume-step-profile'), 'start a fresh profile flow')
+    await click(byId('resume-nav-profile'), 'start a fresh profile flow')
     await fill(inputById('resume-name'), '陈浏览测试')
     await fill(inputById('resume-phone'), '13800000001')
     await fill(inputById('resume-email'), 'browser@example.test')
+    await click(byId('resume-nav-history'), 'leave unfinished master profile')
+    await click(byId('resume-nav-profile'), 'return to unfinished master profile')
+    check('master profile survives subpage navigation', await evaluate(`document.querySelector(${JSON.stringify(inputById('resume-name'))})?.value === '陈浏览测试'`))
+    await navigate('/student/resume/profile')
+    await waitFor(`document.querySelector(${JSON.stringify(inputById('resume-name'))})?.value === '陈浏览测试'`, 'unfinished master profile after refresh')
+    check('master profile survives refresh before saving', true)
     await click(byId('resume-add-education'), 'add education')
     await fill(inputById('resume-school-0'), '合成测试大学')
     await click(byId('resume-profile-experience'), 'experience section')
@@ -312,7 +320,7 @@ async function main() {
     await screenshot('01-template-selected.png')
     await click(byId('resume-generate'), 'generate actual resume')
     await waitCanvas('generated PDF preview contains rendered pixels')
-    check('result stage only is visible', await evaluate(`document.querySelector(${JSON.stringify(byId('resume-result'))}).getClientRects().length > 0 && !document.querySelector(${JSON.stringify(byId('resume-profile-form'))}).getClientRects().length && !document.querySelector(${JSON.stringify(byId('resume-template-form'))}).getClientRects().length`))
+    check('result stage only is visible', await evaluate(`document.querySelector(${JSON.stringify(byId('resume-result'))})?.getClientRects().length > 0 && !document.querySelector(${JSON.stringify(byId('resume-profile-form'))})?.getClientRects().length && !document.querySelector(${JSON.stringify(byId('resume-template-form'))})?.getClientRects().length`))
     check('preview uses canvas rather than external iframe', await evaluate("!document.querySelector('.resume-builder iframe')"))
     await fitAndCheckViewer('desktop whole-page preview fits all four edges')
     await checkZoomAndPan('desktop zoom reaches right and bottom edges')
@@ -323,8 +331,17 @@ async function main() {
     await screenshot('laptop-whole-page.png')
     await client.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 980, deviceScaleFactor: 1, mobile: false })
     await screenshot('02-generated-preview-desktop.png')
+    await click(byId('resume-open-edit'), 'open separate content editor')
+    await waitFor("location.pathname === '/student/resume/edit'", 'content editor route')
     await fill(inputById('resume-entry-title-0-0'), '教育背景核对')
-    await waitFor(`document.querySelector(${JSON.stringify(byId('resume-download-pdf'))})?.disabled`, 'stale download disabled')
+    const editRoute = await evaluate('location.pathname + location.search')
+    await click(byId('resume-nav-profile'), 'leave unsaved content editor')
+    await navigate(editRoute)
+    await waitFor(`document.querySelector(${JSON.stringify(inputById('resume-entry-title-0-0'))})?.value === '教育背景核对'`, 'unsaved content retained on deep-link reload')
+    check('unsaved draft survives subpage navigation and refresh', true)
+    await click(byId('resume-back-preview'), 'return with unsaved edit')
+    await waitFor("location.pathname === '/student/resume'", 'return to preview route with unsaved edit')
+    await waitFor(`(() => { const button = document.querySelector(${JSON.stringify(byId('resume-download-pdf'))}); return !button || button.disabled })()`, 'stale download disabled')
     check('old downloads disabled after editing', true)
     await click(byId('resume-update-preview'), 'save and refresh preview')
     await waitCanvas('edited resume PDF preview refreshed')
@@ -338,9 +355,11 @@ async function main() {
     await download('pdf', 'resume-download-pdf')
     if (process.env.E2E_ALL_TEMPLATES === '1') {
       for (const [templateId, title] of [['T01', '通用简洁'], ['T02', '应届生实践'], ['T03', '技术条纹'], ['T04', '前端项目'], ['T05', 'Java 项目'], ['T06', '运营双栏'], ['T07', '浅蓝详版'], ['T08', '橙色详版']]) {
+        await click(byId('resume-open-edit'), 'open template editor')
         await click(byId('resume-draft-template'), 'switch template ' + templateId)
         await waitFor(`[...document.querySelectorAll('.el-select-dropdown__item')].some(e => e.getClientRects().length && e.textContent.includes(${JSON.stringify(title)}))`, 'template option')
         await evaluate(`(() => { [...document.querySelectorAll('.el-select-dropdown__item')].find(e => e.getClientRects().length && e.textContent.includes(${JSON.stringify(title)})).click() })()`)
+        await click(byId('resume-back-preview'), 'return to final preview')
         await click(byId('resume-update-preview'), 'refresh ' + templateId)
         await waitCanvas(templateId + ' actual PDF canvas renders')
         await waitFor(`document.querySelector('[data-testid="resume-pdf-preview"]')?.dataset.templateId === ${JSON.stringify(templateId)}`, 'current template PDF')
@@ -351,7 +370,10 @@ async function main() {
     }
     await navigate('/student/resume')
     await waitCanvas('saved draft automatically previews after page reload')
+    await click(byId('resume-open-edit'), 'inspect saved content after reload')
     check('saved edit remains after reload', await evaluate(`document.querySelector(${JSON.stringify(inputById('resume-entry-title-0-0'))})?.value === '教育背景核对'`))
+    await click(byId('resume-back-preview'), 'return to preview')
+    await waitCanvas('preview remains available after editor navigation')
     await client.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
     await waitCanvas('mobile preview is visible and nonblank')
     await waitFor("document.querySelector('.side-nav').getBoundingClientRect().right <= 1", 'mobile navigation transition completed')
@@ -364,10 +386,12 @@ async function main() {
     await fitAndCheckViewer('small mobile whole page fits screen and viewer')
     await screenshot('small-mobile-whole-page.png')
     await client.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 980, deviceScaleFactor: 1, mobile: false })
+    await click(byId('resume-open-diagnosis'), 'open separate diagnosis page')
+    await waitFor("location.pathname === '/student/resume/diagnosis'", 'diagnosis page route')
     await click(byId('resume-diagnose'), 'diagnose actual draft')
     await waitFor(`document.querySelector(${JSON.stringify(byId('resume-diagnose'))})?.classList.contains('is-loading') === false`, 'diagnosis complete', 180000)
     check('diagnosis retains saved input', (await api(`/api/resumes/drafts/${draft.id}`)).data.blocks.some(block => block.entries.some(entry => entry.title === '教育背景核对')))
-    await click(byId('resume-step-profile'), 'return to source profile')
+    await click(byId('resume-nav-profile'), 'return to source profile')
     await click(byId('resume-profile-basics'), 'basic source fields')
     await click('.import-panel > summary', 'open import')
     const documentNode = await client.send('DOM.getDocument')

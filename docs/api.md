@@ -594,6 +594,7 @@ Gateway 验证 Bearer Token 后清理外部身份头，再注入 `X-User-Id` 和
 - `KnowledgeAnswerResponse` 新增 `generationMode`、`evidenceStatus`、`claims`、`inputFingerprint` 和 `metadata`。AI 回答必须返回可核对的结构化事实；无法核对时保留检索摘要并标记 `INSUFFICIENT`。
 - 知识片段被当作数据传入模型，片段中的系统指令、角色要求或命令不会改变问答系统提示。
 - 候选检索、模型上下文和缓存都执行角色权限检查。文档删除、角色变更、正文变化或权限版本变化会清理相关缓存。
+- `GET /api/ai/knowledge/revision`：供已认证用户只读核对知识资料和访问权限的当前版本，返回 `ApiResponse<String>`；版本值与检索响应中的 `permissionVersion` 一致。资料新增、删除、正文更新或角色权限变更时版本改变；资料未变化时保持稳定。该接口只计算资料指纹，不返回资料内容，不执行检索、向量化、重排或模型调用。浏览器恢复历史结果前应核对此版本，版本不同则清除旧回答与引用，提示重新检索。
 
 ### RAG 索引管理
 

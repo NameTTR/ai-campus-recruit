@@ -378,6 +378,12 @@ public class AiController {
         return ApiResponse.ok(knowledgeBaseService.list(keyword, resolveKnowledgeRole(role, userRole), limit));
     }
 
+    @Operation(summary = "Read knowledge content and permission revision without retrieval or model calls")
+    @GetMapping("/knowledge/revision")
+    public ApiResponse<String> knowledgeRevision() {
+        return ApiResponse.ok(knowledgeBaseService.permissionVersion());
+    }
+
     @Operation(summary = "Get RAG knowledge base statistics")
     @GetMapping("/knowledge/stats")
     public ApiResponse<KnowledgeBaseStats> knowledgeStats() {

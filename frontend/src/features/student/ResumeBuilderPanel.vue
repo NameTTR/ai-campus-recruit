@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronUp, Download, History, Plus, RefreshCw, Save, SearchCheck, Undo2 } from 'lucide-vue-next'
+import { useRoute, useRouter } from 'vue-router'
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronUp, Download, History, PencilLine, Plus, RefreshCw, Save, SearchCheck, Undo2 } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElCheckbox } from 'element-plus/es/components/checkbox/index'
 import { ElDatePicker } from 'element-plus/es/components/date-picker/index'
@@ -8,7 +9,7 @@ import { ElConfigProvider } from 'element-plus/es/components/config-provider/ind
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import {
   applyResumeSuggestion, createResumeDraft, createResumeExport, diagnoseResumeDraft,
-  getMasterResumeProfile, getResumeDraft, getResumeExport, getResumeExportFile, importResumeProfile,
+  getAuthSession, getMasterResumeProfile, getResumeDraft, getResumeExport, getResumeExportFile, importResumeProfile,
   listJobs, listLearningPlans, listResumeDraftRevisions, listResumeDrafts,
   listResumes, listResumeTemplates, restoreResumeDraft, saveMasterResumeProfile,
   updateResumeDraft, uploadResume, uploadResumePhoto,
@@ -27,11 +28,15 @@ import ResumePdfPreview from './ResumePdfPreview.vue'
 
 const props = defineProps<{ targetRole?: string; resumeId?: string }>()
 const emit = defineEmits<{ confirmed: [resumeId: string] }>()
-const step = ref<'profile' | 'template' | 'resume'>('profile')
+const route = useRoute()
+const router = useRouter()
+type ResumePage = 'editor' | 'profile' | 'templates' | 'edit' | 'diagnosis' | 'versions' | 'history'
+const resumePage = computed(() => (route.meta.resumePage as ResumePage | undefined) || 'editor')
+const step = computed(() => resumePage.value === 'profile' ? 'profile' : resumePage.value === 'templates' ? 'template' : 'resume')
+const subpageLabel = computed(() => ({ editor: '我的简历', profile: '主资料', templates: '新建简历', edit: '编辑内容', diagnosis: '诊断建议', versions: '修订历史', history: '上传记录' })[resumePage.value])
 const profileSection = ref<'basics' | 'experience' | 'optional'>('basics')
 const workspaceElement = ref<HTMLElement>()
 const previewPaneElement = ref<HTMLElement>()
-const diagnosisOpen = ref(false)
 const previewError = ref('')
 const profile = ref<ResumeMasterProfile>()
 const profileInput = ref<ResumeWorkspaceProfileData>(copyResumeProfile())
@@ -48,9 +53,12 @@ const draftInputBackups = ref<Record<string, ResumeDraft>>({})
 const savedFingerprints = ref<Record<string, string>>({})
 const selectedDraftId = ref('')
 const selectedDraft = computed(() => localDrafts.value[selectedDraftId.value])
+const previewDraft = computed(() => drafts.value.find(item => item.id === selectedDraftId.value) || selectedDraft.value)
 const draftDirty = computed(() => Boolean(selectedDraft.value && resumeDraftFingerprint(selectedDraft.value) !== savedFingerprints.value[selectedDraft.value.id]))
 const profileDirty = computed(() => JSON.stringify(profileInput.value) !== JSON.stringify(copyResumeProfile(profile.value?.data)))
 const loading = ref(false)
+const loadError = ref('')
+const loaded = ref(false)
 const profileSaving = ref(false)
 const draftSaving = ref(false)
 const generating = ref(false)
@@ -68,7 +76,6 @@ const customTargetRole = ref(props.targetRole?.trim() || '')
 const chosenJob = computed(() => jobs.value.find(job => job.jobId === targetJobId.value))
 const targetRole = computed(() => chosenJob.value?.title || customTargetRole.value.trim() || '通用岗位')
 const revisions = ref<ResumeDraftRevision[]>([])
-const historyOpen = ref(false)
 const previewRevision = ref<ResumeDraftRevision>()
 const draftConflict = ref<ResumeDraft>()
 const conflictOpen = ref(false)
@@ -88,21 +95,75 @@ let exportRequest = 0
 let workspaceRequest = 0
 let historyRequest = 0
 let photoObjectUrl = ''
+const storageKey = `aicampus.resume-workspace.${getAuthSession()?.userId || 'student'}`
+let restoringWorkspace = false
 const generatedSource = computed(() => !selectedDraft.value?.data.generationSource?.startsWith('AI_DASHSCOPE') ? '根据已确认资料整理（基础模式）' : 'AI 整理，事实来源可核对')
 const availableSuggestions = computed(() => selectedDraft.value?.data.suggestions.filter(item => item.status !== 'APPLIED') || [])
 const displaySuggestions = computed(() => expandedSuggestions.value ? selectedDraft.value?.data.suggestions || [] : availableSuggestions.value.slice(0, 3))
 const profileSummary = computed(() => [profileInput.value.basics.name || '未填写姓名', `${profileInput.value.education.length} 段教育`, `${profileInput.value.experiences.length} 段经历`].join(' · '))
 const hasDraftContent = computed(() => Boolean(selectedDraft.value?.data.blocks.some(block => block.visible && block.entries.some(entry => entry.visible && (entry.title.trim() || entry.bullets.some(line => line.trim()))))))
+const invalidDraft = computed(() => loaded.value && Boolean(selectedDraftId.value) && !drafts.value.some(item => item.id === selectedDraftId.value))
 
 async function goToStep(value: 'profile' | 'template' | 'resume') {
-  step.value = value
+  await goToPage(value === 'template' ? 'templates' : value === 'resume' ? 'editor' : 'profile')
+}
+async function goToPage(value: ResumePage) {
+  const path = value === 'editor' ? '/student/resume' : `/student/resume/${value}`
+  await router.push({ path, query: { ...route.query, draftId: selectedDraftId.value || undefined } })
   await nextTick()
-  const target = value === 'resume' ? previewPaneElement.value || workspaceElement.value : workspaceElement.value
+  const target = value === 'editor' ? previewPaneElement.value || workspaceElement.value : workspaceElement.value
   target?.scrollIntoView({ block: 'start', behavior: 'smooth' })
 }
 async function continueFromProfile() {
+  const requestPath = route.fullPath
   if ((!profile.value?.revision || profileDirty.value) && !await saveProfile(false)) return
-  await goToStep('template')
+  if (route.fullPath === requestPath) await goToStep('template')
+}
+function changeSelectedDraft(value: string) {
+  selectedDraftId.value = value
+  void router.replace({ path: route.path, query: { ...route.query, draftId: value || undefined } })
+}
+function openSavedDrafts() {
+  selectedDraftId.value = ''
+  void router.push({ path: '/student/resume', query: { ...route.query, draftId: undefined } })
+}
+function persistWorkspace() {
+  if (!loaded.value || restoringWorkspace) return
+  const unsavedDrafts = Object.fromEntries(Object.entries(localDrafts.value).filter(([id, draft]) => resumeDraftFingerprint(draft) !== savedFingerprints.value[id]))
+  try {
+    sessionStorage.setItem(storageKey, JSON.stringify({
+      profileInput: profileDirty.value ? profileInput.value : undefined,
+      profileBase: profileDirty.value ? profile.value : undefined,
+      profileSourceResumeId: profileSourceResumeId.value,
+      drafts: unsavedDrafts, selectedDraftId: selectedDraftId.value,
+      templateId: generationTemplateId.value, jobId: targetJobId.value, targetRole: customTargetRole.value,
+      profileSection: profileSection.value
+    }))
+  } catch { /* Keep editing available when browser storage is full or disabled. */ }
+}
+function restoreWorkspace() {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(storageKey) || '{}') as {
+      profileInput?: ResumeWorkspaceProfileData; profileBase?: ResumeMasterProfile; profileSourceResumeId?: string;
+      drafts?: Record<string, ResumeDraft>; selectedDraftId?: string; templateId?: string; jobId?: string; targetRole?: string;
+      profileSection?: 'basics' | 'experience' | 'optional'
+    }
+    if (stored.profileInput && stored.profileBase) {
+      if (stored.profileBase.revision !== profile.value?.revision) profileConflict.value = profile.value
+      profile.value = stored.profileBase
+      profileInput.value = copyResumeProfile(stored.profileInput)
+      profileSourceResumeId.value = stored.profileSourceResumeId
+    }
+    for (const [id, draft] of Object.entries(stored.drafts || {})) {
+      const saved = drafts.value.find(item => item.id === id)
+      if (draft.id === id && saved) localDrafts.value[id] = { ...cloneDraft(draft), sourceStale: saved.sourceStale }
+    }
+    if (stored.templateId && templates.value.some(item => item.id === stored.templateId)) generationTemplateId.value = stored.templateId
+    if (stored.jobId && jobs.value.some(item => item.jobId === stored.jobId)) targetJobId.value = stored.jobId
+    if (stored.targetRole !== undefined) customTargetRole.value = stored.targetRole
+    if (stored.profileSection && ['basics', 'experience', 'optional'].includes(stored.profileSection)) profileSection.value = stored.profileSection
+    return stored.selectedDraftId
+  } catch { return undefined }
 }
 
 function cloneDraft(draft: ResumeDraft): ResumeDraft { return JSON.parse(JSON.stringify(draft)) as ResumeDraft }
@@ -118,24 +179,38 @@ function humanIssue(value: string) {
   if (/photo/i.test(value)) return '照片暂时无法排版，请重新上传 JPG / PNG 后重试。'
   return /[\u4e00-\u9fff]/.test(value) ? value : '请检查正文排版并调整后重试。'
 }
-function updateDraftRecord(updated: ResumeDraft) {
+function updateDraftRecord(updated: ResumeDraft, preserveEdits = false) {
+  const local = localDrafts.value[updated.id]
+  const pendingInput = preserveEdits && local && resumeDraftFingerprint(local) !== savedFingerprints.value[updated.id] ? cloneDraft(local) : undefined
   drafts.value = [updated, ...drafts.value.filter(item => item.id !== updated.id)]
   localDrafts.value[updated.id] = cloneDraft(updated)
   savedFingerprints.value[updated.id] = resumeDraftFingerprint(updated)
-  if (updated.resumeId && updated.confirmed) emit('confirmed', updated.resumeId)
+  if (pendingInput) {
+    pendingInput.revision = updated.revision
+    pendingInput.sourceStale = updated.sourceStale
+    pendingInput.confirmed = false
+    pendingInput.data.suggestions = updated.data.suggestions
+    localDrafts.value[updated.id] = pendingInput
+  }
+  if (updated.resumeId && updated.confirmed && updated.id === selectedDraftId.value && route.params.module === 'resume') emit('confirmed', updated.resumeId)
 }
 async function load() {
   const request = ++workspaceRequest
   loading.value = true
+  loadError.value = ''
   try {
     const [master, templateItems, draftItems, jobItems, resumeItems] = await Promise.all([
       getMasterResumeProfile(), listResumeTemplates(), listResumeDrafts(), listJobs(), listResumes()
     ])
     if (request !== workspaceRequest || disposed.value) return
-    profile.value = master
-    profileInput.value = copyResumeProfile(master.data)
-    profileSourceResumeId.value = master.sourceResumeId
-    profileConfirmed.value = false
+    const preserveProfile = loaded.value && profileDirty.value
+    restoringWorkspace = true
+    if (!preserveProfile) {
+      profile.value = master
+      profileInput.value = copyResumeProfile(master.data)
+      profileSourceResumeId.value = master.sourceResumeId
+      profileConfirmed.value = false
+    } else if (profile.value?.revision !== master.revision) profileConflict.value = master
     templates.value = templateItems
     jobs.value = jobItems.filter(job => !job.status || ['OPEN', 'ACTIVE', 'PUBLISHED'].includes(job.status))
     availableResumes.value = resumeItems
@@ -146,10 +221,20 @@ async function load() {
       savedFingerprints.value[draft.id] = resumeDraftFingerprint(draft)
     }
     if (!templates.value.some(item => item.id === generationTemplateId.value)) generationTemplateId.value = templateItems[0]?.id || ''
-    if (!selectedDraftId.value) selectedDraftId.value = draftItems[0]?.id || ''
-    if (selectedDraftId.value) step.value = 'resume'
+    const storedDraftId = loaded.value ? selectedDraftId.value : restoreWorkspace()
+    const requestedDraftId = typeof route.query.draftId === 'string' ? route.query.draftId : ''
+    selectedDraftId.value = requestedDraftId || (draftItems.some(item => item.id === storedDraftId) ? storedDraftId! : draftItems[0]?.id || '')
+    loaded.value = true
+    restoringWorkspace = false
+    if (selectedDraftId.value && !requestedDraftId) void router.replace({ path: route.path, query: { ...route.query, draftId: selectedDraftId.value } })
     if (!importId.value) importId.value = props.resumeId || resumeItems[0]?.resumeId || ''
-  } catch (error) { showError(error, '简历工作区加载失败，请稍后重试。') }
+    if (resumePage.value === 'versions') void readHistory()
+    if (resumePage.value === 'editor') void autoPreview()
+  } catch (error) {
+    restoringWorkspace = false
+    loadError.value = resumeWorkspaceMessage(error, '简历工作区加载失败，请稍后重试。')
+    showError(error, loadError.value)
+  }
   finally { if (request === workspaceRequest) loading.value = false }
 }
 function addEducation() {
@@ -263,15 +348,19 @@ function removePhoto() {
 }
 async function generate() {
   if (!generationTemplateId.value) { ElMessage.warning('请选择模板。'); return }
+  const requestPath = route.fullPath
   if (!profile.value?.revision || profileDirty.value) {
     if (!await saveProfile(false)) return
   }
+  if (route.fullPath !== requestPath || disposed.value) return
   generating.value = true
   try {
     const draft = await createResumeDraft({ templateId: generationTemplateId.value, targetRole: targetRole.value, jobId: targetJobId.value || undefined, profileRevision: profile.value?.revision, resumeId: props.resumeId })
     updateDraftRecord(draft)
+    if (disposed.value || route.fullPath !== requestPath) return
     selectedDraftId.value = draft.id
     await goToStep('resume')
+    if (draft.resumeId && draft.confirmed) emit('confirmed', draft.resumeId)
     ElMessage.success('简历已生成，正在准备预览。')
     if (selectedDraftId.value === draft.id && exportDraftId.value !== draft.id) void autoPreview()
   } catch (error) { showError(error, '草稿生成失败，已保存资料仍然保留。') }
@@ -284,13 +373,13 @@ async function readHistory() {
   historyLoading.value = true
   try {
     const result = await listResumeDraftRevisions(id)
-    if (request === historyRequest && selectedDraftId.value === id) revisions.value = [...result].sort((a, b) => b.revision - a.revision)
+    if (request === historyRequest && selectedDraftId.value === id && !disposed.value) revisions.value = [...result].sort((a, b) => b.revision - a.revision)
   } catch (error) { showError(error, '历史版本加载失败，请重试。') }
   finally { if (request === historyRequest) historyLoading.value = false }
 }
 async function saveDraft(announce = true): Promise<ResumeDraft | undefined> {
   const draft = selectedDraft.value
-  if (!draft) return
+  if (!draft || draftSaving.value) return
   if (!draftDirty.value && draft.confirmed) return draft
   draftSaving.value = true
   try {
@@ -305,26 +394,29 @@ async function saveDraft(announce = true): Promise<ResumeDraft | undefined> {
       localDrafts.value[updated.id] = editsWhileSaving
     }
     draftConflict.value = undefined
-    if (historyOpen.value) await readHistory()
+    if (resumePage.value === 'versions' && selectedDraftId.value === updated.id) await readHistory()
     if (announce) ElMessage.success('当前草稿已确认保存，可用于诊断、匹配与导出。')
     return updated
   } catch (error) {
     if (isResumeRevisionConflict(error)) {
-      try { draftConflict.value = await getResumeDraft(draft.id); conflictOpen.value = true } catch { /* Retain unsaved edits if refreshing fails. */ }
+      try {
+        const latest = await getResumeDraft(draft.id)
+        if (selectedDraftId.value === draft.id && !disposed.value) { draftConflict.value = latest; conflictOpen.value = true }
+      } catch { /* Retain unsaved edits if refreshing fails. */ }
     }
     showError(error, '草稿保存失败，编辑内容已保留。')
     return undefined
   } finally { draftSaving.value = false }
 }
 function useServerDraft() {
-  if (!draftConflict.value) return
+  if (!draftConflict.value || draftConflict.value.id !== selectedDraftId.value) return
   if (selectedDraft.value) draftInputBackups.value[selectedDraft.value.id] = cloneDraft(selectedDraft.value)
   updateDraftRecord(draftConflict.value)
   conflictOpen.value = false
   draftConflict.value = undefined
 }
 function keepLocalDraft() {
-  if (!draftConflict.value || !selectedDraft.value) return
+  if (!draftConflict.value || !selectedDraft.value || draftConflict.value.id !== selectedDraftId.value) return
   selectedDraft.value.revision = draftConflict.value.revision
   savedFingerprints.value[selectedDraft.value.id] = resumeDraftFingerprint(draftConflict.value)
   drafts.value = drafts.value.map(item => item.id === draftConflict.value?.id ? draftConflict.value! : item)
@@ -346,14 +438,17 @@ function restoreLocalProfileInput() {
   profileConfirmed.value = false
 }
 async function diagnose() {
+  if (diagnosing.value) return
+  const id = selectedDraftId.value
   const saved = await saveDraft(false)
-  if (!saved) return
+  if (!saved || selectedDraftId.value !== id || disposed.value) return
   diagnosing.value = true
   try {
-    updateDraftRecord(await diagnoseResumeDraft(saved.id))
-    diagnosisOpen.value = true
-    expandedSuggestions.value = false
-    await readHistory()
+    updateDraftRecord(await diagnoseResumeDraft(saved.id), true)
+    if (selectedDraftId.value === saved.id) {
+      expandedSuggestions.value = false
+      if (resumePage.value === 'versions') await readHistory()
+    }
     ElMessage.success('诊断已完成，优先查看最值得修改的三项。')
   } catch (error) { showError(error, '诊断失败，已保存草稿仍然保留，可重试。') }
   finally { diagnosing.value = false }
@@ -363,11 +458,11 @@ async function applySuggestion(item: ResumeDraftSuggestion) {
   if (!draft || item.status === 'APPLIED') return
   if (!suggestionMatchesDraft(draft.data, item)) { ElMessage.warning('这条建议对应的原文已变化，请先重新诊断。'); return }
   const saved = await saveDraft(false)
-  if (!saved) return
+  if (!saved || selectedDraftId.value !== draft.id || disposed.value) return
   draftSaving.value = true
   try {
-    updateDraftRecord(await applyResumeSuggestion(saved.id, { expectedRevision: saved.revision, suggestionId: item.id }))
-    await readHistory()
+    updateDraftRecord(await applyResumeSuggestion(saved.id, { expectedRevision: saved.revision, suggestionId: item.id }), true)
+    if (resumePage.value === 'versions' && selectedDraftId.value === saved.id) await readHistory()
     ElMessage.success('建议已采纳，历史中保留了修改前的版本。')
   } catch (error) { showError(error, '建议采纳失败，请重新诊断后重试。') }
   finally { draftSaving.value = false }
@@ -375,16 +470,20 @@ async function applySuggestion(item: ResumeDraftSuggestion) {
 async function restoreRevision(revision: number) {
   let draft = selectedDraft.value
   if (!draft) return
+  const id = draft.id
   if (draftDirty.value) {
     const saved = await saveDraft(false)
     if (!saved) return
     draft = saved
   }
+  if (selectedDraftId.value !== id || disposed.value) return
   draftSaving.value = true
   try {
-    updateDraftRecord(await restoreResumeDraft(draft.id, { expectedRevision: draft.revision, revision }))
-    previewRevision.value = undefined
-    await readHistory()
+    updateDraftRecord(await restoreResumeDraft(draft.id, { expectedRevision: draft.revision, revision }), true)
+    if (selectedDraftId.value === id) {
+      previewRevision.value = undefined
+      if (resumePage.value === 'versions') await readHistory()
+    }
     ElMessage.success('历史内容已恢复为新版本，原有历史仍可查看。')
   } catch (error) { showError(error, '恢复失败，当前编辑内容已保留。') }
   finally { draftSaving.value = false }
@@ -439,8 +538,8 @@ async function exportDraft() {
   await requestDraftExport(saved)
 }
 async function autoPreview() {
-  const draft = selectedDraft.value
-  if (!draft || draftDirty.value || !hasDraftContent.value || exportLoading.value) return
+  const draft = previewDraft.value
+  if (resumePage.value !== 'editor' || !draft || !hasDraftContent.value || exportLoading.value) return
   if (!resumeDraftCanAutoPreview(draft)) return
   await requestDraftExport(draft)
 }
@@ -519,15 +618,28 @@ watch(selectedDraftId, async id => {
   previewRevision.value = undefined
   draftConflict.value = undefined
   expandedSuggestions.value = false
-  diagnosisOpen.value = false
-  if (historyOpen.value && id) await readHistory()
+  historyRequest++
+  const saved = drafts.value.find(item => item.id === id)
+  if (saved?.confirmed && saved.resumeId && route.params.module === 'resume') emit('confirmed', saved.resumeId)
+  if (resumePage.value === 'versions' && id) await readHistory()
   await nextTick()
-  if (id && id === selectedDraftId.value) void autoPreview()
+  if (loaded.value && id && id === selectedDraftId.value) void autoPreview()
 })
+watch(() => route.query.draftId, value => {
+  if (!loaded.value) return
+  if (typeof value === 'string' && value) selectedDraftId.value = value
+  else if (!selectedDraftId.value) selectedDraftId.value = drafts.value[0]?.id || ''
+})
+watch(resumePage, value => {
+  if (value === 'versions' && loaded.value) void readHistory()
+  if (value === 'editor' && loaded.value && !exportUrls.value.pdf) void autoPreview()
+})
+watch([profileInput, localDrafts, selectedDraftId, generationTemplateId, targetJobId, customTargetRole, profileSection, profile], persistWorkspace, { deep: true })
 watch(() => props.resumeId, value => { if (value) importId.value = value })
 watch(() => props.targetRole, value => { if (!targetJobId.value && value?.trim()) customTargetRole.value = value.trim() })
 onMounted(load)
 onBeforeUnmount(() => {
+  persistWorkspace()
   disposed.value = true
   exportRequest++
   workspaceRequest++
@@ -537,19 +649,15 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <el-config-provider :locale="zhCn">
-  <section ref="workspaceElement" class="panel resume-builder" data-testid="resume-workspace" v-loading="loading">
-    <div class="workflow-toolbar">
-      <nav class="workflow-steps" aria-label="简历制作步骤">
-      <button type="button" data-testid="resume-step-profile" :class="{ active: step === 'profile' }" :aria-current="step === 'profile' ? 'step' : undefined" @click="goToStep('profile')"><span>1</span>填写资料</button>
-      <ArrowRight :size="15" class="step-arrow" />
-      <button type="button" data-testid="resume-step-template" :class="{ active: step === 'template' }" :aria-current="step === 'template' ? 'step' : undefined" @click="goToStep('template')"><span>2</span>岗位与模板</button>
-      <ArrowRight :size="15" class="step-arrow" />
-      <button type="button" data-testid="resume-step-result" :class="{ active: step === 'resume' }" :disabled="!drafts.length" :aria-current="step === 'resume' ? 'step' : undefined" @click="goToStep('resume')"><span>3</span>编辑与下载</button>
-      </nav>
-      <el-button v-if="!profileDirty && !draftDirty" class="workspace-refresh" circle :loading="loading" title="刷新" aria-label="刷新工作区" @click="load"><RefreshCw :size="16" /></el-button>
+  <section v-show="resumePage !== 'history'" ref="workspaceElement" class="panel resume-builder" data-testid="resume-workspace" v-loading="loading">
+    <div v-if="resumePage !== 'editor' || loadError" class="resume-page-toolbar" data-testid="resume-subpage-nav">
+      <el-button v-if="resumePage !== 'editor'" data-testid="resume-back-preview" text @click="goToPage('editor')"><ArrowLeft :size="16" />我的简历</el-button>
+      <span v-if="resumePage !== 'editor'" class="subpage-label">{{ subpageLabel }}</span>
+      <el-tooltip content="刷新工作区"><el-button v-if="!profileDirty && !draftDirty" class="workspace-refresh" circle :loading="loading" aria-label="刷新工作区" @click="load"><RefreshCw :size="16" /></el-button></el-tooltip>
     </div>
-    <div class="builder-grid">
-      <div v-show="step === 'profile'" class="builder-source" data-testid="resume-profile-form">
+    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" data-testid="resume-workspace-error"><el-button size="small" :loading="loading" @click="load">重新加载</el-button></el-alert>
+    <div v-if="step !== 'resume'" class="builder-grid">
+      <div v-if="step === 'profile'" class="builder-source" data-testid="resume-profile-form">
         <div class="subheading">
 <span class="hint">{{ profileSummary }}</span>
 <el-tag v-if="profileDirty" size="small" type="warning">尚未保存</el-tag>
@@ -839,8 +947,9 @@ onBeforeUnmount(() => {
 </div>
 </div>
       </div>
-      <div v-show="step === 'template'" class="builder-generate" data-testid="resume-template-form">
+      <div v-if="step === 'template'" class="builder-generate" data-testid="resume-template-form">
 <div class="profile-summary"><span>{{ profileSummary }}</span><el-button text @click="goToStep('profile')">修改资料</el-button></div>
+<el-alert v-if="!profile?.revision || (profileDirty && !profileConfirmed)" type="warning" :closable="false" :title="profile?.revision ? '主资料有尚未确认的修改。' : '主资料尚未保存。'" data-testid="resume-generation-profile-required"><el-button size="small" @click="goToStep('profile')">去核对资料</el-button></el-alert>
 <h3>目标岗位</h3>
 <label class="field-label">实际岗位</label>
 <el-select v-model="targetJobId" data-testid="resume-job-select" clearable filterable placeholder="选择实际岗位（可选）" aria-label="选择目标岗位">
@@ -867,29 +976,32 @@ onBeforeUnmount(() => {
 <small>{{ item.category }} · 最多 {{ item.maxPages }} 页</small>
 </button>
 </div>
-<div class="stage-footer"><el-button @click="goToStep('profile')"><ArrowLeft :size="15" />返回资料</el-button><el-button type="success" data-testid="resume-generate" :loading="generating || profileSaving" :disabled="!generationTemplateId" @click="generate">生成我的简历<ArrowRight :size="15" /></el-button></div>
+<div class="stage-footer"><el-button @click="goToStep('profile')"><ArrowLeft :size="15" />返回资料</el-button><el-button type="success" data-testid="resume-generate" :loading="generating || profileSaving" :disabled="!generationTemplateId || !profile?.revision || (profileDirty && !profileConfirmed)" @click="generate">生成我的简历<ArrowRight :size="15" /></el-button></div>
       </div>
     </div>
-    <div v-show="step === 'resume'" data-testid="resume-result">
+    <div v-if="step === 'resume' && resumePage !== 'history'" data-testid="resume-result">
     <div v-if="drafts.length" class="draft-toolbar">
 <label>
 <span class="field-label">简历版本</span>
-<el-select v-model="selectedDraftId" data-testid="resume-draft-select" aria-label="选择岗位草稿">
+<el-select :model-value="selectedDraftId" data-testid="resume-draft-select" aria-label="选择岗位草稿" @update:model-value="changeSelectedDraft">
 <el-option v-for="draft in drafts" :key="draft.id" :label="`${draft.targetRole || '通用岗位'} · ${templateName(draft.templateId)} · V${draft.revision}`" :value="draft.id" />
 </el-select>
 </label>
 <el-tag v-if="draftDirty" type="warning">有未保存编辑</el-tag>
-<el-button data-testid="resume-new-version" @click="goToStep('template')"><Plus :size="15" />新建岗位版本</el-button>
+<el-button v-if="resumePage === 'editor'" data-testid="resume-new-version" @click="goToStep('template')"><Plus :size="15" />新建简历</el-button>
 </div>
-    <div v-if="selectedDraft" class="resume-layout">
-    <aside ref="previewPaneElement" class="resume-preview-pane" data-testid="resume-preview-pane">
-      <div class="preview-heading"><h3>成品预览</h3><span class="hint">{{ templateName(selectedDraft.templateId) }}</span></div>
+    <div v-if="selectedDraft && !invalidDraft" class="resume-layout" :data-testid="`resume-page-${resumePage}`">
+    <aside v-if="resumePage === 'editor'" ref="previewPaneElement" class="resume-preview-pane" data-testid="resume-preview-pane">
       <div class="preview-actions">
+        <el-button type="success" data-testid="resume-open-edit" @click="goToPage('edit')"><PencilLine :size="15" />编辑内容</el-button>
+        <el-button data-testid="resume-open-diagnosis" @click="goToPage('diagnosis')"><SearchCheck :size="15" />诊断与优化</el-button>
+        <el-tooltip content="修订历史"><el-button circle data-testid="resume-history" aria-label="修订历史" @click="goToPage('versions')"><History :size="16" /></el-button></el-tooltip>
         <el-button type="success" data-testid="resume-update-preview" :loading="exportLoading" :disabled="draftSaving || diagnosing || !hasDraftContent" @click="exportDraft"><RefreshCw :size="15" />{{ draftDirty || selectedDraft.revision !== exportStatus?.draftRevision ? '保存并更新预览' : '刷新预览' }}</el-button>
         <el-button v-if="exportUrls.docx" data-testid="resume-download-word" :disabled="draftSaving || exportLoading || draftDirty || selectedDraft.revision !== exportStatus?.draftRevision" @click="downloadExport('docx')"><Download :size="15" />Word</el-button>
         <el-button v-if="exportUrls.pdf" data-testid="resume-download-pdf" :disabled="draftSaving || exportLoading || draftDirty || selectedDraft.revision !== exportStatus?.draftRevision" @click="downloadExport('pdf')"><Download :size="15" />PDF</el-button>
       </div>
-      <p v-if="draftDirty || (exportStatus && selectedDraft.revision !== exportStatus.draftRevision)" class="preview-notice">有新的修改，请更新预览后下载。</p>
+      <p v-if="draftDirty || (exportStatus && selectedDraft.revision !== exportStatus.draftRevision)" class="preview-notice">当前显示已保存版本，未保存的修改仍保留在编辑页。</p>
+      <el-alert v-if="selectedDraft.sourceStale" type="warning" title="主资料已更新，当前简历保留原有内容。" :closable="false"><el-button size="small" @click="goToPage('templates')">用新资料生成</el-button></el-alert>
       <div v-if="exportStatus && exportDraftId === selectedDraftId" class="export-result">
         <div class="export-toolbar"><el-tag size="small" :type="exportStatus.status === 'SUCCEEDED' ? 'success' : exportStatus.status === 'FAILED' ? 'danger' : 'warning'">{{ resumeExportStatusLabel(exportStatus.status) }}</el-tag><span v-if="exportStatus.pageCount">{{ exportStatus.pageCount }} 页 · V{{ exportStatus.draftRevision }}</span></div>
         <el-alert v-if="exportStatus.status === 'NEEDS_EDIT'" type="warning" :closable="false" title="内容超出页数，请精简、隐藏条目或换双页模板。" />
@@ -901,10 +1013,10 @@ onBeforeUnmount(() => {
       <ResumePdfPreview v-if="exportUrls.pdf" :src="exportUrls.pdf" :data-template-id="exportStatus?.templateId" :data-draft-revision="exportStatus?.draftRevision" @error="previewError = 'PDF 预览失败，请重新加载。'" />
       <div v-else class="draft-preview" :aria-busy="exportLoading">
         <p v-if="exportLoading" class="preview-progress"><RefreshCw :size="14" />正在生成 Word 和 PDF…</p>
-        <article class="resume-paper" data-testid="resume-text-preview">
-          <h2>{{ selectedDraft.profileSnapshot.basics.name }}</h2>
-          <p class="paper-contact">{{ [selectedDraft.profileSnapshot.basics.phone, selectedDraft.profileSnapshot.basics.email, selectedDraft.profileSnapshot.basics.city].filter(Boolean).join(' · ') }}</p>
-          <section v-for="block in selectedDraft.data.blocks.filter(item => item.visible && item.entries.some(entry => entry.visible))" :key="block.id" class="paper-section">
+        <article v-if="previewDraft" class="resume-paper" data-testid="resume-text-preview">
+          <h2>{{ previewDraft.profileSnapshot.basics.name }}</h2>
+          <p class="paper-contact">{{ [previewDraft.profileSnapshot.basics.phone, previewDraft.profileSnapshot.basics.email, previewDraft.profileSnapshot.basics.city].filter(Boolean).join(' · ') }}</p>
+          <section v-for="block in previewDraft.data.blocks.filter(item => item.visible && item.entries.some(entry => entry.visible))" :key="block.id" class="paper-section">
             <h3>{{ block.title }}</h3>
             <article v-for="entry in block.entries.filter(item => item.visible)" :key="entry.id">
               <div class="paper-entry-heading"><strong>{{ entry.title }}</strong><span>{{ entry.subtitle }}</span></div>
@@ -916,14 +1028,16 @@ onBeforeUnmount(() => {
         </article>
       </div>
     </aside>
-    <div class="resume-edit-pane">
-      <div class="editor-heading"><h3>编辑内容</h3><el-button data-testid="resume-save-draft" :loading="draftSaving" @click="saveDraft()"><Save :size="15" />保存并确认</el-button></div>
-      <div class="editor-tools">
+    <div v-if="resumePage !== 'editor'" class="resume-edit-pane">
+      <div v-if="resumePage === 'edit'" class="editor-heading"><el-button type="success" data-testid="resume-save-draft" :loading="draftSaving" @click="saveDraft()"><Save :size="15" />保存并确认</el-button><el-button @click="goToPage('editor')">返回预览</el-button></div>
+      <div v-if="resumePage === 'diagnosis'" class="editor-tools" data-testid="resume-diagnosis-page">
         <el-button data-testid="resume-diagnose" :loading="diagnosing" :disabled="draftSaving" @click="diagnose"><SearchCheck :size="15" />检查与优化</el-button>
-        <el-tooltip content="历史版本" placement="top"><el-button circle data-testid="resume-history" :loading="historyLoading" aria-label="历史版本" @click="historyOpen = !historyOpen; historyOpen && readHistory()"><History :size="16" /></el-button></el-tooltip>
+        <el-button data-testid="resume-diagnosis-edit" @click="goToPage('edit')"><PencilLine :size="15" />编辑内容</el-button>
+        <el-tooltip content="修订历史" placement="top"><el-button circle aria-label="修订历史" @click="goToPage('versions')"><History :size="16" /></el-button></el-tooltip>
         <el-tooltip content="撤销最近保存" placement="top"><el-button circle data-testid="resume-undo" :disabled="draftSaving" aria-label="撤销最近保存" @click="undoLatest"><Undo2 :size="16" /></el-button></el-tooltip>
       </div>
     <div v-if="selectedDraft" class="draft-editor">
+<template v-if="resumePage === 'edit'">
 <div v-if="draftInputBackups[selectedDraftId]" class="backup-notice">
 <span>已保留切换前的本地输入。</span>
 <el-button size="small" @click="restoreLocalDraftInput">恢复本地输入</el-button>
@@ -939,7 +1053,8 @@ onBeforeUnmount(() => {
 <details class="source-details"><summary>版本与来源</summary><p>{{ selectedDraft.targetRole || '通用岗位' }} · 资料 V{{ selectedDraft.profileRevision }} · 简历 V{{ selectedDraft.revision }}</p><p>{{ generatedSource }}</p></details>
 </div>
       <details v-if="selectedDraft.data.warnings.length" class="source-details"><summary>资料提示（{{ selectedDraft.data.warnings.length }}）</summary><p v-for="(warning, index) in selectedDraft.data.warnings" :key="index">{{ /[\u4e00-\u9fff]/.test(warning) ? warning : '请核对事实来源，缺失内容可在资料中补充。' }}</p></details>
-      <div v-if="historyOpen" class="history-panel" v-loading="historyLoading">
+</template>
+      <div v-if="resumePage === 'versions'" class="history-panel" data-testid="resume-versions-page" v-loading="historyLoading">
 <div class="subheading">
 <h3>已保存历史</h3>
 <el-button size="small" @click="readHistory">刷新历史</el-button>
@@ -966,6 +1081,7 @@ onBeforeUnmount(() => {
 </article>
 </details>
 </div>
+<template v-if="resumePage === 'edit'">
       <details v-for="(block, blockIndex) in selectedDraft.data.blocks" :key="block.id" :open="blockIndex === 0" :data-testid="`resume-edit-block-${blockIndex}`" :class="['draft-block', { hidden: !block.visible }]">
 <summary>{{ block.title }}<span>{{ block.visible ? `${block.entries.filter(entry => entry.visible).length} 项` : '已隐藏' }}</span></summary>
 <div class="draft-block-title">
@@ -1019,7 +1135,9 @@ onBeforeUnmount(() => {
 </article>
 <el-button size="small" @click="returnToMasterProfile">去补充资料</el-button>
 </details>
-      <details v-if="selectedDraft.data.suggestions?.length" :open="diagnosisOpen" class="suggestion-list" data-testid="resume-diagnosis-results" @toggle="diagnosisOpen = ($event.target as HTMLDetailsElement).open">
+</template>
+      <p v-if="resumePage === 'diagnosis' && !selectedDraft.data.suggestions?.length" class="empty-hint" data-testid="resume-diagnosis-empty">尚未诊断这份简历。</p>
+      <details v-if="resumePage === 'diagnosis' && selectedDraft.data.suggestions?.length" open class="suggestion-list" data-testid="resume-diagnosis-results">
 <summary>修改建议（{{ availableSuggestions.length }}）</summary>
 <div class="subheading">
 <h3>{{ expandedSuggestions ? '全部诊断建议' : '最值得修改的三项' }}</h3>
@@ -1045,7 +1163,14 @@ onBeforeUnmount(() => {
     </div>
     </div>
     </div>
-    <div v-else class="empty-hint">暂时没有简历，请先填写资料并生成。</div>
+    <div v-else-if="!loading && !loadError" class="resume-empty" data-testid="resume-draft-empty">
+      <p>{{ invalidDraft ? '这份简历不存在或已不可访问。' : '还没有生成的简历。' }}</p>
+      <div class="builder-actions">
+        <el-button v-if="invalidDraft" data-testid="resume-open-saved" @click="openSavedDrafts">返回我的简历</el-button>
+        <el-button v-if="!profile?.revision" data-testid="resume-empty-profile" @click="goToPage('profile')">填写主资料</el-button>
+        <el-button type="success" data-testid="resume-empty-create" @click="goToPage('templates')"><Plus :size="15" />新建简历</el-button>
+      </div>
+    </div>
 </div>
     <el-dialog v-model="conflictOpen" title="草稿版本已变化" width="min(800px, 95vw)">
 <p>当前输入已保留。请比较服务器版本，再选择使用服务器内容，或保留当前输入并重新保存。</p>
@@ -1077,15 +1202,9 @@ onBeforeUnmount(() => {
   </el-config-provider>
 </template>
 <style scoped>
-.workflow-toolbar{display:flex;align-items:center;gap:12px;border-bottom:1px solid #e5ebe7;padding-bottom:12px;margin-bottom:16px}
-.workflow-steps{display:flex;align-items:center;flex:1;flex-wrap:wrap;min-width:0;gap:12px}
+.resume-page-toolbar{display:flex;align-items:center;gap:12px;padding-bottom:12px;margin-bottom:16px;border-bottom:1px solid #e5ebe7;flex-wrap:wrap}
+.subpage-label{font-size:13px;color:#68756e;flex:1}
 .workspace-refresh{flex:none;width:32px;height:32px}
-.workflow-steps button{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 12px;color:#68756e;border:0;background:transparent;font:inherit;font-size:13px;cursor:pointer;min-height:40px;border-radius:6px}
-.workflow-steps button.active{background:#e9f3ec;color:#28664f;font-weight:600}
-.workflow-steps button:disabled{cursor:default;opacity:.5}
-.workflow-steps button span{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid #cbd8cf;font-size:12px;flex:none}
-.workflow-steps button.active span{background:#28664f;color:#fff;border-color:#28664f}
-.step-arrow{color:#a4b2a9;flex:none}
 .profile-tabs{display:flex;gap:20px;border-bottom:1px solid #e5ebe7;margin:4px 0 20px}
 .profile-tabs button{padding:12px 0;font:inherit;font-size:13px;color:#68756e;border:0;border-bottom:2px solid transparent;background:transparent;cursor:pointer}
 .profile-tabs button.active{color:#28664f;border-color:#28664f;font-weight:600}
@@ -1093,17 +1212,19 @@ onBeforeUnmount(() => {
 .profile-summary{padding:8px 0 16px;border-bottom:1px solid #e5ebe7;margin-bottom:20px;color:#58645e;font-size:13px}
 .stage-footer{border-top:1px solid #e5ebe7;padding-top:18px;margin-top:20px}
 .section-next{justify-content:flex-end;padding-top:16px}
-.resume-layout{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:24px;align-items:start}
-.resume-preview-pane{min-width:0;min-height:0;position:sticky;top:12px;scroll-margin-top:12px}
-.resume-edit-pane{min-width:0;border-left:1px solid #e5ebe7;padding-left:22px}
+.resume-layout{display:block;min-width:0}
+.resume-preview-pane{min-width:0;min-height:0;scroll-margin-top:12px;max-width:980px;margin:0 auto}
+.resume-edit-pane{min-width:0;max-width:900px;margin:0 auto}
+.resume-empty{padding:18px 0;color:#68756e;font-size:13px}
+.resume-empty p{margin:0 0 12px;overflow-wrap:anywhere}
 .editor-heading h3,.preview-heading h3{font-size:16px;margin:0}
 .editor-tools,.preview-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0}
 .resume-builder :deep(.el-button){gap:5px}
 .resume-builder :deep(.el-button+.el-button){margin-left:0}
 .preview-notice{font-size:12px;color:#97602d;line-height:1.6;margin:8px 0}
-.draft-preview{padding:16px;background:#eef1ef;min-height:540px;margin-top:14px}
+.draft-preview{padding:16px;background:#eef1ef;margin-top:14px}
 .preview-progress{display:flex;align-items:center;gap:7px;font-size:12px;color:#58645e;margin:0 0 12px}
-.resume-paper{padding:30px 26px;min-height:500px;background:#fff;color:#272e2a;box-shadow:0 2px 8px #17291d10;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.resume-paper{padding:30px 26px;background:#fff;color:#272e2a;box-shadow:0 2px 8px #17291d10;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
 .resume-paper h2{font-size:22px;margin:0 0 6px;color:#28664f}
 .paper-contact{font-size:11px;margin:0;color:#58645e}
 .paper-section{margin-top:20px}
@@ -1120,7 +1241,7 @@ onBeforeUnmount(() => {
 .draft-block>summary span{margin-left:auto;font-size:12px;color:#68756e;font-weight:400}
 .draft-block-title{margin-top:14px}
 .backup-notice{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding:10px;background:#fff5df;border-radius:8px;font-size:12px}
-.resume-builder{padding:20px}
+.resume-builder{padding:0;border:0;border-radius:0;background:transparent}
 .resume-builder h3{margin:0 0 12px}
 .resume-builder h4{margin:18px 0 8px;color:#58645e}
 .builder-grid{display:block}
@@ -1165,10 +1286,9 @@ onBeforeUnmount(() => {
 .template-card img{width:100%;height:150px;object-fit:contain;border-radius:4px;background:#f4f6f4}
 .template-card strong{font-size:13px}
 .template-card small{font-size:11px;line-height:1.5;color:#68756e}
-.workflow-help{padding:8px 12px;margin-top:16px;background:#f1f6f2;border-radius:8px}
-.workflow-help ol{font-size:12px;line-height:1.9;padding-left:19px;color:#58645e}
 .draft-toolbar{padding:0 0 20px;gap:8px;justify-content:space-between}
-.draft-toolbar>label{min-width:260px}
+.draft-toolbar>label{min-width:0;max-width:460px;flex:1}
+.draft-toolbar :deep(.el-select){width:100%}
 .draft-toolbar :deep(.el-button)+:deep(.el-button){margin-left:0}
 .draft-editor{display:grid;gap:12px}
 .draft-context{padding:12px 0;background:transparent;border-bottom:1px solid #e5ebe7}
@@ -1196,12 +1316,8 @@ onBeforeUnmount(() => {
 .conflict-content{max-height:380px;overflow:auto;background:#f5f8f6;padding:12px;border-radius:8px;font-size:13px}
 .conflict-content article{padding:8px 0;border-top:1px solid #e3ebe5}
 .conflict-content p{white-space:pre-wrap;overflow-wrap:anywhere}
-@media(max-width:1100px){.resume-layout{grid-template-columns:minmax(0,1fr) minmax(330px,.95fr);gap:18px}
-.resume-edit-pane{padding-left:16px}
-.template-card img{height:120px}}
-@media(max-width:860px){.resume-layout{display:flex;flex-direction:column}
-.resume-preview-pane,.resume-edit-pane{width:100%;position:static}
-.resume-edit-pane{padding-left:0;border-left:0;border-top:1px solid #e5ebe7;padding-top:20px}
+@media(max-width:1100px){.template-card img{height:120px}}
+@media(max-width:860px){.resume-preview-pane,.resume-edit-pane{width:100%}
 .builder-fields{grid-template-columns:1fr}
 .template-list{grid-template-columns:repeat(4,minmax(0,1fr))}
 .item-actions{gap:5px}
@@ -1209,18 +1325,16 @@ onBeforeUnmount(() => {
 .draft-toolbar :deep(.el-select){width:100%}
 .pdf-preview{height:580px}}
 @media(max-width:560px){.resume-builder{padding:14px}
-.workflow-toolbar{align-items:flex-start;gap:6px}
-.workflow-steps{gap:6px}
-.workflow-steps button{padding:7px 6px;gap:4px;white-space:nowrap}
-.workflow-steps button span{width:19px;height:19px;font-size:11px}
-.step-arrow{display:none}
-.profile-tabs{gap:16px}
-.profile-tabs button{font-size:12px}
+.resume-page-toolbar{gap:6px}
+.profile-tabs{gap:12px;flex-wrap:wrap}
+.profile-tabs button{font-size:12px;line-height:1.5}
 .template-list{grid-template-columns:repeat(2,minmax(0,1fr))}
 .builder-source,.builder-generate{padding:0}
 .preview-actions{gap:6px}
 .preview-actions :deep(.el-button){padding:8px 10px;font-size:12px}
 .resume-paper{padding:24px 18px;font-size:11px}
-.draft-preview{padding:10px;min-height:450px}
+.draft-preview{padding:10px}
+.draft-toolbar>label{flex-basis:100%;max-width:none}
+.resume-builder :deep(.el-select),.resume-builder :deep(.el-date-editor){max-width:100%}
 .template-card img{height:150px}}
 </style>

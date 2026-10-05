@@ -30,11 +30,18 @@ let devServer
 
 async function main() {
   fs.mkdirSync(artifactsDir, { recursive: true })
+  const reportPath = path.join(artifactsDir, 'smoke-report.json')
+  const report = { status: 'RUNNING', startedAt: new Date().toISOString(), baseUrl, browserErrors: 0 }
+  fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf8')
   const coreFixture = demoMode ? null : readCoreFixture()
   console.log(`E2E smoke mode: ${demoMode ? 'offline demo UI' : 'live service UI'}`)
   await ensureFrontend()
   const browser = await startBrowser()
   const client = await connect(browser.webSocketDebuggerUrl)
+  const runtimeErrors = []
+  const stopErrors = client.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
+    runtimeErrors.push(exceptionDetails.exception?.description || exceptionDetails.text)
+  })
   try {
     await enablePage(client, 1440, 980)
     await navigate(client, `${baseUrl}/login`)
@@ -51,15 +58,12 @@ async function main() {
     await assertStudentWorkspace(client, 'resume')
     await assertNoHorizontalOverflow(client)
     await screenshot(client, '01-student-resume.png')
-    if (coreFixture || await elementBox(client, "Boolean(document.querySelector('.resume-diagnosis'))")) {
-      await setDetailsOpen(client, '.legacy-resume-history', true)
-      await assertDetailsToggle(client, '.resume-diagnosis')
-      await setDetailsOpen(client, '.legacy-resume-history', false)
-    }
+    await verifyModuleNavigation(client, coreFixture)
+    await verifyModuleNavigationBoundaries(client, coreFixture)
 
     await verifyGlobalSearch(client)
     await navigate(client, `${baseUrl}/student/resume`)
-    await verifyStudentScrolling(client)
+    await verifyStudentScrolling(client, coreFixture)
     await setViewport(client, 1440, 980)
 
     await navigate(client, `${baseUrl}/student/plan`)
@@ -89,8 +93,8 @@ async function main() {
     await screenshot(client, '05-student-knowledge.png')
 
     await navigate(client, `${baseUrl}/student/history`)
-    await waitForExpression(client, "location.pathname === '/student/interview' && new URLSearchParams(location.search).get('tab') === 'history'")
-    await assertText(client, ['模拟面试', '面试记录'])
+    await waitForExpression(client, "location.pathname === '/student/interview/history'")
+    await assertOnlyModulePage(client, 'interview', 'history')
     await navigate(client, `${baseUrl}/student/deliveries`)
     await waitForExpression(client, "location.pathname === '/student/resume'")
 
@@ -180,16 +184,25 @@ async function main() {
     await assertNoInternalHorizontalOverflow(client, '.list-panel')
     await screenshot(client, '22-admin-accounts-mobile.png')
 
+    if (runtimeErrors.length) throw new Error(`Unhandled browser exceptions: ${JSON.stringify(runtimeErrors)}`)
+    fs.writeFileSync(reportPath, JSON.stringify({ ...report, status: 'PASSED', completedAt: new Date().toISOString(),
+      browserErrors: runtimeErrors.length,
+      scrollingChecks: JSON.parse(fs.readFileSync(path.join(artifactsDir, 'student-scroll-results.json'), 'utf8')).length
+    }, null, 2), 'utf8')
     console.log(`E2E smoke passed. Screenshots: ${artifactsDir}`)
   } catch (error) {
     try {
       await screenshot(client, 'failure.png')
       fs.writeFileSync(path.join(artifactsDir, 'failure-text.txt'), await bodyText(client), 'utf8')
+      fs.writeFileSync(reportPath, JSON.stringify({ ...report, status: 'FAILED', completedAt: new Date().toISOString(),
+        browserErrors: runtimeErrors.length, error: error.message
+      }, null, 2), 'utf8')
     } catch {
       // Preserve the original failure.
     }
     throw error
   } finally {
+    stopErrors()
     client.close()
     await stopBrowser(browser.process)
     if (devServer) {
@@ -244,21 +257,18 @@ async function verifyCoreFixture(client, fixture) {
   await verifyResumeDraftPersistence(client, fixture, resume)
   await verifyMatchHistoryRestoreAndContext(client, fixtureMatch, resume, job)
 
-  await navigate(client, `${baseUrl}/student/plan`)
-  await assertStudentWorkspace(client, 'plan')
-  await setDetailsOpen(client, '.plan-sidebar', true)
-  await selectElementPlusOption(client, '.plan-sidebar .el-select', `${plan.targetRole} · V${plan.version} · 进行中`)
-  await assertText(client, ['学习路径', '任务进度', plan.targetRole, `V${plan.version}`, '当前可编辑版本'])
-  await assertSelectDisplay(client, `V${plan.version}`)
+  await navigate(client, planTaskUrl(plan.planId, completedTask.taskId))
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"plan-task\"]'))")
   await assertPersistedTask(client, persistedTaskFeedback)
+  await verifyTaskEvidenceEntry(client, plan, completedTask)
   await screenshot(client, '00-core-fixture-learning-plan.png')
   await verifyTaskSaveFailureRetention(client, plan)
   await verifyPlanHistoryReadOnly(client, plan)
 
   await navigate(client, `${baseUrl}/student/history`)
-  await waitForExpression(client, "location.pathname === '/student/interview' && new URLSearchParams(location.search).get('tab') === 'history'")
-  await assertText(client, ['模拟面试', '面试记录', 'COMPLETED'])
-  await navigate(client, `${baseUrl}/student/interview`)
+  await waitForExpression(client, "location.pathname === '/student/interview/history'")
+  await assertText(client, ['模拟面试', '已完成'])
+  await navigate(client, `${baseUrl}/student/interview/report?sessionId=${encodeURIComponent(fixture.sessionId)}`)
   await assertText(client, [
     '模拟面试',
     '面试报告',
@@ -267,18 +277,18 @@ async function verifyCoreFixture(client, fixture) {
   ])
   await screenshot(client, '00-core-fixture-interview-report.png')
   await verifyCompletedInterviewReadOnly(client, fixture, session)
+  await verifyInterviewAnswerDraft(client, session)
   await verifyRetrievalOnlyKnowledge(client)
 }
 
 async function selectFixtureResume(client, resume) {
-  await setDetailsOpen(client, '.legacy-resume-history', true)
   await waitForExpression(client, "Boolean(document.querySelector('.resume-picker .el-select')) && !document.querySelector('.resume-hero .el-loading-mask')")
   await selectElementPlusOption(client, '.resume-picker .el-select', resume.fileName)
   await waitForExpression(client, `Boolean(document.querySelector('.resume-summary strong')?.innerText.includes(${JSON.stringify(resume.fileName)}))`)
 }
 
 async function verifyResumeDeleteCancellation(client, fixture, resume) {
-  await navigate(client, `${baseUrl}/student/resume`)
+  await navigate(client, `${baseUrl}/student/resume/original/${encodeURIComponent(fixture.resumeId)}`)
   await selectFixtureResume(client, resume)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   await clickButton(client, '删除该版本')
@@ -295,7 +305,8 @@ async function verifyResumeDeleteCancellation(client, fixture, resume) {
 
 async function verifyResumeDraftPersistence(client, fixture, resume) {
   const educationSelector = '.profile-form .form-field input'
-  await navigate(client, `${baseUrl}/student/resume`)
+  const originalUrl = `${baseUrl}/student/resume/original/${encodeURIComponent(fixture.resumeId)}`
+  await navigate(client, originalUrl)
   await selectFixtureResume(client, resume)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   const originalEducation = await elementBox(client, `document.querySelector(${JSON.stringify(educationSelector)})?.value`)
@@ -312,13 +323,11 @@ async function verifyResumeDraftPersistence(client, fixture, resume) {
 
   await navigate(client, `${baseUrl}/student/jobs`)
   await waitForExpression(client, "location.pathname === '/student/jobs'")
-  await navigate(client, `${baseUrl}/student/resume`)
-  await setDetailsOpen(client, '.legacy-resume-history', true)
+  await navigate(client, originalUrl)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   await assertInputValue(client, educationSelector, draftMarker)
 
-  await navigate(client, `${baseUrl}/student/resume`)
-  await setDetailsOpen(client, '.legacy-resume-history', true)
+  await navigate(client, originalUrl)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   await assertInputValue(client, educationSelector, draftMarker)
 
@@ -326,8 +335,7 @@ async function verifyResumeDraftPersistence(client, fixture, resume) {
   await client.send('Runtime.evaluate', {
     expression: `sessionStorage.removeItem(${JSON.stringify(draftKey)})`
   })
-  await navigate(client, `${baseUrl}/student/resume`)
-  await setDetailsOpen(client, '.legacy-resume-history', true)
+  await navigate(client, originalUrl)
   await waitForExpression(client, "!document.querySelector('.resume-hero .el-loading-mask')")
   await assertInputValue(client, educationSelector, originalEducation)
   await screenshot(client, '00g-resume-draft-restored.png')
@@ -357,7 +365,7 @@ async function verifyMatchHistoryRestoreAndContext(client, match, resume, job) {
   await navigate(client, analysisUrl)
   await assertMatchSelection(client, resume.fileName, job.title)
   await clickSelector(client, '.match-next-actions button')
-  await waitForExpression(client, "location.pathname === '/student/plan'")
+  await waitForExpression(client, "location.pathname === '/student/plan/create'")
   await waitForText(client, '已关联岗位匹配')
   await waitForText(client, `技能覆盖 ${match.score}%`)
 
@@ -472,6 +480,122 @@ async function verifyJobsNavigation(client, fixture) {
   await navigate(client, `${baseUrl}/student/jobs`)
   await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"jobs-list\"]'))")
   await screenshot(client, '03a-jobs-list-navigation.png')
+}
+
+const modulePages = {
+  resume: ['profile', 'templates', 'edit', 'diagnosis', 'versions', 'history', 'original', 'original-diagnosis'],
+  plan: ['today', 'tasks', 'task', 'create', 'review', 'history'],
+  interview: ['start', 'practice', 'report', 'history'],
+  knowledge: ['search', 'answer', 'sources', 'history']
+}
+
+const resumePageSelectors = {
+  preview: '.resume-preview-pane', profile: '[data-testid="resume-profile-form"]', templates: '[data-testid="resume-template-form"]',
+  edit: '[data-testid="resume-page-edit"]', diagnosis: '[data-testid="resume-diagnosis-page"]',
+  versions: '[data-testid="resume-versions-page"]', history: 'section[data-testid="resume-history"]',
+  original: '[data-testid="resume-original"]', 'original-diagnosis': '[data-testid="resume-original-diagnosis"]'
+}
+
+async function assertOnlyModulePage(client, module, expected) {
+  if (module === 'resume') {
+    await waitForExpression(client, "Boolean(document.querySelector('.resume-builder, [data-testid=\"resume-history\"], [data-testid=\"resume-original\"], [data-testid=\"resume-original-diagnosis\"]')) && !document.querySelector('.resume-builder .el-loading-mask')")
+    const visible = await elementBox(client, `(() => Object.entries(${JSON.stringify(resumePageSelectors)})
+      .filter(([, selector]) => document.querySelector(selector)?.getClientRects().length).map(([page]) => page))()`)
+    if (visible.some(page => page !== expected)) throw new Error(`Resume ${expected} contains unrelated pages: ${JSON.stringify(visible)}`)
+    if (!visible.length && !await elementBox(client, "Boolean(document.querySelector('[data-testid=\"resume-result\"], [data-testid=\"resume-draft-empty\"]'))")) {
+      throw new Error(`Resume ${expected} has neither content nor empty state`)
+    }
+    return
+  }
+  await waitForExpression(client, `Boolean(document.querySelector('[data-testid="${module}-${expected}"]')?.getClientRects().length)`)
+  const visible = await elementBox(client, `(() => ${JSON.stringify(modulePages[module])}
+    .filter(page => document.querySelector('[data-testid="${module}-' + page + '"]')?.getClientRects().length))()`)
+  if (visible.length !== 1 || visible[0] !== expected) {
+    throw new Error(`${module} should display only ${expected}: ${JSON.stringify(visible)}`)
+  }
+}
+
+async function verifyModuleNavigation(client, fixture) {
+  const sections = [
+    ['resume', [['profile', '/profile'], ['templates', '/templates'], ['preview', ''], ['edit', '/edit'], ['diagnosis', '/diagnosis'], ['versions', '/versions'], ['history', '/history']]],
+    ['plan', [['today', ''], ['tasks', '/tasks'], ['create', '/create'], ['review', '/review'], ['history', '/history']]],
+    ['interview', [['start', ''], ['practice', '/practice'], ['report', '/report'], ['history', '/history']]],
+    ['knowledge', [['search', ''], ['answer', '/answer'], ['sources', '/sources'], ['history', '/history']]]
+  ]
+  const calls = []
+  const stopListening = client.on('Network.requestWillBeSent', ({ request }) => {
+    if (request.method === 'POST' && (/\/api\/ai\//.test(request.url) || /\/api\/resumes\/drafts(?:\?|$)/.test(request.url))) calls.push(request.url)
+  })
+  try {
+    for (const [module, pages] of sections) {
+      const context = module === 'plan' && fixture ? `?planId=${encodeURIComponent(fixture.planId)}`
+        : module === 'interview' && fixture ? `?sessionId=${encodeURIComponent(fixture.sessionId)}` : ''
+      const root = `${baseUrl}/student/${module}`
+      await navigate(client, root + context)
+      let navigatedContext = context
+      for (const [page, suffix] of pages) {
+        const navKey = module === 'resume' && page === 'preview' ? 'editor' : page
+        const navSelector = `[data-testid="${module}-nav-${navKey}"]`
+        if (await elementBox(client, `Boolean(document.querySelector(${JSON.stringify(navSelector)}))`)) {
+          await clickSelector(client, navSelector)
+        } else {
+          await navigate(client, root + suffix + navigatedContext)
+        }
+        await waitForExpression(client, `location.pathname === ${JSON.stringify(`/student/${module}${suffix}`)}`)
+        await assertOnlyModulePage(client, module, page)
+        await assertNoHorizontalOverflow(client)
+        const beforeRefresh = await elementBox(client, 'location.pathname + location.search')
+        navigatedContext = await elementBox(client, 'location.search')
+        await navigate(client, baseUrl + beforeRefresh)
+        await assertOnlyModulePage(client, module, page)
+        if (module === 'plan' && fixture && page !== 'create') {
+          await waitForExpression(client, `new URLSearchParams(location.search).get('planId') === ${JSON.stringify(fixture.planId)}`)
+        }
+        if (module === 'interview' && fixture && page !== 'start') {
+          await waitForExpression(client, `new URLSearchParams(location.search).get('sessionId') === ${JSON.stringify(fixture.sessionId)}`)
+        }
+        await screenshot(client, `navigation-${module}-${page}.png`)
+      }
+    }
+    if (calls.length) throw new Error(`Navigation unexpectedly generated AI or saved drafts: ${JSON.stringify(calls)}`)
+  } finally { stopListening() }
+  await navigate(client, `${baseUrl}/student/resume`)
+}
+
+async function verifyModuleNavigationBoundaries(client, fixture) {
+  const invalid = `e2e-unavailable-${Date.now()}`
+  await navigate(client, `${baseUrl}/student/resume/edit?draftId=${invalid}`)
+  await waitForText(client, '这份简历不存在或已不可访问。')
+  if (await elementBox(client, "Boolean(document.querySelector('[data-testid=\"resume-save-draft\"]:not(:disabled), [data-testid=\"resume-entry-title-0-0\"]'))")) {
+    throw new Error('Invalid resume draft exposes a different saved draft for editing')
+  }
+  await navigate(client, `${baseUrl}/student/resume/original/${invalid}`)
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"resume-unavailable\"]'))")
+  await navigate(client, `${baseUrl}/student/plan/tasks?planId=${invalid}`)
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"plan-unavailable\"]'))")
+  if (await elementBox(client, "Boolean(document.querySelector('.task-row'))")) throw new Error('Invalid plan shows tasks from another plan')
+  if (fixture) {
+    await navigate(client, planTaskUrl(fixture.planId, invalid))
+    await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"plan-unavailable\"]'))")
+    if (await elementBox(client, "Boolean(document.querySelector('[data-testid=\"plan-task\"] input[placeholder=\"复盘备注\"]'))")) {
+      throw new Error('Invalid task permits editing another task')
+    }
+  }
+  await navigate(client, `${baseUrl}/student/interview/practice?sessionId=${invalid}`)
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"interview-unavailable\"]'))")
+  if (await elementBox(client, "Boolean(document.querySelector('.answer-input textarea'))")) throw new Error('Invalid interview exposes another session answer')
+  await withApiOverrides(client, [{ path: '/api/ai/learning/plans', data: [] }], async () => {
+    await navigate(client, `${baseUrl}/student/plan`)
+    await assertOnlyModulePage(client, 'plan', 'today')
+    await waitForText(client, '还没有学习计划。')
+    if (await elementBox(client, "Boolean(document.querySelector('.task-row'))")) throw new Error('Empty learning plans show cached tasks')
+  })
+  await withApiOverrides(client, [{ path: '/api/ai/interview/sessions', data: [] }], async () => {
+    await navigate(client, `${baseUrl}/student/interview/practice`)
+    await assertOnlyModulePage(client, 'interview', 'practice')
+    if (await elementBox(client, "Boolean(document.querySelector('.answer-input textarea'))")) throw new Error('Empty interview list shows cached answers')
+  })
+  await navigate(client, `${baseUrl}/student/resume`)
 }
 
 async function assertNoJobsPanelsExcept(client, expected) {
@@ -599,6 +723,8 @@ async function verifyTaskSaveFailureRetention(client, plan) {
   if (!task) {
     throw new Error(`Fixture plan has no unfinished task for save failure coverage: ${plan.planId}`)
   }
+  await navigate(client, planTaskUrl(plan.planId, task.taskId))
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"plan-task\"] .task-row'))")
   const taskPath = `/api/ai/learning/plans/${encodeURIComponent(plan.planId)}/tasks/${encodeURIComponent(task.taskId)}`
   const feedback = `E2E save failure ${Date.now()}`
   let intercepted = false
@@ -626,12 +752,11 @@ async function verifyTaskSaveFailureRetention(client, plan) {
   try {
     await client.send('Fetch.enable', { patterns: [{ urlPattern: `*${taskPath}`, requestStage: 'Request' }] })
     const taskIndex = await elementBox(client, `(() => [...document.querySelectorAll('.task-row')]
-      .findIndex((row) => row.querySelector('strong')?.innerText.includes(${JSON.stringify(task.title)})))()`)
+      .findIndex((row) => row.querySelector('h2, strong')?.innerText.includes(${JSON.stringify(task.title)})))()`)
     if (!Number.isInteger(taskIndex) || taskIndex < 0) {
       throw new Error(`Unable to locate unfinished task in the plan UI: ${task.taskId}`)
     }
-    await setDetailsOpen(client, `.task-list > .task-row:nth-child(${taskIndex + 1}) .task-management-details`, true)
-    const feedbackInput = `.task-list > .task-row:nth-child(${taskIndex + 1}) input[placeholder="复盘备注"]`
+    const feedbackInput = '[data-testid="plan-task"] input[placeholder="复盘备注"]'
     await fillInput(client, feedbackInput, feedback)
     for (let index = 0; index < 30 && !intercepted && !interceptionError; index += 1) {
       await sleep(250)
@@ -655,7 +780,28 @@ async function verifyTaskSaveFailureRetention(client, plan) {
   }
 
   await navigate(client, `${baseUrl}/student/history`)
-  await waitForExpression(client, "location.pathname === '/student/interview' && new URLSearchParams(location.search).get('tab') === 'history'")
+  await waitForExpression(client, "location.pathname === '/student/interview/history'")
+}
+
+async function verifyTaskEvidenceEntry(client, plan, task) {
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"plan-task\"] .learning-evidence'))")
+  await setDetailsOpen(client, '.learning-evidence', true)
+  await waitForExpression(client, "Boolean(document.querySelector('.evidence-input textarea'))")
+  await clickElementContaining(client, '.evidence-input button', '提交成果并评价')
+  await waitForText(client, '请描述练习过程、实际结果与验收情况。')
+  const path = `/api/ai/learning/plans/${encodeURIComponent(plan.planId)}/tasks/${encodeURIComponent(task.taskId)}/evidence`
+  const text = `E2E retained evidence ${Date.now()}`
+  await withApiOverrides(client, [{ path, code: 503, message: 'E2E evidence request failure' }], async () => {
+    await fillInput(client, '.evidence-input textarea', text)
+    await clickElementContaining(client, '.evidence-input button', '提交成果并评价')
+    await waitForText(client, 'E2E evidence request failure')
+    await assertInputValue(client, '.evidence-input textarea', text)
+    await screenshot(client, '00j-evidence-failure-input-retained.png')
+  })
+}
+
+function planTaskUrl(planId, taskId) {
+  return `${baseUrl}/student/plan/tasks/${encodeURIComponent(taskId)}?planId=${encodeURIComponent(planId)}`
 }
 
 async function verifyPlanHistoryReadOnly(client, plan) {
@@ -666,11 +812,12 @@ async function verifyPlanHistoryReadOnly(client, plan) {
     throw new Error(`Fixture plan has no historical version with persisted task feedback: ${plan.planId}`)
   }
 
-  await navigate(client, `${baseUrl}/student/plan`)
-  await setDetailsOpen(client, '.plan-sidebar', true)
-  await selectElementPlusOption(client, '.plan-sidebar .el-select', `${plan.targetRole} · V${plan.version} · 进行中`)
-  await waitForText(client, `V${plan.version}`)
+  await navigate(client, `${baseUrl}/student/plan/history?planId=${encodeURIComponent(plan.planId)}`)
+  await waitForExpression(client, "Boolean(document.querySelector('.version-actions button'))")
   await clickElementByData(client, '.version-actions button', 'planId', historical.planId)
+  await waitForExpression(client, `location.pathname === '/student/plan/tasks' && new URLSearchParams(location.search).get('planId') === ${JSON.stringify(historical.planId)}`)
+  const task = historical.tasks.find(item => item.feedback === persistedTaskFeedback)
+  await navigate(client, planTaskUrl(historical.planId, task.taskId))
   await waitForText(client, '当前为历史版本')
   await assertReadOnlyPersistedTask(client, persistedTaskFeedback)
   await screenshot(client, '00d-plan-history-readonly.png')
@@ -686,13 +833,41 @@ async function verifyCompletedInterviewReadOnly(client, fixture, session) {
   }
 
   await navigate(client, `${baseUrl}/student/interview?tab=history`)
-  await waitForExpression(client, "Boolean(document.querySelector('.session-card'))")
+  await waitForExpression(client, "location.pathname === '/student/interview/history'")
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"interview-history\"] [data-session-id]'))")
   await clickSessionCard(client, fixture.sessionId)
-  await waitForExpression(client, "location.pathname === '/student/interview' && !new URLSearchParams(location.search).get('tab')")
+  await waitForExpression(client, `location.pathname === '/student/interview/report' && new URLSearchParams(location.search).get('sessionId') === ${JSON.stringify(fixture.sessionId)}`)
+  await assertNoText(client, ['本次目标岗位', '题目数量'])
+  await clickSelector(client, '[data-testid="interview-view-answers"]')
+  await waitForExpression(client, `location.pathname === '/student/interview/practice' && new URLSearchParams(location.search).get('sessionId') === ${JSON.stringify(fixture.sessionId)}`)
   await waitForExpression(client, "Boolean(document.querySelector('.answer-input textarea')?.readOnly)")
+  await setDetailsOpen(client, '.question-feedback', true)
   await waitForText(client, '本题评价')
   await waitForText(client, feedbackText)
   await screenshot(client, '00e-completed-interview-readonly.png')
+}
+
+async function verifyInterviewAnswerDraft(client, completedSession) {
+  const session = { ...completedSession, sessionId: `e2e-answer-draft-${Date.now()}`, status: 'IN_PROGRESS',
+    questions: [completedSession.questions[0]], answers: [], report: undefined }
+  const text = `E2E unsaved answer ${Date.now()}`
+  const path = `/student/interview/practice?sessionId=${encodeURIComponent(session.sessionId)}`
+  await withApiOverrides(client, [{ path: '/api/ai/interview/sessions', data: [session] }], async () => {
+    await navigate(client, baseUrl + path)
+    await waitForExpression(client, "Boolean(document.querySelector('.answer-input textarea')) && !document.querySelector('.answer-input textarea').readOnly")
+    await fillInput(client, '.answer-input textarea', text)
+    await assertInputValue(client, '.answer-input textarea', text)
+    await clickSelector(client, '[data-testid="interview-nav-start"]')
+    await waitForExpression(client, "location.pathname === '/student/interview'")
+    await clickSelector(client, '[data-testid="interview-nav-practice"]')
+    await waitForExpression(client, "location.pathname === '/student/interview/practice'")
+    await assertInputValue(client, '.answer-input textarea', text)
+    await navigate(client, baseUrl + path)
+    await assertInputValue(client, '.answer-input textarea', text)
+    await screenshot(client, '00i-interview-draft-restored.png')
+    const userId = await elementBox(client, "localStorage.getItem('userId')")
+    await client.send('Runtime.evaluate', { expression: `sessionStorage.removeItem(${JSON.stringify(`aicampus.draft.${encodeURIComponent(userId)}.interview.${encodeURIComponent(session.sessionId)}`)})` })
+  })
 }
 
 async function verifyRetrievalOnlyKnowledge(client) {
@@ -710,17 +885,144 @@ async function verifyRetrievalOnlyKnowledge(client) {
   await fillInput(client, '.knowledge-search input', query)
   await clickSelector(client, '.knowledge-search button')
   await waitForExpression(client, "Boolean(document.querySelector('.knowledge-retrieval .retrieval-result'))")
-  await waitForExpression(client, "Boolean(document.querySelector('.citation-row'))")
-  await waitForText(client, '检索摘要')
-  await waitForText(client, '未调用 AI 生成')
-  await waitForText(client, query)
+  await assertInputValue(client, '.knowledge-search input', query)
+  if (await elementBox(client, "Boolean(document.querySelector('.rag-answer, .citation-row'))")) {
+    throw new Error('Knowledge query page still contains full answers or citations')
+  }
+  await clickSelector(client, '[data-testid="knowledge-nav-sources"]')
+  await waitForExpression(client, "location.pathname === '/student/knowledge/sources' && Boolean(document.querySelector('.citation-row'))")
+  await waitForExpression(client, `new URLSearchParams(location.search).get('q') === ${JSON.stringify(query)} && new URLSearchParams(location.search).get('ai') === '0'`)
+  await setDetailsOpen(client, '.citation-row', true)
+  if (!await elementBox(client, "Boolean(document.querySelector('.citation-row div')?.textContent.trim())")) throw new Error('Source page does not expose citation text')
+  const citationsBeforeRefresh = await elementBox(client, "[...document.querySelectorAll('.citation-row summary')].map(item => item.innerText)")
+  const sourceUrl = await elementBox(client, 'location.href')
+  const sourceCalls = []
+  const stopSourceCalls = client.on('Network.requestWillBeSent', ({ request }) => {
+    if (request.method === 'POST' && /\/api\/ai\//.test(request.url)) sourceCalls.push(request.url)
+  })
+  try {
+    await navigate(client, sourceUrl)
+    await waitForExpression(client, "Boolean(document.querySelector('.citation-row'))")
+    const restoredCitations = await elementBox(client, "[...document.querySelectorAll('.citation-row summary')].map(item => item.innerText)")
+    if (JSON.stringify(restoredCitations) !== JSON.stringify(citationsBeforeRefresh)) throw new Error('Citation source context changed after refresh')
+    await browserBack(client)
+    await waitForExpression(client, "location.pathname === '/student/knowledge'")
+    await assertInputValue(client, '.knowledge-search input', query)
+    if (sourceCalls.length) throw new Error(`Knowledge source navigation repeats AI request: ${JSON.stringify(sourceCalls)}`)
+  } finally { stopSourceCalls() }
+  await navigate(client, `${baseUrl}/student/knowledge`)
   await fillInput(client, '.knowledge-search input', '')
   await clickSelector(client, '.knowledge-search button')
   await waitForText(client, '请输入检索关键词')
-  await navigate(client, `${baseUrl}/student/knowledge`)
+  await navigate(client, `${baseUrl}/student/knowledge/history`)
   await waitForText(client, '最近查询')
   await waitForText(client, query)
   await screenshot(client, '00f-retrieval-only-rag.png')
+  await verifyKnowledgeLateResponse(client, query, 'history')
+  await verifyKnowledgeLateResponse(client, query, 'edit')
+  await verifyKnowledgePermissionRevision(client, query)
+}
+
+async function knowledgeSnapshot(client, required = true) {
+  const snapshot = await elementBox(client, `(() => {
+    const key = 'aicampus.knowledge-result.' + localStorage.getItem('userId');
+    try { return JSON.parse(sessionStorage.getItem(key) || 'null') } catch { return null }
+  })()`)
+  if (required && (!snapshot?.answer?.citations?.length || !snapshot.answer.permissionVersion)) {
+    throw new Error('Knowledge navigation boundary tests require a current quoted answer snapshot')
+  }
+  return snapshot
+}
+
+async function verifyKnowledgeLateResponse(client, stableQuery, mode) {
+  const snapshot = await knowledgeSnapshot(client)
+  const pendingQuery = `E2E pending ${mode} ${Date.now()}`
+  const marker = `E2E_LATE_ANSWER_${Date.now()}`
+  let paused
+  let interceptionError
+  let released = false
+  const stopListening = client.on('Fetch.requestPaused', params => {
+    void (async () => {
+      try {
+        const body = JSON.parse(params.request.postData || '{}')
+        if (params.request.method === 'POST' && body.query === pendingQuery) paused = params
+        else await client.send('Fetch.continueRequest', { requestId: params.requestId })
+      } catch (error) { interceptionError = error }
+    })()
+  })
+  try {
+    await client.send('Fetch.enable', { patterns: [{ urlPattern: '*/api/ai/knowledge/answer', requestStage: 'Request' }] })
+    await navigate(client, `${baseUrl}/student/knowledge?q=${encodeURIComponent(stableQuery)}&ai=0`)
+    await waitForExpression(client, "Boolean(document.querySelector('.knowledge-mode .el-switch'))")
+    await clickSelector(client, '.knowledge-mode .el-switch')
+    await waitForExpression(client, "document.querySelector('.knowledge-mode .el-switch')?.getAttribute('aria-checked') === 'true' || Boolean(document.querySelector('.knowledge-mode .el-switch input')?.checked)")
+    await fillInput(client, '.knowledge-search input', pendingQuery)
+    await clickSelector(client, '.knowledge-search button')
+    for (let index = 0; index < 40 && !paused && !interceptionError; index++) await sleep(100)
+    if (interceptionError) throw interceptionError
+    if (!paused) throw new Error(`Knowledge ${mode} delayed query was not intercepted`)
+    if (mode === 'history') {
+      await clickSelector(client, '[data-testid="knowledge-nav-history"]')
+      await waitForExpression(client, "location.pathname === '/student/knowledge/history'")
+      await clickElementContaining(client, '.knowledge-history button.module-record', stableQuery)
+      await waitForExpression(client, `location.pathname === '/student/knowledge' && new URLSearchParams(location.search).get('q') === ${JSON.stringify(stableQuery)}`)
+      await waitForExpression(client, "Boolean(document.querySelector('.knowledge-retrieval .retrieval-result')) && !document.querySelector('.knowledge-search button.is-loading')")
+    } else {
+      await fillInput(client, '.knowledge-search input', stableQuery)
+    }
+    const staleAnswer = { ...snapshot.answer, query: pendingQuery, answer: marker, generationMode: 'AI', provider: 'e2e' }
+    await client.send('Fetch.fulfillRequest', { requestId: paused.requestId, responseCode: 200,
+      responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
+      body: Buffer.from(JSON.stringify({ code: 0, message: 'success', data: staleAnswer })).toString('base64') })
+    released = true
+    await sleep(800)
+    await waitForExpression(client, "location.pathname === '/student/knowledge'")
+    await assertInputValue(client, '.knowledge-search input', stableQuery)
+    if ((await bodyText(client)).includes(marker)) throw new Error(`Late ${mode} answer overwrote current knowledge context`)
+    const saved = await knowledgeSnapshot(client, false)
+    if (saved?.query === pendingQuery || saved?.answer?.answer.includes(marker)) throw new Error(`Late ${mode} answer replaced the stored knowledge result`)
+    if (mode === 'history') {
+      await waitForExpression(client, `new URLSearchParams(location.search).get('q') === ${JSON.stringify(stableQuery)}`)
+    }
+    await screenshot(client, `knowledge-late-${mode}-ignored.png`)
+  } finally {
+    if (paused && !released) {
+      try { await client.send('Fetch.failRequest', { requestId: paused.requestId, errorReason: 'Aborted' }) } catch {}
+    }
+    await client.send('Fetch.disable')
+    stopListening()
+  }
+  await navigate(client, `${baseUrl}/student/knowledge`)
+  await fillInput(client, '.knowledge-search input', stableQuery)
+  await clickSelector(client, '.knowledge-search button')
+  await waitForExpression(client, "Boolean(document.querySelector('.knowledge-retrieval .retrieval-result'))")
+}
+
+async function verifyKnowledgePermissionRevision(client, query) {
+  const snapshot = await knowledgeSnapshot(client)
+  const changedRevision = `e2e-changed-${snapshot.answer.permissionVersion}-${Date.now()}`
+  const answerCalls = []
+  const stopCalls = client.on('Network.requestWillBeSent', ({ request }) => {
+    if (request.method === 'POST' && new URL(request.url).pathname === '/api/ai/knowledge/answer') answerCalls.push(request.url)
+  })
+  try {
+    await withApiOverrides(client, [{ path: '/api/ai/knowledge/revision', data: changedRevision }], async () => {
+      await navigate(client, `${baseUrl}/student/knowledge/sources?q=${encodeURIComponent(query)}&ai=0`)
+      await assertOnlyModulePage(client, 'knowledge', 'sources')
+      await waitForExpression(client, "Boolean(document.querySelector('.knowledge-error'))")
+      if (await elementBox(client, "Boolean(document.querySelector('.citation-row'))")) throw new Error('Changed knowledge revision restored stale citations')
+      await waitForText(client, '重新检索')
+      await screenshot(client, 'knowledge-revision-invalidated-sources.png')
+      if (answerCalls.length) throw new Error(`Knowledge revision validation repeated answer generation: ${JSON.stringify(answerCalls)}`)
+    })
+  } finally { stopCalls() }
+  await navigate(client, `${baseUrl}/student/knowledge`)
+  await fillInput(client, '.knowledge-search input', query)
+  await clickSelector(client, '.knowledge-search button')
+  await waitForExpression(client, "Boolean(document.querySelector('.knowledge-retrieval .retrieval-result'))")
+  await clickSelector(client, '[data-testid="knowledge-nav-sources"]')
+  await waitForExpression(client, "Boolean(document.querySelector('.citation-row')) && !document.querySelector('.knowledge-error')")
+  await screenshot(client, 'knowledge-revision-fresh-search-restored.png')
 }
 
 async function fetchFixtureData(client, route) {
@@ -795,7 +1097,7 @@ async function startBrowser() {
   const port = Number(process.env.E2E_CDP_PORT || 9300 + Math.floor(Math.random() * 600))
   const userDataDir = path.join(process.env.TEMP || artifactsDir, `aicampus-e2e-${Date.now()}`)
   const proc = spawn(browserPath, [
-    '--headless=new',
+    ...(process.env.E2E_HEADED === '1' ? [] : ['--headless=new']),
     '--disable-gpu',
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${userDataDir}`,
@@ -879,6 +1181,7 @@ async function connect(wsUrl) {
 async function enablePage(client, width, height) {
   await client.send('Page.enable')
   await client.send('Runtime.enable')
+  await client.send('Network.enable')
   await client.send('Input.setIgnoreInputEvents', { ignore: false })
   await client.send('Emulation.setDeviceMetricsOverride', {
     width,
@@ -912,7 +1215,7 @@ async function fillInput(client, selector, value) {
     const root = document.querySelector(${JSON.stringify(selector)});
     const input = root && /^(INPUT|TEXTAREA)$/.test(root.tagName) ? root : root?.querySelector('input, textarea');
     if (!input) return false;
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    const setter = Object.getOwnPropertyDescriptor(input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value')?.set;
     setter?.call(input, ${JSON.stringify(value)});
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1008,7 +1311,7 @@ async function clickElementByData(client, selector, dataName, expectedValue) {
 async function clickSessionCard(client, sessionId) {
   for (let index = 0; index < 30; index += 1) {
     const box = await elementBox(client, `(() => {
-      const element = [...document.querySelectorAll('.session-card')].find((item) => item.getClientRects().length
+      const element = [...document.querySelectorAll('[data-testid="interview-history"] [data-session-id]')].find((item) => item.getClientRects().length
         && item.dataset.sessionId === ${JSON.stringify(sessionId)});
       if (!element) return null;
       element.scrollIntoView({ block: 'center', inline: 'nearest' });
@@ -1048,20 +1351,18 @@ async function assertInputValue(client, selector, expectedValue) {
 }
 
 async function assertReadOnlyPersistedTask(client, feedback) {
-  await openTaskManagement(client, feedback)
   for (let index = 0; index < 30; index += 1) {
     const state = await elementBox(client, `(() => {
       const row = [...document.querySelectorAll('.task-row')].find((item) =>
         [...item.querySelectorAll('input, textarea')].some((input) => input.value === ${JSON.stringify(feedback)}));
       const feedbackInput = row && [...row.querySelectorAll('input, textarea')]
         .find((input) => input.value === ${JSON.stringify(feedback)});
-      const replanInput = document.querySelector('.replan-form textarea');
       return {
         feedbackReadOnly: Boolean(feedbackInput && (feedbackInput.disabled || feedbackInput.readOnly)),
-        replanReadOnly: Boolean(replanInput && (replanInput.disabled || replanInput.readOnly))
+        evidenceReadOnly: !document.querySelector('[data-testid="plan-task"] .evidence-input')
       };
     })()`)
-    if (state?.feedbackReadOnly && state?.replanReadOnly) {
+    if (state?.feedbackReadOnly && state?.evidenceReadOnly) {
       return
     }
     await sleep(500)
@@ -1126,7 +1427,7 @@ async function assertNoHorizontalOverflow(client) {
   }
 }
 
-async function verifyStudentScrolling(client) {
+async function verifyStudentScrolling(client, fixture) {
   const results = []
   for (const [width, height] of [[1440, 720], [390, 844], [320, 900]]) {
     const mode = width < 700 ? 'touch' : 'wheel'
@@ -1147,6 +1448,33 @@ async function verifyStudentScrolling(client) {
           await waitForExpression(client, "!document.querySelector('.side-nav.is-open') && !document.querySelector('.nav-backdrop')")
           await assertDocumentScrolling(client, mode, `${label}-drawer-closed`)
         }
+      }
+    }
+    if (width <= 390) {
+      const planQuery = fixture ? `?planId=${encodeURIComponent(fixture.planId)}` : ''
+      const sessionQuery = fixture ? `?sessionId=${encodeURIComponent(fixture.sessionId)}` : ''
+      const routes = [
+        ['resume', 'profile', '/student/resume/profile'], ['resume', 'templates', '/student/resume/templates'],
+        ['resume', 'edit', '/student/resume/edit'], ['resume', 'diagnosis', '/student/resume/diagnosis'],
+        ['resume', 'versions', '/student/resume/versions'], ['resume', 'history', '/student/resume/history'],
+        ['plan', 'tasks', '/student/plan/tasks' + planQuery], ['plan', 'create', '/student/plan/create' + planQuery],
+        ['plan', 'review', '/student/plan/review' + planQuery], ['plan', 'history', '/student/plan/history' + planQuery],
+        ['interview', 'practice', '/student/interview/practice' + sessionQuery],
+        ['interview', 'report', '/student/interview/report' + sessionQuery], ['interview', 'history', '/student/interview/history' + sessionQuery],
+        ['knowledge', 'answer', '/student/knowledge/answer'], ['knowledge', 'sources', '/student/knowledge/sources'],
+        ['knowledge', 'history', '/student/knowledge/history']
+      ]
+      if (fixture) {
+        routes.push(['resume', 'original', `/student/resume/original/${encodeURIComponent(fixture.resumeId)}`])
+        routes.push(['resume', 'original-diagnosis', `/student/resume/original/${encodeURIComponent(fixture.resumeId)}/diagnosis`])
+        const plan = await fetchFixtureData(client, `/api/ai/learning/plans/${encodeURIComponent(fixture.planId)}`)
+        if (plan.tasks?.length) routes.push(['plan', 'task', `/student/plan/tasks/${encodeURIComponent(plan.tasks[0].taskId)}${planQuery}`])
+      }
+      for (const [module, page, route] of routes) {
+        await navigate(client, baseUrl + route)
+        await assertOnlyModulePage(client, module, page)
+        await assertNoHorizontalOverflow(client)
+        results.push({ module, page, width, height, ...await assertDocumentScrolling(client, mode, `${module}-${page}-${width}x${height}`) })
       }
     }
   }
@@ -1339,7 +1667,7 @@ async function assertStudentWorkspace(client, module) {
   }
 
   if (module === 'interview') {
-    await assertText(client, ['开始模拟面试', '本次目标岗位', '题目数量', '会话历史'])
+    await assertText(client, ['开始模拟面试', '本次目标岗位', '题目数量'])
     await assertNoText(client, ['模拟面试会话', 'AI INTERVIEW STUDIO'])
     await waitForExpression(client, "Boolean(document.querySelector('.target-role-editor input')?.getClientRects().length)")
   }
@@ -1355,30 +1683,12 @@ async function assertStudentWorkspace(client, module) {
   }
 
   if (module === 'plan') {
-    await waitForExpression(client, "!document.querySelector('.plan-builder .el-loading-mask') && Boolean(document.querySelector('.task-panel, .plan-builder-fields'))")
-    const hasTasks = await elementBox(client, "Boolean(document.querySelector('.task-panel'))")
-    if (!hasTasks) {
-      await assertText(client, ['生成学习计划'])
-      return
-    }
-    await assertText(client, ['任务进度', '历史版本与重新规划'])
-    const layout = await elementBox(client, `(() => {
-      const tasks = document.querySelector('.task-panel');
-      const history = document.querySelector('.plan-sidebar');
-      const collapsedBuilder = document.querySelector('.plan-builder-collapsed');
-      return {
-        historyIsDetails: history?.tagName === 'DETAILS',
-        historyClosed: history?.open === false,
-        tasksFirst: Boolean(tasks && history && (tasks.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING)),
-        duplicateBuilderTitle: Boolean(collapsedBuilder && document.querySelector('.plan-builder h2'))
-      };
-    })()`)
-    if (!layout?.historyIsDetails || !layout.historyClosed || !layout.tasksFirst || layout.duplicateBuilderTitle) {
-      throw new Error(`Learning page does not prioritize tasks and collapsed history: ${JSON.stringify(layout)}`)
-    }
-    await setDetailsOpen(client, '.plan-sidebar', true)
-    await waitForExpression(client, "Boolean(document.querySelector('.plan-sidebar .el-select')?.getClientRects().length) && Boolean(document.querySelector('.plan-sidebar .replan-form textarea')?.getClientRects().length)")
-    await setDetailsOpen(client, '.plan-sidebar', false)
+    await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"plan-today\"]'))")
+  }
+  if (module !== 'jobs') {
+    await waitForExpression(client, `Boolean(document.querySelector('[data-testid="${module}-subnav"]'))`)
+    const rootPage = { resume: 'preview', plan: 'today', interview: 'start', knowledge: 'search' }[module]
+    await assertOnlyModulePage(client, module, rootPage)
   }
 }
 
@@ -1398,7 +1708,9 @@ async function openTaskManagement(client, feedback) {
   if (!Number.isInteger(taskIndex) || taskIndex < 0) {
     throw new Error(`Task with persisted feedback is missing: ${feedback}`)
   }
-  await setDetailsOpen(client, `.task-list > .task-row:nth-child(${taskIndex + 1}) .task-management-details`, true)
+  if (await elementBox(client, "Boolean(document.querySelector('.task-management-details'))")) {
+    await setDetailsOpen(client, `.task-row:nth-child(${taskIndex + 1}) .task-management-details`, true)
+  }
 }
 
 async function assertDetailsToggle(client, selector) {
@@ -1439,7 +1751,6 @@ async function assertSelectDisplay(client, expected) {
 }
 
 async function assertPersistedTask(client, feedback) {
-  await openTaskManagement(client, feedback)
   for (let index = 0; index < 30; index += 1) {
     const found = await elementBox(client, `(() => [...document.querySelectorAll('.task-row')]
       .some((row) => row.innerText.includes('已完成')

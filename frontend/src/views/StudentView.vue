@@ -22,6 +22,7 @@ import {
   List,
   MapPin,
   PencilLine,
+  Plus,
   RefreshCw,
   Search,
   Sparkles,
@@ -39,6 +40,7 @@ import {
   deleteResume,
   finishInterviewSession,
   getProfile,
+  getKnowledgeRevision,
   getInterviewSession,
   getLearningReminders,
   getLearningToday,
@@ -94,6 +96,7 @@ import {
 
 import ResumeEvidencePanel from '../features/student/ResumeEvidencePanel.vue'
 import ResumeBuilderPanel from '../features/student/ResumeBuilderPanel.vue'
+import StudentModuleNav from '../features/student/StudentModuleNav.vue'
 import LearningEvidenceForm from '../features/student/LearningEvidenceForm.vue'
 import InterviewFeedbackPanel from '../features/student/InterviewFeedbackPanel.vue'
 import {
@@ -105,6 +108,17 @@ const route = useRoute()
 const router = useRouter()
 const markdown = new MarkdownIt({ breaks: true, linkify: true })
 const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'resume')
+const resumePage = computed(() => String(route.meta.resumePage || 'editor'))
+const planPage = computed(() => String(route.meta.planPage || 'today'))
+const interviewPage = computed(() => String(route.meta.interviewPage || 'start'))
+const knowledgePage = computed(() => String(route.meta.knowledgePage || 'search'))
+const queryValue = (key: string) => typeof route.query[key] === 'string' ? String(route.query[key]) : ''
+const moduleDataReady = reactive({ resume: false, plan: false, interview: false, knowledge: false })
+const moduleLoadError = ref('')
+const planListWeek = ref<number | undefined>()
+const planListPage = ref(1)
+const modulePageSize = 12
+let moduleLoadRequest = 0
 const profile = ref<UserProfile>()
 const targetRole = ref('')
 const resumes = ref<ResumeSummary[]>([])
@@ -151,10 +165,6 @@ let jobsReadRequest = 0
 
 const plans = ref<LearningPlan[]>([])
 const selectedPlanId = ref('')
-// Keep the first visit focused on the plan itself. The full builder is still
-// available through the compact settings bar whenever students need it.
-const planBuilderOpen = ref(false)
-let planBuilderInitialized = false
 const planVersions = ref<LearningPlan[]>([])
 const planLoading = ref(false)
 const planActionLoading = ref(false)
@@ -192,6 +202,7 @@ const weeklyReviewData = ref<LearningWeeklyReview>()
 const taskFeedback = ref<Record<string, string>>({})
 const taskDraftsByPlan = new Map<string, Record<string, string>>()
 let taskFeedbackPlanId = ''
+let hydratingTaskFeedback = false
 const taskSavingIds = ref<string[]>([])
 const taskErrors = ref<Record<string, string>>({})
 const taskRetryStatus = ref<Record<string, string>>({})
@@ -217,11 +228,14 @@ const knowledgeQuery = ref('')
 const knowledgeAnswer = ref<KnowledgeAnswerResponse>()
 const knowledgeRetrieval = ref<AiSearchResponse>()
 const knowledgeLoading = ref(false)
+const knowledgeRestoring = ref(false)
 const knowledgeUseAi = ref(false)
 const knowledgeAnswerUsedAi = ref(false)
 const knowledgeError = ref('')
 const knowledgeRecentQueries = ref<string[]>([])
 let knowledgeRequestKey = 0
+let knowledgeRestoreRequest = 0
+let knowledgeSearchContext = ''
 
 const selectedResume = computed(() => resumes.value.find((resume) => resume.resumeId === selectedResumeId.value))
 const selectedJob = computed(() => jobs.value.find((job) => job.jobId === selectedJobId.value))
@@ -229,7 +243,29 @@ const selectedPlan = computed(() => plans.value.find((plan) => plan.planId === s
 const selectedPlanIsActive = computed(() => selectedPlan.value?.status === 'ACTIVE')
 const selectedSession = computed(() => interviewSessions.value.find((session) => session.sessionId === selectedSessionId.value))
 const activeQuestion = computed(() => selectedSession.value?.questions[activeQuestionIndex.value])
-const interviewHistoryOpen = computed(() => route.query.tab === 'history')
+const interviewHistoryOpen = computed(() => interviewPage.value === 'history')
+const selectedTask = computed(() => selectedPlan.value?.tasks.find(task => task.taskId === route.params.taskId))
+const filteredPlanTasks = computed(() => (selectedPlan.value?.tasks || []).filter(task => !planListWeek.value || task.week === planListWeek.value))
+const pagedPlanTasks = computed(() => filteredPlanTasks.value.slice((planListPage.value - 1) * modulePageSize, planListPage.value * modulePageSize))
+const visibleTodayTasks = computed(() => (todayPlanData.value?.tasks || todayTasks.value)
+  .filter(task => !['COMPLETED', 'SKIPPED'].includes(taskDisplayStatus(task))).slice(0, 5))
+const pendingEvidenceTasks = computed(() => planTasks.value.filter(task => task.status === 'COMPLETED' && !task.evidence?.length).slice(0, 3))
+const invalidPlan = computed(() => moduleDataReady.plan && Boolean(queryValue('planId')) && !selectedPlan.value)
+const invalidSession = computed(() => moduleDataReady.interview && Boolean(queryValue('sessionId')) && !selectedSession.value)
+const invalidOriginal = computed(() => moduleDataReady.resume && Boolean(route.params.resumeId) && !selectedResume.value)
+const moduleContext = computed<Record<string, string>>(() => {
+  const context: Record<string, string> = {}
+  if (activeModule.value === 'resume' && queryValue('draftId')) context.draftId = queryValue('draftId')
+  if (activeModule.value === 'plan' && selectedPlanId.value) context.planId = selectedPlanId.value
+  if (activeModule.value === 'interview' && selectedSessionId.value) context.sessionId = selectedSessionId.value
+  if (activeModule.value === 'knowledge' && queryValue('q')) {
+    context.q = queryValue('q')
+    if (queryValue('ai')) context.ai = queryValue('ai')
+  }
+  if (queryValue('matchId') && ['plan', 'interview'].includes(activeModule.value)) context.matchId = queryValue('matchId')
+  return context
+})
+const selectedKnowledgeCitation = computed(() => knowledgeAnswer.value?.citations.find(citation => citation.chunkId === queryValue('source')))
 const filteredJobs = computed(() => filterJobs(jobs.value, {
   keyword: jobSearch.value,
   city: jobCityFilter.value,
@@ -586,8 +622,10 @@ async function loadPlanInsights(plan?: LearningPlan) {
     }
   } catch {
     // Keep derived local schedule data when the optional insight endpoints are unavailable.
-    todayPlanData.value = undefined
-    weeklyReviewData.value = undefined
+    if (selectedPlanId.value === plan.planId) {
+      todayPlanData.value = undefined
+      weeklyReviewData.value = undefined
+    }
   }
 }
 
@@ -706,7 +744,9 @@ function persistSelection() {
 
 function syncSelectedResume() {
   const saved = storedSelection()
-  if (!selectedResumeId.value || !resumes.value.some((resume) => resume.resumeId === selectedResumeId.value)) {
+  if (activeModule.value === 'resume' && typeof route.params.resumeId === 'string') {
+    selectedResumeId.value = route.params.resumeId
+  } else if (!selectedResumeId.value || !resumes.value.some((resume) => resume.resumeId === selectedResumeId.value)) {
     selectedResumeId.value = resumes.value.find((resume) => resume.resumeId === saved.resumeId)?.resumeId || resumes.value[0]?.resumeId || ''
   }
   hydrateResumeForm(selectedResume.value)
@@ -723,7 +763,8 @@ async function loadResumeData() {
     syncSelectedResume()
     await loadDiagnoses()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '简历数据加载失败')
+    moduleLoadError.value = error instanceof Error ? error.message : '简历数据加载失败'
+    ElMessage.error(moduleLoadError.value)
   } finally {
     resumeLoading.value = false
   }
@@ -778,11 +819,13 @@ async function handleResumeUpload(event: Event) {
     return
   }
   resumeActionLoading.value = true
+  const uploadPage = route.fullPath
   try {
     const uploaded = await uploadResume(file)
     resumes.value = [uploaded, ...resumes.value.filter((resume) => resume.resumeId !== uploaded.resumeId)]
     selectedResumeId.value = uploaded.resumeId
     await selectResume()
+    if (route.fullPath === uploadPage) await openOriginalResume(uploaded.resumeId)
     ElMessage.success('简历已上传')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '简历上传失败')
@@ -1112,18 +1155,16 @@ async function openMatchWorkspace(module: 'plan' | 'interview') {
     return
   }
   await restoreMatch(currentMatch.value)
-  await router.push({ path: `/student/${module}`, query: { matchId: currentMatch.value.matchId } })
+  await router.push({ path: module === 'plan' ? '/student/plan/create' : '/student/interview', query: { matchId: currentMatch.value.matchId } })
 }
 
 async function loadPlans() {
   planLoading.value = true
   try {
     plans.value = await listLearningPlans()
-    if (!planBuilderInitialized) {
-      planBuilderOpen.value = plans.value.length === 0
-      planBuilderInitialized = true
-    }
-    if (!selectedPlanId.value || !plans.value.some((plan) => plan.planId === selectedPlanId.value)) {
+    if (queryValue('planId')) {
+      selectedPlanId.value = queryValue('planId')
+    } else if (!selectedPlanId.value || !plans.value.some((plan) => plan.planId === selectedPlanId.value)) {
       const preferredPlan = [...plans.value]
         .filter((plan) => plan.status === 'ACTIVE')
         .sort((left, right) => right.version - left.version)[0]
@@ -1132,7 +1173,8 @@ async function loadPlans() {
     }
     await loadPlanVersions()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '学习计划加载失败')
+    moduleLoadError.value = error instanceof Error ? error.message : '学习计划加载失败'
+    ElMessage.error(moduleLoadError.value)
   } finally {
     planLoading.value = false
   }
@@ -1153,7 +1195,7 @@ async function loadPlanVersions() {
   }
   syncTaskFeedback(plan)
   void loadPlanInsights(plan)
-  if (!selectedPlanId.value) {
+  if (!plan) {
     planVersions.value = []
     return
   }
@@ -1170,8 +1212,11 @@ async function loadPlanVersions() {
 function syncTaskFeedback(plan?: LearningPlan) {
   if (taskFeedbackPlanId) taskDraftsByPlan.set(taskFeedbackPlanId, { ...taskFeedback.value })
   taskFeedbackPlanId = plan?.planId || ''
-  const drafts = plan?.status === 'ACTIVE' ? taskDraftsByPlan.get(taskFeedbackPlanId) || {} : {}
+  const drafts = plan?.status === 'ACTIVE' ? taskDraftsByPlan.get(taskFeedbackPlanId)
+    || readStudentDraft(sessionStorage, profile.value?.userId || '', 'learning-notes', taskFeedbackPlanId) : {}
+  hydratingTaskFeedback = true
   taskFeedback.value = Object.fromEntries((plan?.tasks || []).map((task) => [task.taskId, drafts[task.taskId] ?? task.feedback ?? '']))
+  hydratingTaskFeedback = false
   taskErrors.value = {}
 }
 
@@ -1180,6 +1225,7 @@ async function createPlan() {
     return
   }
   planActionLoading.value = true
+  const requestPath = route.fullPath
   try {
     const plan = await createLearningPlan({
       studentId: profile.value?.userId,
@@ -1205,9 +1251,11 @@ async function createPlan() {
     }
     persistLearningWorkspaceMeta()
     plans.value = [plan, ...plans.value.filter((item) => item.planId !== plan.planId)]
-    selectedPlanId.value = plan.planId
-    planBuilderOpen.value = false
-    await loadPlanVersions()
+    if (route.fullPath === requestPath) {
+      selectedPlanId.value = plan.planId
+      await loadPlanVersions()
+      await openPlanPage('tasks', plan.planId)
+    }
     ElMessage.success('学习计划已生成')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '学习计划生成失败')
@@ -1308,6 +1356,7 @@ async function replan() {
     return
   }
   planActionLoading.value = true
+  const requestPath = route.fullPath
   try {
     const revised = await replanLearningPlan(plan.planId, {
       reason: planForm.replanReason.trim(),
@@ -1319,6 +1368,7 @@ async function replan() {
       interviewSessionId: compatibleInterviewSessionId.value,
       previewOnly: true
     })
+    if (route.fullPath !== requestPath || selectedPlanId.value !== plan.planId) return
     replanPreview.value = revised
     replanPreviewSourceId.value = plan.planId
     replanPreviewOpen.value = true
@@ -1349,6 +1399,7 @@ async function confirmReplan() {
     replanPreviewOpen.value = false
     replanPreview.value = undefined
     await loadPlanVersions()
+    await openPlanPage('tasks', revised.planId)
     ElMessage.success(`已生成 V${revised.version} 学习计划`)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '学习计划重规划失败')
@@ -1365,7 +1416,7 @@ function recordTaskEvidence(evidence: LearningEvidence) {
 
 function openResumeCandidateFromEvidence(evidence: LearningEvidence) {
   ElMessage.info('成果已记录。打开简历页面后，可在主资料中选择它作为候选经历。')
-  void router.push('/student/resume')
+  void router.push('/student/resume/profile')
 }
 
 function openInterviewFollowUpFromEvidence(evidence: LearningEvidence) {
@@ -1410,11 +1461,14 @@ async function loadInterviewSessions() {
     const sessions = await listInterviewSessions()
     if (requestId !== interviewReadRequest) return
     interviewSessions.value = sessions
-    if (!selectedSessionId.value || !interviewSessions.value.some((session) => session.sessionId === selectedSessionId.value)) {
+    if (activeModule.value === 'interview' && queryValue('sessionId')) {
+      selectedSessionId.value = queryValue('sessionId')
+    } else if (!selectedSessionId.value || !interviewSessions.value.some((session) => session.sessionId === selectedSessionId.value)) {
       selectedSessionId.value = interviewSessions.value[0]?.sessionId || ''
     }
     syncSessionDrafts(selectedSession.value)
   } catch (error) {
+    if (requestId === interviewReadRequest) moduleLoadError.value = error instanceof Error ? error.message : '模拟面试会话加载失败'
     ElMessage.error(error instanceof Error ? error.message : '模拟面试会话加载失败')
   } finally {
     if (requestId === interviewReadRequest) interviewLoading.value = false
@@ -1422,7 +1476,7 @@ async function loadInterviewSessions() {
 }
 
 async function selectSession() {
-  if (!selectedSessionId.value) {
+  if (!selectedSession.value) {
     return
   }
   const sessionId = selectedSessionId.value
@@ -1451,6 +1505,7 @@ async function startInterview() {
     return
   }
   const matchedContext = selectedContextMatch.value
+  const requestPath = route.fullPath
   interviewActionLoading.value = true
   try {
     const session = await createInterviewSession({
@@ -1462,10 +1517,12 @@ async function startInterview() {
       questionCount: interviewQuestionCount.value
     })
     interviewSessions.value = [session, ...interviewSessions.value]
-    selectedSessionId.value = session.sessionId
-    sessionReport.value = undefined
-    syncSessionDrafts(session)
-    await router.replace({ path: '/student/interview' })
+    if (route.fullPath === requestPath) {
+      selectedSessionId.value = session.sessionId
+      sessionReport.value = undefined
+      syncSessionDrafts(session)
+      await openInterviewPage('practice', session.sessionId)
+    }
     ElMessage.success('模拟面试已开始')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '模拟面试创建失败')
@@ -1548,12 +1605,16 @@ async function finishInterview() {
     return
   }
   interviewActionLoading.value = true
+  const requestPath = route.fullPath
   try {
     const report = await finishInterviewSession(session.sessionId)
     interviewSessions.value = interviewSessions.value.map((item) => item.sessionId === session.sessionId
       ? { ...item, status: 'COMPLETED', report } : item)
     writeStudentDraft(sessionStorage, profile.value?.userId || '', 'interview', session.sessionId, {})
-    if (selectedSessionId.value === session.sessionId) await selectSession()
+    if (selectedSessionId.value === session.sessionId) {
+      await selectSession()
+      if (route.fullPath === requestPath) await openInterviewPage('report', session.sessionId)
+    }
     ElMessage.success('模拟面试报告已生成')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '模拟面试完成失败')
@@ -1572,7 +1633,12 @@ async function runKnowledgeSearch() {
   }
   const query = knowledgeQuery.value.trim()
   const useAi = knowledgeUseAi.value
+  knowledgeRestoreRequest++
+  knowledgeRestoring.value = false
+  await router.replace({ path: '/student/knowledge', query: { q: query, ai: useAi ? '1' : '0' } })
+  knowledgeRestoreRequest++
   const requestKey = ++knowledgeRequestKey
+  knowledgeSearchContext = JSON.stringify([query, useAi])
   knowledgeError.value = ''
   knowledgeAnswer.value = undefined
   knowledgeRetrieval.value = undefined
@@ -1580,21 +1646,126 @@ async function runKnowledgeSearch() {
   knowledgeLoading.value = true
   try {
     const answer = await answerKnowledgeBase({ query, role: 'STUDENT', limit: 5, useAi })
-    if (requestKey !== knowledgeRequestKey) return
+    if (requestKey !== knowledgeRequestKey || activeModule.value !== 'knowledge' || queryValue('q') !== query
+      || (queryValue('ai') === '1') !== useAi || knowledgeQuery.value.trim() !== query || knowledgeUseAi.value !== useAi) return
     knowledgeAnswer.value = { ...answer, citations: answer.citations || [] }
     knowledgeRetrieval.value = retrievalFromAnswer(answer)
     saveKnowledgeQuery(query)
+    try { sessionStorage.setItem(knowledgeResultStorageKey(), JSON.stringify({ query, useAi, answer, savedAt: Date.now() })) }
+    catch { /* Retrieval still works when browser storage is unavailable. */ }
+    if (activeModule.value === 'knowledge' && knowledgePage.value === 'search' && useAi) await openKnowledgePage('answer')
     if (!answer.citations?.length) ElMessage.warning('没有找到可引用的知识资料')
   } catch (error) {
-    knowledgeError.value = error instanceof Error ? error.message : '知识库检索失败'
+    if (requestKey === knowledgeRequestKey) knowledgeError.value = error instanceof Error ? error.message : '知识库检索失败'
   } finally {
-    knowledgeLoading.value = false
+    if (requestKey === knowledgeRequestKey) {
+      knowledgeLoading.value = false
+      knowledgeSearchContext = ''
+    }
   }
 }
 
+function knowledgeResultStorageKey() { return `aicampus.knowledge-result.${profile.value?.userId || ''}` }
+
+async function restoreKnowledgeResult() {
+  const query = queryValue('q')
+  const useAi = queryValue('ai') === '1'
+  if (knowledgeLoading.value && knowledgeSearchContext !== JSON.stringify([query, useAi])) {
+    knowledgeRequestKey++
+    knowledgeLoading.value = false
+    knowledgeSearchContext = ''
+  }
+  if (!query) {
+    knowledgeAnswer.value = undefined
+    knowledgeRetrieval.value = undefined
+    knowledgeRestoring.value = false
+    return
+  }
+  knowledgeQuery.value = query
+  knowledgeUseAi.value = useAi
+  if (knowledgeLoading.value) return
+  knowledgeAnswer.value = undefined
+  knowledgeRetrieval.value = undefined
+  const request = ++knowledgeRestoreRequest
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(knowledgeResultStorageKey()) || '{}')
+    if (saved.query !== query || saved.useAi !== useAi || !Number.isFinite(saved.savedAt) || Date.now() - saved.savedAt > 600000) return
+    const answer = saved.answer as KnowledgeAnswerResponse
+    if (!answer || answer.query !== query || !Array.isArray(answer.citations)) return
+    knowledgeRestoring.value = true
+    // This read validates saved material and permissions without invoking any model.
+    const revision = await getKnowledgeRevision()
+    if (request !== knowledgeRestoreRequest || activeModule.value !== 'knowledge' || queryValue('q') !== query || (queryValue('ai') === '1') !== useAi) return
+    if (!answer.permissionVersion || revision !== answer.permissionVersion) {
+      sessionStorage.removeItem(knowledgeResultStorageKey())
+      knowledgeError.value = '引用资料已更新或不可访问，请重新检索。'
+      return
+    }
+    knowledgeAnswer.value = saved.answer
+    knowledgeAnswerUsedAi.value = saved.useAi
+    knowledgeRetrieval.value = retrievalFromAnswer(saved.answer)
+    knowledgeError.value = ''
+  } catch {
+    if (request === knowledgeRestoreRequest && activeModule.value === 'knowledge') {
+      knowledgeError.value = '暂时无法核对引用资料，请重新检索。'
+    }
+  } finally {
+    if (request === knowledgeRestoreRequest) knowledgeRestoring.value = false
+  }
+}
+
+function openPlanPage(page: string, planId = selectedPlanId.value, taskId?: string) {
+  const path = page === 'today' ? '/student/plan' : page === 'task' ? `/student/plan/tasks/${encodeURIComponent(taskId || '')}` : `/student/plan/${page}`
+  return router.push({ path, query: { ...(queryValue('matchId') ? { matchId: queryValue('matchId') } : {}), ...(planId ? { planId } : {}) } })
+}
+
+function openInterviewPage(page: string, sessionId = selectedSessionId.value) {
+  return router.push({ path: page === 'start' ? '/student/interview' : `/student/interview/${page}`,
+    query: { ...(queryValue('matchId') ? { matchId: queryValue('matchId') } : {}), ...(sessionId ? { sessionId } : {}) } })
+}
+
+function openOriginalResume(resumeId: string, diagnosis = false) {
+  return router.push(`/student/resume/original/${encodeURIComponent(resumeId)}${diagnosis ? '/diagnosis' : ''}`)
+}
+async function changeOriginalResume() { await openOriginalResume(selectedResumeId.value, resumePage.value === 'originalDiagnosis') }
+
+function openKnowledgePage(page: string, source?: string) {
+  return router.push({ path: page === 'search' ? '/student/knowledge' : `/student/knowledge/${page}`,
+    query: { ...moduleContext.value, ...(source ? { source } : {}) } })
+}
+async function repeatKnowledgeQuery(query: string) {
+  knowledgeQuery.value = query
+  knowledgeUseAi.value = false
+  await router.push({ path: '/student/knowledge', query: { q: query, ai: '0' } })
+  await runKnowledgeSearch()
+}
+
+function syncModuleRoute() {
+  if (activeModule.value === 'resume' && moduleDataReady.resume && typeof route.params.resumeId === 'string'
+    && selectedResumeId.value !== route.params.resumeId) {
+    selectedResumeId.value = route.params.resumeId
+    void selectResume()
+  }
+  if (activeModule.value === 'plan' && moduleDataReady.plan && queryValue('planId') && selectedPlanId.value !== queryValue('planId')) {
+    selectedPlanId.value = queryValue('planId')
+    planListPage.value = 1
+    planListWeek.value = undefined
+    void loadPlanVersions()
+  }
+  if (activeModule.value === 'interview' && moduleDataReady.interview && queryValue('sessionId') && selectedSessionId.value !== queryValue('sessionId')) {
+    selectedSessionId.value = queryValue('sessionId')
+    void selectSession()
+  }
+  if (activeModule.value === 'knowledge' && moduleDataReady.knowledge) void restoreKnowledgeResult()
+}
+
 async function loadModule(module: string) {
+  const request = ++moduleLoadRequest
+  moduleLoadError.value = ''
+  if (module in moduleDataReady) moduleDataReady[module as keyof typeof moduleDataReady] = false
   if (module === 'resume') {
     await loadResumeData()
+    await loadJobsData()
   } else if (module === 'jobs') {
     jobsLoading.value = true
     await loadResumeData()
@@ -1614,17 +1785,34 @@ async function loadModule(module: string) {
     if (module === 'plan') planForm.targetRole = selectedJob.value.title
     if (module === 'interview') interviewTargetRole.value = selectedJob.value.title
   }
+  if (request === moduleLoadRequest && module in moduleDataReady) {
+    moduleDataReady[module as keyof typeof moduleDataReady] = true
+    syncModuleRoute()
+  }
 }
 
 onMounted(() => { void loadModule(activeModule.value) })
 watch(activeModule, (module) => { void loadModule(module) })
 watch(() => route.fullPath, () => {
+  syncModuleRoute()
+  if (activeModule.value !== 'knowledge') {
+    knowledgeRequestKey++
+    knowledgeRestoreRequest++
+    knowledgeLoading.value = false
+    knowledgeRestoring.value = false
+  }
   syncJobsRoute()
   if (jobsPage.value !== 'compare') {
     compareRequest += 1
     compareLoading.value = false
   }
 })
+watch(planListWeek, () => { planListPage.value = 1 })
+watch(taskFeedback, () => {
+  if (hydratingTaskFeedback || !selectedPlanIsActive.value || !taskFeedbackPlanId) return
+  taskDraftsByPlan.set(taskFeedbackPlanId, { ...taskFeedback.value })
+  writeStudentDraft(sessionStorage, profile.value?.userId || '', 'learning-notes', taskFeedbackPlanId, taskFeedback.value)
+}, { deep: true, flush: 'sync' })
 watch([jobSearch, jobCityFilter, jobSkillFilter], () => {
   if (!hydratingJobsState) jobPage.value = 1
   persistJobsState()
@@ -1674,19 +1862,24 @@ watch(targetRole, (value) => {
 
 <template>
   <section class="page student-workspace">
+    <StudentModuleNav v-if="activeModule === 'resume'" module="resume" :page="resumePage" :context="moduleContext" />
+    <StudentModuleNav v-else-if="activeModule === 'plan'" module="plan" :page="planPage" :context="moduleContext" />
+    <StudentModuleNav v-else-if="activeModule === 'interview'" module="interview" :page="interviewPage" :context="moduleContext" />
+    <StudentModuleNav v-else-if="activeModule === 'knowledge'" module="knowledge" :page="knowledgePage" :context="moduleContext" />
+    <div v-if="moduleLoadError && activeModule !== 'jobs'" class="jobs-load-error" role="alert"><span>{{ moduleLoadError }}</span><el-button @click="loadModule(activeModule)">重新加载</el-button></div>
     <template v-if="activeModule === 'resume'">
-      <ResumeBuilderPanel :target-role="targetRole" :resume-id="selectedResumeId || undefined" @confirmed="syncWorkspaceResume" />
+      <ResumeBuilderPanel v-show="!['history', 'original', 'originalDiagnosis'].includes(resumePage)" :target-role="targetRole" :resume-id="selectedResumeId || undefined" @confirmed="syncWorkspaceResume" />
 
-      <details class="legacy-resume-history" data-testid="resume-legacy-history">
-        <summary>上传原件与历史诊断</summary>
-      <section class="overview-grid resume-overview" v-loading="resumeLoading">
-        <article class="overview-card accent-mint"><span>已上传简历</span><strong>{{ resumes.length }}</strong><FileText :size="22" /></article>
-        <article class="overview-card accent-lavender"><span>历史诊断评分</span><strong>{{ selectedResume?.score ?? '—' }}<small v-if="selectedResume"> 分</small></strong><TrendingUp :size="22" /></article>
-        <article class="overview-card accent-peach"><span>诊断记录</span><strong>{{ diagnoses.length }}</strong><Sparkles :size="22" /></article>
-        <article class="overview-card accent-plain"><span>已提取技能</span><strong>{{ selectedResume?.skills.length || 0 }}</strong><GraduationCap :size="22" /></article>
+      <section v-if="resumePage === 'history'" data-testid="resume-history" v-loading="resumeLoading">
+        <div class="module-actions"><label class="upload-control"><Upload :size="16" /><span>上传简历</span><input type="file" accept=".pdf,.doc,.docx" :disabled="resumeActionLoading" @change="handleResumeUpload" /></label></div>
+        <div class="module-record-list"><button v-for="resume in resumes" :key="resume.resumeId" class="module-record" :data-resume-id="resume.resumeId" @click="openOriginalResume(resume.resumeId)"><div><strong>{{ resume.fileName }}</strong><small>{{ resume.sourceFormat || '原件' }} · {{ resume.parseStatus || '待解析' }}</small></div><ArrowUpRight :size="17" /></button></div>
+        <p v-if="!resumeLoading && !resumes.length && !moduleLoadError" class="compact-empty">暂无上传记录。</p>
       </section>
 
-      <section class="resume-hero panel" v-loading="resumeLoading">
+      <div v-if="['original', 'originalDiagnosis'].includes(resumePage)" class="legacy-resume-history" data-testid="resume-legacy-history">
+      <nav class="jobs-breadcrumb"><RouterLink to="/student/resume/history"><ArrowLeft :size="15" />上传记录</RouterLink><span>/</span><span>{{ selectedResume?.fileName || '原简历' }}</span><template v-if="resumePage === 'originalDiagnosis'"><span>/</span><span>历史诊断</span></template></nav>
+      <p v-if="invalidOriginal && !moduleLoadError" class="compact-empty" data-testid="resume-unavailable">这份简历已不存在或不可访问。</p>
+      <section v-else-if="resumePage === 'original'" class="resume-hero" data-testid="resume-original" v-loading="resumeLoading">
         <div class="section-heading">
           <div><h2>我的简历</h2></div>
           <label class="upload-control">
@@ -1698,14 +1891,13 @@ watch(targetRole, (value) => {
         <div class="resume-hero-content">
           <div class="resume-picker">
             <span>当前版本</span>
-            <el-select v-model="selectedResumeId" placeholder="选择简历" @change="selectResume">
+            <el-select v-model="selectedResumeId" placeholder="选择简历" @change="changeOriginalResume">
               <el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" />
             </el-select>
             <el-button text :disabled="!selectedResume" :loading="resumeActionLoading" @click="removeResume">删除该版本</el-button>
           </div>
           <template v-if="selectedResume">
-            <div class="resume-score"><span>原诊断评分</span><strong>{{ selectedResume.score }}</strong><small>/ 100</small></div>
-            <div class="resume-summary"><strong>{{ selectedResume.fileName }}</strong><p>完善技能与项目经历，让岗位匹配更准确。</p></div>
+            <div class="resume-summary"><strong>{{ selectedResume.fileName }}</strong></div>
             <div class="resume-status">
               <span>文件解析</span>
               <div class="tag-row"><el-tag type="info">{{ selectedResume.sourceFormat || '未知格式' }}</el-tag><el-tag type="success">{{ selectedResume.parseStatus || '待解析' }}</el-tag><el-tag>{{ selectedResume.parsedTextLength || 0 }} 字符</el-tag></div>
@@ -1713,15 +1905,11 @@ watch(targetRole, (value) => {
           </template>
           <p v-else class="compact-empty">暂无简历，请先上传。</p>
         </div>
-        <ResumeEvidencePanel v-if="selectedResume?.structuredDiagnosis" :diagnosis="selectedResume.structuredDiagnosis" />
-        <details v-if="selectedResume?.diagnosis" class="resume-diagnosis">
-          <summary>查看完整诊断报告</summary>
-          <div class="diagnosis-report-copy" v-html="renderMarkdown(selectedResume.diagnosis)" />
-        </details>
+        <el-button v-if="selectedResume" @click="openOriginalResume(selectedResume.resumeId, true)">查看历史诊断 <ArrowUpRight :size="15" /></el-button>
       </section>
 
-      <section class="resume-workspace">
-        <article class="panel profile-panel">
+      <section v-if="selectedResume && !invalidOriginal" :class="resumePage === 'originalDiagnosis' ? 'original-diagnosis-page' : 'original-profile-page'">
+        <article v-if="resumePage === 'original'" class="profile-panel">
           <div class="section-heading"><div><h2>简历资料与诊断</h2></div><PencilLine :size="20" /></div>
           <div class="profile-form">
             <label class="form-field"><span>学历与专业</span><el-input v-model="resumeForm.education" placeholder="学历与专业" /></label>
@@ -1741,20 +1929,19 @@ watch(targetRole, (value) => {
             <div v-if="resumeRewrite.actionChecklist.length" class="rewrite-detail"><strong>行动清单</strong><ul class="plain-list"><li v-for="action in resumeRewrite.actionChecklist" :key="action">{{ action }}</li></ul></div>
           </div>
         </article>
-        <aside class="panel diagnosis-panel">
+        <aside v-else class="diagnosis-panel" data-testid="resume-original-diagnosis">
           <div class="section-heading"><div><h2>诊断记录</h2></div><RefreshCw :size="20" /></div>
           <p v-if="!diagnoses.length" class="compact-empty">暂无诊断记录。</p>
           <div v-else class="diagnosis-list">
             <article v-for="diagnosis in diagnoses" :key="diagnosis.diagnosisId" class="diagnosis-item">
               <div class="diagnosis-item-head"><div><strong>{{ diagnosis.targetJob || '通用诊断' }}</strong><span>{{ diagnosis.createdAt }}</span></div><b>{{ diagnosis.score }}<small>分</small></b></div>
               <el-tag :type="sourceTagType(diagnosis.source)">{{ sourceTagLabel(diagnosis.source) }}</el-tag>
-              <ResumeEvidencePanel v-if="diagnosis.details" :diagnosis="diagnosis.details" compact />
-              <details v-if="diagnosis.details"><summary>原诊断文本与评分来源</summary><div class="diagnosis-copy" v-html="renderMarkdown(diagnosis.diagnosis)" /></details><div v-else class="diagnosis-copy" v-html="renderMarkdown(diagnosis.diagnosis)" />
+              <details><summary>查看报告</summary><ResumeEvidencePanel v-if="diagnosis.details" :diagnosis="diagnosis.details" compact /><div class="diagnosis-copy" v-html="renderMarkdown(diagnosis.diagnosis)" /></details>
             </article>
           </div>
         </aside>
       </section>
-      </details>
+      </div>
     </template>
 
     <template v-else-if="activeModule === 'jobs'">
@@ -1887,24 +2074,13 @@ watch(targetRole, (value) => {
     </template>
 
     <template v-else-if="activeModule === 'plan'">
-      <section v-if="selectedPlan" class="overview-grid" v-loading="planLoading">
-        <article class="overview-card accent-mint"><span>完成任务</span><strong>{{ selectedPlanCompletedTasks }}<small>/{{ selectedPlan?.tasks.length || 0 }}</small></strong><CheckCircle2 :size="22" /></article>
-        <article class="overview-card accent-lavender"><span>当前进度</span><strong>{{ selectedPlanProgress }}<small>%</small></strong><TrendingUp :size="22" /></article>
-        <article class="overview-card accent-peach"><span>每周投入</span><strong>{{ selectedPlan?.weeklyHours || planForm.weeklyHours }}<small>h</small></strong><Clock3 :size="22" /></article>
-        <article class="overview-card accent-plain"><span>计划周期</span><strong>{{ selectedPlan?.durationWeeks || planForm.durationWeeks }}<small>周</small></strong><CalendarDays :size="22" /></article>
-      </section>
+      <p v-if="selectedContextMatch" class="plan-context">已关联岗位匹配 · 技能覆盖 {{ matchScoreLabel(selectedContextMatch) }}</p>
+      <div v-if="invalidPlan && !moduleLoadError" class="jobs-unavailable" data-testid="plan-unavailable"><p>这份学习计划已不存在或不可访问。</p><RouterLink to="/student/plan/history">查看学习计划</RouterLink></div>
+      <div v-else-if="selectedPlan && planPage !== 'create' && planPage !== 'history'" class="module-context-bar"><strong>{{ selectedPlan.targetRole }}</strong><span>V{{ selectedPlan.version }} · {{ planStatusLabel(selectedPlan.status) }} · {{ selectedPlanCompletedTasks }}/{{ selectedPlan.tasks.length }} 已完成</span><el-button v-if="planPage === 'today'" text @click="openPlanPage('create')"><Plus :size="15" />新计划</el-button></div>
 
-      <section class="plan-builder panel" v-loading="planLoading">
-        <div v-if="planBuilderOpen || !plans.length" class="section-heading"><h2>学习安排</h2><el-button v-if="plans.length" text size="small" @click="planBuilderOpen = false">收起</el-button></div>
-        <div v-if="plans.length && !planBuilderOpen" class="plan-builder-collapsed">
-          <div class="plan-builder-collapsed-copy">
-            <strong>{{ selectedPlan?.targetRole || planForm.targetRole || '学习计划设置' }}</strong>
-            <span>{{ selectedPlan?.weeklyHours || planForm.weeklyHours }} 小时/周 · {{ selectedPlan?.durationWeeks || planForm.durationWeeks }} 周</span>
-            <small v-if="activePlanSchedule.startDate">从 {{ activePlanSchedule.startDate }} 开始 · 每天最多 {{ activePlanSchedule.dailyMinutesCap || planForm.dailyMinutesCap }} 分钟</small>
-          </div>
-          <el-button size="small" @click="planBuilderOpen = true">调整计划</el-button>
-        </div>
-        <div v-if="planBuilderOpen || !plans.length" class="plan-builder-fields">
+      <section v-if="planPage === 'create'" class="plan-builder module-form-page" data-testid="plan-create" v-loading="planLoading">
+        <div class="module-actions"><el-button text @click="openPlanPage('today')"><ArrowLeft :size="15" />返回今日</el-button></div>
+        <div class="plan-builder-fields">
           <label class="form-field"><span>简历来源</span><el-select v-model="selectedResumeId" placeholder="选择简历" @change="selectResume"><el-option v-for="resume in resumes" :key="resume.resumeId" :label="resume.fileName" :value="resume.resumeId" /></el-select></label>
           <label class="form-field"><span>岗位来源</span><el-select v-model="selectedJobId" placeholder="选择岗位"><el-option v-for="job in jobs" :key="job.jobId" :label="`${job.title} · ${job.companyName}`" :value="job.jobId" /></el-select></label>
           <label class="form-field"><span>目标岗位</span><el-input v-model="planForm.targetRole" placeholder="目标岗位" /></label>
@@ -1923,118 +2099,144 @@ watch(targetRole, (value) => {
         </div>
       </section>
 
-      <p v-if="selectedContextMatch" class="plan-context">已关联岗位匹配 · 技能覆盖 {{ matchScoreLabel(selectedContextMatch) }}</p>
-      <section v-if="plans.length" class="plan-layout">
-        <article class="panel task-panel">
-          <div class="section-heading"><div><h2>任务进度</h2><p class="task-context">今日 {{ todayPlanData?.tasks.length ?? todayTasks.length }} 项 · 本周 {{ weekTasks.length }} 项<span v-if="overdueTasks.length"> · 逾期 {{ overdueTasks.length }} 项</span></p></div><div class="progress-text"><strong>{{ selectedPlanProgress }}%</strong><span>{{ selectedPlanCompletedTasks }}/{{ selectedPlan?.tasks.length || 0 }} 已完成</span></div></div>
-          <p class="task-evidence-note">完成状态为自报进度，不会自动增加技能证据。</p>
-          <p v-if="selectedPlan && !selectedPlanIsActive" class="form-dirty-note">当前为历史版本，任务和重新规划只读。</p>
-          <div v-if="todayTasks.length || todayPlanData?.tasks.length" class="today-strip"><strong>今天先做</strong><span v-for="task in (todayPlanData?.tasks || todayTasks).slice(0, 3)" :key="task.taskId">{{ task.title }}</span></div>
-          <el-alert v-if="overdueTasks.length" title="有任务已经超过安排日期，请完成、延期或跳过后再继续。" type="warning" :closable="false" />
-          <p v-if="!selectedPlan" class="compact-empty">在历史版本中选择学习计划。</p>
-          <div v-else class="task-list">
-            <div v-for="task in selectedPlan.tasks" :key="task.taskId" class="task-row" :class="{ 'task-today': todayTasks.some((item) => item.taskId === task.taskId), 'task-overdue': overdueTasks.some((item) => item.taskId === task.taskId) }">
-              <div class="task-main"><span class="week-chip">W{{ task.week }}</span><div><div class="task-title-line"><strong>{{ task.title }}</strong><el-tag size="small" :type="taskDisplayStatus(task) === 'COMPLETED' ? 'success' : taskDisplayStatus(task) === 'IN_PROGRESS' ? 'primary' : taskDisplayStatus(task) === 'PAUSED' || taskDisplayStatus(task) === 'DEFERRED' ? 'warning' : 'info'">{{ taskActionLabel(task) }}</el-tag></div><details class="task-details"><summary>查看任务详情</summary><p>{{ task.description }}</p><div class="task-detail-lines"><small>安排：{{ taskSchedule(task).scheduledDate || `第 ${task.week} 周` }}</small><small v-if="taskSchedule(task).actualMinutes">实际：{{ taskSchedule(task).actualMinutes }} 分钟</small><small v-if="task.stage">{{ learningStageLabel(task.stage) }}</small><small v-if="task.skillGap">缺口：{{ task.skillGap }}</small><small v-if="task.acceptanceCriteria">验收：{{ task.acceptanceCriteria }}</small><small v-if="task.practiceDeliverable">交付：{{ task.practiceDeliverable }}</small></div></details></div></div>
-              <span class="task-hours"><Clock3 :size="14" />{{ task.estimatedHours }}h</span>
-              <div v-if="selectedPlanIsActive && taskDisplayStatus(task) !== 'COMPLETED'" class="task-actions"><el-button v-if="taskDisplayStatus(task) !== 'IN_PROGRESS'" size="small" :disabled="taskSaving(task.taskId)" @click="performTaskAction(task, 'START')">开始</el-button><el-button v-if="taskDisplayStatus(task) === 'IN_PROGRESS'" size="small" :disabled="taskSaving(task.taskId)" @click="performTaskAction(task, 'PAUSE')">暂停</el-button><el-button size="small" type="success" plain :disabled="taskSaving(task.taskId)" @click="performTaskAction(task, 'COMPLETE')">完成</el-button><el-button size="small" text :disabled="taskSaving(task.taskId)" @click="performTaskAction(task, 'DEFER')">延期一天</el-button></div>
-              <details class="task-management-details">
-                <summary>{{ task.evidence?.length ? '查看进度与成果' : '记录复盘或提交成果' }}</summary>
-                <div class="task-management-fields">
-                  <el-select class="task-status-select" :disabled="!selectedPlanIsActive || taskSaving(task.taskId)" :model-value="task.status === 'TODO' ? 'PENDING' : task.status" @update:model-value="saveTask(task.taskId, String($event))"><el-option label="待开始" value="PENDING" /><el-option label="进行中" value="IN_PROGRESS" /><el-option label="已完成" value="COMPLETED" /><el-option label="已跳过" value="SKIPPED" /></el-select>
-                  <el-input v-model="taskFeedback[task.taskId]" :disabled="!selectedPlanIsActive || taskSaving(task.taskId)" placeholder="复盘备注" @change="saveTask(task.taskId, task.status)" />
-                  <LearningEvidenceForm :plan-id="selectedPlan.planId" :task="task" :readonly="selectedPlan.status !== 'ACTIVE' && selectedPlan.status !== 'COMPLETED'" @saved="recordTaskEvidence" @resume-candidate="openResumeCandidateFromEvidence" @interview-follow-up="openInterviewFollowUpFromEvidence" />
-                  <small v-if="taskSaving(task.taskId)" class="task-save-state">正在保存…</small><small v-else-if="taskErrors[task.taskId]" class="task-save-state error">{{ taskErrors[task.taskId] }} <el-button link type="primary" :disabled="!selectedPlanIsActive" @click="saveTask(task.taskId, taskRetryStatus[task.taskId] || task.status)">重试</el-button></small>
-                </div>
-              </details>
-            </div>
-          </div>
+      <section v-else-if="planPage === 'today'" data-testid="plan-today" v-loading="planLoading">
+        <template v-if="selectedPlan && !invalidPlan">
+          <div class="section-heading"><h2>今日任务</h2><span class="task-context">本周 {{ weekTasks.length }} 项 · {{ selectedPlanProgress }}%</span></div>
+          <div class="module-record-list"><button v-for="task in visibleTodayTasks" :key="task.taskId" class="module-record" :data-task-id="task.taskId" @click="openPlanPage('task', selectedPlanId, task.taskId)"><div><strong>{{ task.title }}</strong><small>{{ taskActionLabel(task) }} · {{ task.estimatedHours }} 小时</small></div><ArrowUpRight :size="17" /></button></div>
+          <p v-if="!visibleTodayTasks.length" class="compact-empty">今天没有待完成任务。<el-button link @click="openPlanPage('tasks')">查看完整计划</el-button></p>
+          <div v-if="overdueTasks.length || pendingEvidenceTasks.length" class="module-reminders"><h3>待处理</h3><button v-for="task in overdueTasks.slice(0, 3)" :key="task.taskId" @click="openPlanPage('task', selectedPlanId, task.taskId)"><Clock3 :size="15" /><span>已逾期 · {{ task.title }}</span><ArrowUpRight :size="15" /></button><button v-for="task in pendingEvidenceTasks" :key="task.taskId" @click="openPlanPage('task', selectedPlanId, task.taskId)"><FileText :size="15" /><span>待提交成果 · {{ task.title }}</span><ArrowUpRight :size="15" /></button></div>
+          <div class="module-actions"><el-button @click="openPlanPage('tasks')"><List :size="15" />完整计划</el-button><el-button @click="openPlanPage('review')">本周复盘 <ArrowUpRight :size="15" /></el-button></div>
+        </template>
+        <div v-else-if="!planLoading && !invalidPlan && !moduleLoadError" class="module-empty"><span>还没有学习计划。</span><el-button type="primary" @click="openPlanPage('create', '')"><Plus :size="15" />创建学习计划</el-button></div>
+      </section>
+
+      <section v-else-if="planPage === 'tasks'" class="task-panel" data-testid="plan-tasks" v-loading="planLoading">
+        <template v-if="selectedPlan && !invalidPlan">
+          <div class="module-actions"><el-select v-model="planListWeek" clearable placeholder="全部周次" aria-label="筛选计划周次"><el-option v-for="week in selectedPlan.durationWeeks" :key="week" :label="`第 ${week} 周`" :value="week" /></el-select><span class="task-context">{{ filteredPlanTasks.length }} 项任务</span></div>
+          <p v-if="!selectedPlanIsActive" class="form-dirty-note">当前为历史版本，任务和重新规划只读。</p>
+          <div class="task-list"><button v-for="task in pagedPlanTasks" :key="task.taskId" class="task-row task-list-link" :data-task-id="task.taskId" @click="openPlanPage('task', selectedPlanId, task.taskId)"><div class="task-main"><span class="week-chip">W{{ task.week }}</span><div class="task-title-line"><strong>{{ task.title }}</strong><el-tag size="small" :type="task.status === 'COMPLETED' ? 'success' : 'info'">{{ taskActionLabel(task) }}</el-tag></div></div><span class="task-hours">{{ task.estimatedHours }}h<ArrowUpRight :size="15" /></span></button></div>
+          <el-pagination v-if="filteredPlanTasks.length > modulePageSize" v-model:current-page="planListPage" layout="prev, pager, next" :page-size="modulePageSize" :total="filteredPlanTasks.length" :pager-count="5" class="jobs-pagination" />
+        </template>
+        <div v-else-if="!planLoading && !invalidPlan && !moduleLoadError" class="module-empty"><span>暂无学习计划。</span><el-button @click="openPlanPage('create', '')">创建计划</el-button></div>
+      </section>
+
+      <section v-else-if="planPage === 'task'" class="module-detail-page" data-testid="plan-task" v-loading="planLoading">
+        <div class="module-actions"><el-button text @click="openPlanPage('tasks')"><ArrowLeft :size="15" />完整计划</el-button></div>
+        <article v-if="selectedPlan && selectedTask && !invalidPlan" class="task-row task-detail-row">
+          <h2>{{ selectedTask.title }}</h2><div class="tag-row"><el-tag>{{ taskActionLabel(selectedTask) }}</el-tag><span>{{ taskSchedule(selectedTask).scheduledDate || `第 ${selectedTask.week} 周` }} · {{ selectedTask.estimatedHours }} 小时</span></div>
+          <p>{{ selectedTask.description }}</p>
+          <dl class="task-facts"><template v-if="selectedTask.skillGap"><dt>能力缺口</dt><dd>{{ selectedTask.skillGap }}</dd></template><template v-if="selectedTask.acceptanceCriteria"><dt>验收标准</dt><dd>{{ selectedTask.acceptanceCriteria }}</dd></template><template v-if="selectedTask.practiceDeliverable"><dt>成果形式</dt><dd>{{ selectedTask.practiceDeliverable }}</dd></template><template v-if="taskSchedule(selectedTask).actualMinutes"><dt>实际投入</dt><dd>{{ taskSchedule(selectedTask).actualMinutes }} 分钟</dd></template></dl>
+          <p v-if="!selectedPlanIsActive" class="form-dirty-note">当前为历史版本，任务只读。</p>
+          <div v-if="selectedPlanIsActive && selectedTask.status !== 'COMPLETED'" class="task-actions"><el-button v-if="taskDisplayStatus(selectedTask) !== 'IN_PROGRESS'" :disabled="taskSaving(selectedTask.taskId)" @click="performTaskAction(selectedTask, 'START')">开始</el-button><el-button v-else :disabled="taskSaving(selectedTask.taskId)" @click="performTaskAction(selectedTask, 'PAUSE')">暂停</el-button><el-button type="success" plain :disabled="taskSaving(selectedTask.taskId)" @click="performTaskAction(selectedTask, 'COMPLETE')">完成</el-button><el-button :disabled="taskSaving(selectedTask.taskId)" @click="performTaskAction(selectedTask, 'DEFER')">延期一天</el-button></div>
+          <div class="task-management-fields"><el-select class="task-status-select" :disabled="!selectedPlanIsActive || taskSaving(selectedTask.taskId)" :model-value="selectedTask.status === 'TODO' ? 'PENDING' : selectedTask.status" @update:model-value="saveTask(selectedTask.taskId, String($event))"><el-option label="待开始" value="PENDING" /><el-option label="进行中" value="IN_PROGRESS" /><el-option label="已完成" value="COMPLETED" /><el-option label="已跳过" value="SKIPPED" /></el-select><el-input v-model="taskFeedback[selectedTask.taskId]" :disabled="!selectedPlanIsActive || taskSaving(selectedTask.taskId)" placeholder="复盘备注" @change="saveTask(selectedTask.taskId, selectedTask.status)" /></div>
+          <small v-if="taskSaving(selectedTask.taskId)" class="task-save-state">正在保存…</small><small v-else-if="taskErrors[selectedTask.taskId]" class="task-save-state error">{{ taskErrors[selectedTask.taskId] }} <el-button link type="primary" :disabled="!selectedPlanIsActive" @click="saveTask(selectedTask.taskId, taskRetryStatus[selectedTask.taskId] || selectedTask.status)">重试</el-button></small>
+          <LearningEvidenceForm :key="`${selectedPlanId}:${selectedTask.taskId}`" :plan-id="selectedPlanId" :task="selectedTask" :expanded="true" :readonly="selectedPlan.status !== 'ACTIVE' && selectedPlan.status !== 'COMPLETED'" @saved="recordTaskEvidence" @resume-candidate="openResumeCandidateFromEvidence" @interview-follow-up="openInterviewFollowUpFromEvidence" />
         </article>
-        <details class="plan-sidebar plan-history-details">
-          <summary>历史版本与重新规划</summary>
-          <div class="plan-history-body">
-            <el-select v-model="selectedPlanId" placeholder="选择学习计划" aria-label="学习计划版本" @change="loadPlanVersions"><el-option v-for="plan in plans" :key="plan.planId" :label="`${plan.targetRole} · V${plan.version} · ${planStatusLabel(plan.status)}`" :value="plan.planId" /></el-select>
-            <div v-if="selectedPlan" class="tag-row"><el-tag :type="selectedPlanIsActive ? 'success' : 'info'">{{ planStatusLabel(selectedPlan.status) }}{{ selectedPlanIsActive ? ' · 当前可编辑版本' : ' · 历史只读版本' }}</el-tag><el-tag :type="sourceTagType(undefined, selectedPlan.mocked)">{{ sourceTagLabel(undefined, selectedPlan.mocked) }}</el-tag></div>
-            <div v-if="planVersions.length" class="version-actions"><el-button v-for="version in planVersions" :key="version.planId" :data-plan-id="version.planId" size="small" :type="version.planId === selectedPlanId ? 'primary' : 'default'" @click="selectedPlanId = version.planId; loadPlanVersions()">V{{ version.version }} · {{ planStatusLabel(version.status) }}</el-button></div>
-            <details v-if="selectedPlan?.revisionReason" class="revision-reason">
-              <summary>调整原因：{{ summarizeText(selectedPlan.revisionReason) }}</summary>
-              <p>{{ selectedPlan.revisionReason }}</p>
-            </details>
-            <div v-if="todayPlanData?.reminders?.length || upcomingReminders.length || weeklyReviewData" class="schedule-summary"><small v-if="todayPlanData?.reminders?.length">{{ todayPlanData.reminders.join('；') }}</small><small v-else-if="upcomingReminders.length">每天 {{ activePlanSchedule.reminderTime || '20:00' }} 提醒未完成任务</small><small v-if="weeklyReviewData">上周实际 {{ weeklyReviewData.actualMinutes }} 分钟 · 完成 {{ weeklyReviewData.completedTasks }} 项 · 延期 {{ weeklyReviewData.delayedTasks }} 项</small></div>
-            <div class="replan-form"><span>调整节奏与周复盘</span><el-input v-model="planForm.replanReason" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="计划变化或复盘原因" aria-label="计划调整原因" /><el-input v-model="weeklyReviewDraft" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="本周复盘：完成了什么、哪里卡住、下周准备怎么调整" aria-label="本周复盘" /><el-select v-model="selectedCompletedSessionId" :disabled="!selectedPlanIsActive" clearable placeholder="同目标的已完成面试（可选）" aria-label="面试反馈来源"><el-option v-for="session in compatibleCompletedSessions" :key="session.sessionId" :label="`${session.targetRole} · ${session.completedAt || session.updatedAt}`" :value="session.sessionId" /></el-select><div class="schedule-actions"><el-button :disabled="!selectedPlanIsActive" @click="savePlanSchedule">保存安排与复盘</el-button><el-button :disabled="!selectedPlanIsActive" :loading="planActionLoading" @click="replan">重新规划并预览</el-button></div><small v-if="weeklyReviewSaved" class="saved-note">最近已保存本周复盘</small></div>
-          </div>
-        </details>
+        <p v-else-if="!planLoading && !invalidPlan && !moduleLoadError" class="compact-empty" data-testid="plan-unavailable">这个任务不存在或不属于当前计划。</p>
+      </section>
+
+      <section v-else-if="planPage === 'history'" class="plan-sidebar" data-testid="plan-history" v-loading="planLoading">
+        <div class="module-actions"><el-button @click="openPlanPage('create', '')"><Plus :size="15" />创建新计划</el-button></div>
+        <div class="module-record-list version-actions"><button v-for="plan in plans" :key="plan.planId" class="module-record" :data-plan-id="plan.planId" @click="openPlanPage('tasks', plan.planId)"><div><strong>{{ plan.targetRole }} · V{{ plan.version }}</strong><small>{{ planStatusLabel(plan.status) }} · {{ plan.weeklyHours }} 小时/周 · {{ plan.durationWeeks }} 周</small></div><ArrowUpRight :size="17" /></button></div>
+        <p v-if="!planLoading && !plans.length && !moduleLoadError" class="compact-empty">暂无学习计划历史。</p>
+      </section>
+
+      <section v-else-if="planPage === 'review'" class="module-form-page" data-testid="plan-review" v-loading="planLoading">
+        <template v-if="selectedPlan && !invalidPlan">
+          <p v-if="!selectedPlanIsActive" class="form-dirty-note">当前为历史版本，任务和重新规划只读。</p>
+          <details v-if="selectedPlan.revisionReason" class="revision-reason"><summary>上次调整原因</summary><p>{{ selectedPlan.revisionReason }}</p></details>
+          <div v-if="weeklyReviewData" class="schedule-summary"><small>本周实际 {{ weeklyReviewData.actualMinutes }} 分钟 · 完成 {{ weeklyReviewData.completedTasks }} 项</small></div>
+          <div class="replan-form"><label class="form-field"><span>本周复盘</span><el-input v-model="weeklyReviewDraft" :disabled="!selectedPlanIsActive" type="textarea" :rows="4" placeholder="完成了什么、哪里卡住、下周准备怎么调整" aria-label="本周复盘" /></label><label class="form-field"><span>计划调整原因</span><el-input v-model="planForm.replanReason" :disabled="!selectedPlanIsActive" type="textarea" :rows="3" placeholder="计划变化或复盘原因" aria-label="计划调整原因" /></label><div class="plan-advanced-fields"><label class="form-field"><span>每周投入（小时）</span><el-input-number v-model="planForm.weeklyHours" :min="2" :max="40" :disabled="!selectedPlanIsActive" /></label><label class="form-field"><span>每日上限（分钟）</span><el-input-number v-model="planForm.dailyMinutesCap" :min="30" :max="480" :disabled="!selectedPlanIsActive" /></label><label class="form-field"><span>学习日</span><el-select v-model="planForm.studyDays" multiple collapse-tags :disabled="!selectedPlanIsActive"><el-option v-for="(day, index) in ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']" :key="day" :value="day" :label="['周一', '周二', '周三', '周四', '周五', '周六', '周日'][index]" /></el-select></label></div><el-select v-model="selectedCompletedSessionId" :disabled="!selectedPlanIsActive" clearable placeholder="同目标的已完成面试（可选）" aria-label="面试反馈来源"><el-option v-for="session in compatibleCompletedSessions" :key="session.sessionId" :label="`${session.targetRole} · ${session.completedAt || session.updatedAt}`" :value="session.sessionId" /></el-select><div class="schedule-actions"><el-button :disabled="!selectedPlanIsActive" @click="savePlanSchedule">保存复盘</el-button><el-button type="primary" :disabled="!selectedPlanIsActive" :loading="planActionLoading" @click="replan">预览调整后的计划</el-button></div><small v-if="weeklyReviewSaved" class="saved-note">复盘已保存</small></div>
+        </template>
+        <p v-else-if="!planLoading && !invalidPlan && !moduleLoadError" class="compact-empty">暂无可复盘的学习计划。</p>
       </section>
     </template>
 
     <template v-else-if="activeModule === 'interview'">
-      <section v-if="selectedSession" class="overview-grid" v-loading="interviewLoading">
-        <article class="overview-card accent-mint"><span>模拟会话</span><strong>{{ interviewSessions.length }}</strong><Bot :size="22" /></article>
-        <article class="overview-card accent-lavender"><span>当前完成度</span><strong>{{ selectedSessionProgress }}<small>%</small></strong><CircleDashed :size="22" /></article>
-        <article class="overview-card accent-peach"><span>本次题目</span><strong>{{ selectedSession?.questions.length || interviewQuestionCount }}</strong><BrainCircuit :size="22" /></article>
-        <article class="overview-card accent-plain"><span>已保存回答</span><strong>{{ selectedSession?.answers.length || 0 }}</strong><FileText :size="22" /></article>
+      <div v-if="invalidSession && !moduleLoadError" class="jobs-unavailable" data-testid="interview-unavailable"><p>这次面试已不存在或不可访问。</p><RouterLink to="/student/interview/history">查看面试历史</RouterLink></div>
+
+      <section v-if="interviewPage === 'start'" class="interview-launch module-form-page" data-testid="interview-start" v-loading="interviewLoading">
+        <div v-if="selectedSession && !invalidSession" class="module-context-bar"><strong>{{ selectedSession.targetRole }}</strong><span>{{ selectedSession.status === 'COMPLETED' ? '已完成' : '进行中' }} · {{ selectedSession.answers.length }}/{{ selectedSession.questions.length }} 题</span><el-button @click="openInterviewPage(selectedSession.status === 'COMPLETED' ? 'report' : 'practice')">{{ selectedSession.status === 'COMPLETED' ? '查看报告' : '继续答题' }} <ArrowUpRight :size="15" /></el-button></div>
+        <div class="interview-launch-actions"><label class="target-role-editor"><span>本次目标岗位</span><el-input v-model="interviewTargetRole" placeholder="例如 Java 后端" /></label><label class="form-field"><span>题目数量</span><el-input-number v-model="interviewQuestionCount" :min="1" :max="8" controls-position="right" aria-label="面试题数" /></label><el-button type="primary" :loading="interviewActionLoading" @click="startInterview"><Bot :size="16" />开始模拟面试</el-button></div>
       </section>
 
-      <section class="interview-launch panel" v-loading="interviewLoading">
-        <div class="interview-launch-actions"><label class="target-role-editor"><span>本次目标岗位</span><el-input v-model="interviewTargetRole" placeholder="例如 Java 后端" /></label><label><span>题目数量</span><el-input-number v-model="interviewQuestionCount" :min="1" :max="8" controls-position="right" aria-label="面试题数" /></label><el-button type="primary" :loading="interviewActionLoading" @click="startInterview"><Bot :size="16" />开始模拟面试</el-button><el-button @click="router.push({ path: '/student/interview', query: { tab: 'history' } })">会话历史</el-button><el-button @click="router.push('/student/interview')">当前会话</el-button></div>
-      </section>
-
-      <section v-if="interviewHistoryOpen" class="panel interview-history">
-        <div class="section-heading"><div><h2>面试记录</h2></div><RefreshCw :size="20" /></div>
+      <section v-else-if="interviewHistoryOpen" class="interview-history" data-testid="interview-history" v-loading="interviewLoading">
         <p v-if="!interviewSessions.length" class="compact-empty">暂无面试记录，可开始一次模拟面试。</p>
-        <div v-else class="session-grid"><button v-for="session in interviewSessions" :key="session.sessionId" class="session-card" :data-session-id="session.sessionId" :class="{ selected: session.sessionId === selectedSessionId }" @click="selectedSessionId = session.sessionId; selectSession(); router.push('/student/interview')"><div><span class="session-icon"><Bot :size="18" /></span><strong>{{ session.targetRole }}</strong></div><span>{{ session.status }} · {{ session.answers.length }}/{{ session.questions.length }} 题</span><div class="session-card-foot"><el-tag :type="sourceTagType(undefined, session.mocked)">{{ sourceTagLabel(undefined, session.mocked) }}</el-tag><ArrowUpRight :size="17" /></div></button></div>
+        <div v-else class="module-record-list"><button v-for="session in interviewSessions" :key="session.sessionId" class="module-record" :data-session-id="session.sessionId" @click="openInterviewPage(session.status === 'COMPLETED' ? 'report' : 'practice', session.sessionId)"><div><strong>{{ session.targetRole }}</strong><small>{{ session.status === 'COMPLETED' ? '已完成' : '进行中' }} · {{ session.answers.length }}/{{ session.questions.length }} 题 · {{ matchDateLabel(session.completedAt || session.updatedAt) }}</small></div><ArrowUpRight :size="17" /></button></div>
       </section>
-      <section v-else-if="selectedSession && activeQuestion" class="interview-workspace">
-        <article class="panel interview-question-card" aria-label="当前面试题目">
+      <section v-else-if="interviewPage === 'practice'" class="interview-workspace" data-testid="interview-practice" v-loading="interviewLoading">
+        <template v-if="selectedSession && activeQuestion && !invalidSession">
+        <article class="interview-question-card" aria-label="当前面试题目">
           <div class="question-topline"><span>问题 {{ activeQuestionIndex + 1 }} / {{ selectedSession.questions.length }}</span><span>{{ selectedSessionProgress }}% 已作答</span></div>
           <div class="tag-row"><el-tag type="info">{{ activeQuestion.category || '综合' }}</el-tag><el-tag>{{ activeQuestion.difficulty || '普通' }}</el-tag><el-tag :type="sourceTagType(activeQuestion.source || activeQuestion.generationSource, selectedSession.mocked)">{{ sourceTagLabel(activeQuestion.source || activeQuestion.generationSource, selectedSession.mocked) }}</el-tag></div>
           <p class="question-text">{{ activeQuestion.question }}</p>
-          <div v-if="activeQuestion.referencePoints?.length" class="reference-points"><span>答题参考</span><ul class="plain-list"><li v-for="point in activeQuestion.referencePoints" :key="point">{{ point }}</li></ul></div>
+          <details v-if="activeQuestion.referencePoints?.length" class="reference-points"><summary>答题参考</summary><ul class="plain-list"><li v-for="point in activeQuestion.referencePoints" :key="point">{{ point }}</li></ul></details>
           <div class="question-nav"><el-button v-for="(_, index) in selectedSession.questions" :key="index" size="small" :type="index === activeQuestionIndex ? 'primary' : 'default'" @click="activeQuestionIndex = index">第 {{ index + 1 }} 题</el-button></div>
         </article>
-        <article class="panel answer-card">
+        <article class="answer-card">
           <label class="answer-label" for="interview-answer">我的回答</label>
-          <el-input id="interview-answer" v-model="currentAnswer" class="answer-input" type="textarea" :rows="13" :readonly="activeQuestionLocked || interviewActionLoading" :placeholder="activeQuestionLocked ? '该题已保存或当前会话只读' : '输入回答，保存后可在会话中恢复'" />
+          <el-input id="interview-answer" v-model="currentAnswer" class="answer-input" type="textarea" :rows="activeQuestionLocked ? 6 : 13" :readonly="activeQuestionLocked || interviewActionLoading" :placeholder="activeQuestionLocked ? '该题已保存或当前会话只读' : '输入回答，保存后可在会话中恢复'" />
           <p v-if="!activeQuestionLocked" class="form-dirty-note">草稿会在当前浏览器标签页保留，保存回答后才会提交至面试会话。</p>
-          <InterviewFeedbackPanel v-if="activeQuestionFeedback" :feedback="activeQuestionFeedback" />
-          <el-alert v-if="activeSavedAnswer && activeSavedAnswer.evaluationStatus !== 'SUCCEEDED' && activeSavedAnswer.evaluationStatus" type="warning" :closable="false" :title="interviewEvaluationError || activeSavedAnswer.evaluationError || '回答已保存，待完成评价。'" />
-          <el-button v-if="activeSavedAnswer && evaluationCanRetry(activeSavedAnswer.evaluationStatus)" :loading="interviewEvaluatingId === activeSavedAnswer.questionId" :disabled="Boolean(interviewEvaluatingId)" @click="evaluateSavedAnswer(selectedSession.sessionId, activeSavedAnswer.questionId)">评价已保存回答 / 重试</el-button>
-          <div class="answer-actions"><el-button type="primary" :disabled="activeQuestionLocked || !currentAnswer.trim()" :loading="interviewActionLoading || Boolean(interviewEvaluatingId)" @click="saveCurrentAnswer">保存回答</el-button><el-button :disabled="Boolean(interviewEvaluatingId) || pendingInterviewEvaluations > 0 || selectedSession.status !== 'IN_PROGRESS' || unfinishedInterviewQuestions > 1 || (unfinishedInterviewQuestions === 1 && (activeQuestionLocked || !currentAnswer.trim()))" :loading="interviewActionLoading" @click="finishInterview">完成并生成报告</el-button></div>
+          <details v-if="activeQuestionFeedback" class="question-feedback"><summary>查看本题评价</summary><InterviewFeedbackPanel :feedback="activeQuestionFeedback" /></details>
+          <el-alert v-if="!activeQuestionFeedback && activeSavedAnswer && activeSavedAnswer.evaluationStatus !== 'SUCCEEDED' && activeSavedAnswer.evaluationStatus" type="warning" :closable="false" :title="interviewEvaluationError || activeSavedAnswer.evaluationError || '回答已保存，待完成评价。'" />
+          <el-button v-if="!activeQuestionFeedback && activeSavedAnswer && evaluationCanRetry(activeSavedAnswer.evaluationStatus)" :loading="interviewEvaluatingId === activeSavedAnswer.questionId" :disabled="Boolean(interviewEvaluatingId)" @click="evaluateSavedAnswer(selectedSession.sessionId, activeSavedAnswer.questionId)">评价已保存回答 / 重试</el-button>
+          <div v-if="selectedSession.status === 'IN_PROGRESS'" class="answer-actions"><el-button type="primary" :disabled="activeQuestionLocked || !currentAnswer.trim()" :loading="interviewActionLoading || Boolean(interviewEvaluatingId)" @click="saveCurrentAnswer">保存回答</el-button><el-button :disabled="Boolean(interviewEvaluatingId) || pendingInterviewEvaluations > 0 || unfinishedInterviewQuestions > 1 || (unfinishedInterviewQuestions === 1 && (activeQuestionLocked || !currentAnswer.trim()))" :loading="interviewActionLoading" @click="finishInterview">完成并生成报告</el-button></div>
+          <el-button v-if="selectedSession.status === 'COMPLETED'" @click="openInterviewPage('report')">查看面试报告 <ArrowUpRight :size="15" /></el-button>
         </article>
+        </template>
+        <div v-else-if="!interviewLoading && !invalidSession && !moduleLoadError" class="module-empty"><span>暂无可查看的面试。</span><el-button @click="openInterviewPage('start', '')">开始模拟面试</el-button></div>
       </section>
-      <section v-if="sessionReport" class="panel interview-report">
+      <section v-else-if="interviewPage === 'report'" class="interview-report" data-testid="interview-report" v-loading="interviewLoading">
+        <template v-if="sessionReport && selectedSession && !invalidSession">
+        <div class="module-actions"><el-button data-testid="interview-view-answers" @click="openInterviewPage('practice')"><ArrowLeft :size="15" />查看回答</el-button></div>
         <div class="report-score"><div><h2>面试报告</h2><el-tag :type="sourceTagType(undefined, sessionReport.mocked)">{{ sourceTagLabel(undefined, sessionReport.mocked) }}</el-tag></div><strong>{{ sessionReport.overallScore }}<small>分</small></strong></div>
         <p class="form-dirty-note">{{ sessionReport.comparisonNote || '历史记录缺少评价版本，暂不进行分数比较。' }}</p>
         <p v-if="sessionReport.difficultyNote" class="form-dirty-note">{{ sessionReport.difficultyNote }}</p>
         <div v-if="comparisonSessions.length" class="version-actions"><span>同岗位、同评价版本的历史表现：</span><span v-for="session in comparisonSessions" :key="session.sessionId">{{ session.completedAt || session.updatedAt }} · {{ session.report?.overallScore }} 分</span></div>
         <details v-for="feedback in sessionReport.questionFeedback || []" :key="feedback.questionId" class="resume-diagnosis"><summary>逐题反馈 · {{ feedback.score }} 分</summary><InterviewFeedbackPanel :feedback="feedback" /></details>
         <div class="report-columns"><div><span>优势</span><ul class="plain-list"><li v-for="item in sessionReport.strengths" :key="item">{{ item }}</li></ul></div><div><span>待改进</span><ul class="plain-list"><li v-for="item in sessionReport.gaps" :key="item">{{ item }}</li></ul></div><div><span>建议</span><ul class="plain-list"><li v-for="item in sessionReport.recommendations" :key="item">{{ item }}</li></ul></div></div>
+        </template>
+        <div v-else-if="!interviewLoading && !invalidSession && !moduleLoadError" class="module-empty"><span>这次面试还没有报告。</span><el-button @click="openInterviewPage('practice')">继续答题</el-button></div>
       </section>
     </template>
 
     <template v-else-if="activeModule === 'knowledge'">
-      <section class="panel knowledge-shell">
+      <el-alert v-if="knowledgeError" class="knowledge-error" type="warning" :title="knowledgeError" :closable="false" show-icon><template #default><el-button link type="primary" @click="knowledgePage === 'search' ? runKnowledgeSearch() : openKnowledgePage('search')">{{ knowledgePage === 'search' ? '重试' : '返回查询' }}</el-button></template></el-alert>
+      <section v-if="knowledgePage === 'search'" class="knowledge-shell" data-testid="knowledge-search">
         <div class="knowledge-mode"><span>回答模式</span><el-switch v-model="knowledgeUseAi" active-text="AI 回答" inactive-text="仅检索" aria-label="AI 回答模式" /></div>
         <div class="knowledge-search">
           <el-input v-model="knowledgeQuery" placeholder="搜索 Java、Redis、面试或简历证据" aria-label="知识库查询" @keyup.enter="runKnowledgeSearch" />
           <el-button type="primary" :loading="knowledgeLoading" @click="runKnowledgeSearch"><Search :size="17" />检索</el-button>
         </div>
-        <div v-if="knowledgeRecentQueries.length" class="knowledge-history"><span>最近查询</span><el-button v-for="query in knowledgeRecentQueries" :key="query" text @click="knowledgeQuery = query; runKnowledgeSearch()">{{ query }}</el-button></div>
-        <el-alert v-if="knowledgeError" class="knowledge-error" type="warning" :title="knowledgeError" :closable="false" show-icon><template #default><el-button link type="primary" @click="runKnowledgeSearch">重试</el-button></template></el-alert>
         <div v-if="knowledgeAnswer" class="knowledge-history"><el-tag type="info">{{ retrievalModeLabel(knowledgeAnswer.retrievalMode) }}</el-tag><el-tag>{{ knowledgeAnswer.generationMode === 'AI' ? 'AI 回答' : '检索资料' }}</el-tag><span>{{ knowledgeAnswer.algorithmVersion }}</span></div>
         <el-alert v-if="knowledgeAnswer && ['NO_EVIDENCE', 'INSUFFICIENT_EVIDENCE', 'INSUFFICIENT'].includes(knowledgeAnswer.evidenceStatus || '')" title="现有资料不足以支持完整回答，请核对检索资料或补充知识库。" type="info" :closable="false" />
-        <section v-if="knowledgeRetrieval" class="knowledge-retrieval"><header><strong>检索摘要</strong><span>{{ knowledgeRetrieval.results.length }} 条</span></header><p v-if="!knowledgeRetrieval.results.length" class="compact-empty">未检索到可引用资料，可调整关键词。</p><article v-for="result in knowledgeRetrieval.results" v-else :key="result.id" class="retrieval-result"><div><strong>{{ result.title }}</strong><span>{{ result.type }} · {{ result.owner }} · {{ result.score }} 分</span></div><p>{{ result.summary }}</p><small v-if="result.citation">{{ citationLocation(result.citation) }} · {{ result.citation.source }}</small><div class="tag-row"><el-tag v-for="highlight in result.highlights" :key="highlight" type="info">{{ highlight }}</el-tag></div></article></section>
+        <section v-if="knowledgeRetrieval" class="knowledge-retrieval"><header><span>{{ knowledgeRetrieval.results.length }} 条资料</span><el-button v-if="knowledgeAnswerUsedAi" link @click="openKnowledgePage('answer')">查看回答</el-button></header><p v-if="!knowledgeRetrieval.results.length" class="compact-empty">未检索到可引用资料，可调整关键词。</p><article v-for="result in knowledgeRetrieval.results" v-else :key="result.id" class="retrieval-result"><button class="retrieval-open" @click="openKnowledgePage('sources', result.citation?.chunkId)"><strong>{{ result.title }}</strong><ArrowUpRight :size="15" /></button><p>{{ summarizeText(result.summary, 200) }}</p><small v-if="result.citation">{{ citationLocation(result.citation) }}</small></article></section>
+      </section>
+      <section v-else-if="knowledgePage === 'history'" data-testid="knowledge-history">
+        <div class="knowledge-history module-record-list"><button v-for="query in knowledgeRecentQueries" :key="query" class="module-record" @click="repeatKnowledgeQuery(query)"><strong>{{ query }}</strong><ArrowUpRight :size="17" /></button></div><p v-if="!knowledgeRecentQueries.length" class="compact-empty">暂无最近查询。</p>
+      </section>
+      <section v-else-if="knowledgePage === 'answer'" data-testid="knowledge-answer" v-loading="knowledgeRestoring">
+        <div class="module-actions"><el-button text @click="openKnowledgePage('search')"><ArrowLeft :size="15" />返回查询</el-button><el-button v-if="knowledgeAnswer?.citations.length" @click="openKnowledgePage('sources')">查看引用原文 <ArrowUpRight :size="15" /></el-button></div>
         <div v-if="knowledgeAnswer" class="rag-answer">
           <header><strong>{{ knowledgeAnswerLabel() }}</strong><el-tag :type="knowledgeAnswer.mocked ? 'warning' : 'success'">{{ knowledgeAnswer.provider }}</el-tag></header>
           <div class="knowledge-answer" v-html="renderMarkdown(knowledgeAnswer.answer)" />
-          <div v-if="knowledgeAnswer.claims?.length" class="claim-list"><strong>可核对的事实项</strong><article v-for="(claim, index) in knowledgeAnswer.claims" :key="`${claim.text}-${index}`"><p>{{ claim.text }}</p><small>引用：{{ claim.citationIds?.join('、') || '未关联引用' }}</small><blockquote v-if="claim.supportQuote">{{ claim.supportQuote }}</blockquote></article></div>
+          <details v-if="knowledgeAnswer.claims?.length" class="claim-list"><summary>核对事实依据</summary><article v-for="(claim, index) in knowledgeAnswer.claims" :key="`${claim.text}-${index}`"><p>{{ claim.text }}</p><small>引用：{{ claim.citationIds?.join('、') || '未关联引用' }}</small><blockquote v-if="claim.supportQuote">{{ claim.supportQuote }}</blockquote></article></details>
+        </div>
+        <p v-else-if="!knowledgeRestoring" class="compact-empty">暂无可查看的回答，返回查询后重新检索。</p>
+      </section>
+      <section v-else-if="knowledgePage === 'sources'" data-testid="knowledge-sources" v-loading="knowledgeRestoring">
+        <div class="module-actions"><el-button text @click="openKnowledgePage('search')"><ArrowLeft :size="15" />返回查询</el-button><el-button v-if="queryValue('source')" @click="openKnowledgePage('sources')">全部引用</el-button></div>
+        <template v-if="knowledgeAnswer">
           <div v-if="knowledgeAnswer.citations.length" class="citation-list">
-            <details v-for="(citation, index) in knowledgeAnswer.citations" :key="citation.chunkId" class="citation-row">
+            <details v-for="(citation, index) in (queryValue('source') ? selectedKnowledgeCitation ? [selectedKnowledgeCitation] : [] : knowledgeAnswer.citations)" :key="citation.chunkId" :open="Boolean(queryValue('source'))" class="citation-row">
               <summary>[{{ index + 1 }}] {{ citation.title }}</summary>
               <p>{{ citation.source }} · {{ citation.score }} 分</p><p>{{ citationLocation(citation) }}</p>
               <div v-html="renderMarkdown(citation.snippet)" />
             </details>
           </div>
-        </div>
+          <p v-if="!knowledgeAnswer.citations.length || (queryValue('source') && !selectedKnowledgeCitation)" class="compact-empty">没有可查看的引用资料。</p>
+        </template>
+        <p v-else-if="!knowledgeRestoring" class="compact-empty">暂无引用资料，返回查询后重新检索。</p>
       </section>
     </template>
     <el-dialog v-model="replanPreviewOpen" title="核对新计划并确认切换" width="min(760px, 94vw)">
@@ -2045,6 +2247,55 @@ watch(targetRole, (value) => {
 </template>
 
 <style scoped>
+.module-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.module-actions :deep(.el-button), .module-context-bar :deep(.el-button) { margin: 0; }
+.module-actions :deep(.el-button > span) { gap: 6px; }
+.module-actions :deep(.el-select) { width: 180px; max-width: 100%; }
+.module-context-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
+.module-context-bar strong { font-size: 14px; overflow-wrap: anywhere; }
+.module-context-bar > span { color: var(--muted, #66716c); font-size: 12px; }
+.module-context-bar :deep(.el-button) { margin-left: auto; }
+.module-record-list { display: grid; width: 100%; }
+.module-record-list.version-actions { gap: 0; }
+.module-record { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 16px 4px; border: 0; border-bottom: 1px solid var(--line, #e8ebea); background: transparent; text-align: left; font: inherit; color: var(--ink, #1f2724); cursor: pointer; min-width: 0; }
+.module-record:hover { background: #f3f9f5; }
+.module-record > div { display: grid; gap: 6px; min-width: 0; }
+.module-record strong { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.module-record small { color: var(--muted, #66716c); line-height: 1.6; overflow-wrap: anywhere; }
+.module-record > svg { flex: none; color: var(--muted, #66716c); }
+.module-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 12px 0; font-size: 14px; color: var(--muted, #66716c); }
+.module-form-page { width: 100%; max-width: 880px; }
+.module-form-page :deep(.el-input-number), .module-form-page :deep(.el-select) { width: 100%; min-width: 0; }
+.module-reminders { margin-block: 22px; }
+.module-reminders h3 { font-size: 13px; margin-bottom: 8px; }
+.module-reminders > button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 0; border: 0; background: transparent; font: inherit; font-size: 13px; color: var(--muted, #66716c); text-align: left; cursor: pointer; }
+.module-reminders > button span { flex: 1; overflow-wrap: anywhere; }
+.module-reminders > button svg { flex: none; }
+.module-detail-page { min-width: 0; max-width: 940px; }
+.task-row.task-list-link { width: 100%; border-inline: 0; border-bottom: 0; background: transparent; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.task-row.task-list-link:hover { background: #f3f9f5; }
+.task-row.task-list-link > :last-child { grid-column: auto; }
+.task-row.task-detail-row { display: grid; grid-template-columns: 1fr; gap: 16px; border-top: 0; padding-top: 0; }
+.task-detail-row h2 { margin: 0; font-size: 19px; line-height: 1.6; overflow-wrap: anywhere; }
+.task-detail-row p { margin: 0; font-size: 14px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-facts { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 10px 14px; font-size: 13px; line-height: 1.8; margin: 0; }
+.task-facts dt { color: var(--muted, #66716c); }
+.task-facts dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.plan-sidebar[data-testid="plan-history"] { position: static; width: 100%; }
+.interview-history .module-record.session-card { display: flex; border-radius: 0; }
+.retrieval-open { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0; width: 100%; border: 0; background: transparent; font: inherit; text-align: left; color: inherit; cursor: pointer; }
+.retrieval-open svg { flex: none; }
+.knowledge-history.module-record-list { display: grid; }
+.original-profile-page { max-width: 880px; }
+.original-diagnosis-page { width: 100%; }
+.question-feedback > summary { cursor: pointer; color: var(--muted, #66716c); font-size: 13px; }
+@media (max-width: 480px) {
+  .module-context-bar { align-items: start; }
+  .module-context-bar :deep(.el-button) { margin-left: 0; }
+  .task-facts { grid-template-columns: 1fr; gap: 5px; }
+  .task-facts dd { margin-bottom: 9px; }
+  .task-row.task-list-link > :last-child { grid-column: auto; }
+}
 .legacy-resume-history{margin-top:20px;border-top:1px solid var(--line,#e5ebe7);padding-top:16px}
 .legacy-resume-history>summary{color:var(--muted,#66716c);font-size:13px;cursor:pointer;width:fit-content;margin-bottom:18px}
 .claim-list { display: grid; gap: 9px; margin: 0; font-size: 13px; }
@@ -2485,7 +2736,9 @@ watch(targetRole, (value) => {
 .question-nav,
 .answer-actions { display: flex; justify-content: space-between; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line, #e8ebea); }
 .answer-actions { justify-content: flex-end; }
-.answer-input :deep(textarea) { min-height: 278px !important; resize: vertical; }
+.answer-input :deep(textarea) { resize: vertical; }
+.answer-input :deep(textarea:not([readonly])) { min-height: 278px !important; }
+.answer-input :deep(textarea[readonly]) { min-height: 140px !important; }
 .interview-report { margin-top: 18px; }
 .report-score { align-items: start; padding-bottom: 19px; border-bottom: 1px solid var(--line, #e8ebea); }
 .report-score strong { color: var(--accent, #28664f); font-size: 55px; line-height: 1; }
