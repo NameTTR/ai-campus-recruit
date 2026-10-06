@@ -75,6 +75,8 @@ ai:
       rerank-model: ${DASHSCOPE_RERANK_MODEL:gte-rerank-v2}
       rerank-url: ${DASHSCOPE_RERANK_URL:https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank}
       rerank-enabled: ${AI_KNOWLEDGE_RERANK_ENABLED:true}
+      concept-gate-enabled: ${AI_KNOWLEDGE_CONCEPT_GATE_ENABLED:true}
+      sensitive-query-terms: ${AI_KNOWLEDGE_SENSITIVE_QUERY_TERMS:隐私,个人信息,个人资料,个人档案,医疗,医疗档案,健康档案,病历,凭据,密码,令牌,未公开,未发布,内部资料,机密,保密,privacy,credential,credentials,medical,personal record,unpublished}
       version: ${AI_KNOWLEDGE_INDEX_VERSION:semantic-rag-v2}
       minimum-vector-similarity: ${AI_KNOWLEDGE_MIN_VECTOR_SIMILARITY:0.45}
       minimum-rerank-score: ${AI_KNOWLEDGE_MIN_RERANK_SCORE:0.10}

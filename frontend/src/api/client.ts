@@ -1022,6 +1022,8 @@ export interface KnowledgeAnswerRequest extends KnowledgeSearchRequest {
 }
 
 export interface KnowledgeCitation {
+  documentVersion?: number | null
+  pageNumber?: number | null
   chunkIndex?: number | null
   startOffset?: number | null
   endOffset?: number | null
@@ -3513,6 +3515,27 @@ async function authenticatedRequest<T>(path: string, init: RequestInit): Promise
     throw new Error(readableApiError(payload.message || '请求失败'))
   }
   return payload.data
+}
+
+// Workspace feature modules use the same authenticated transport as the legacy client.
+export { authenticatedRequest }
+
+export async function authenticatedFileRequest(path: string, init: RequestInit = {}): Promise<Blob> {
+  let response: Response
+  try {
+    response = await fetch(resolveRequestPath(path), { ...init, headers: requestHeaders(init) })
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
+    throw new Error('无法连接服务，请检查网络或服务状态后重试；本次操作未确认成功')
+  }
+  if (!response.ok) {
+    if (response.status === 401) {
+      clearAuthSession()
+      throw new Error('登录已失效，请重新登录')
+    }
+    throw new Error(await responseErrorMessage(response, `HTTP ${response.status}`))
+  }
+  return response.blob()
 }
 
 async function responseErrorMessage(response: Response, fallback: string) {

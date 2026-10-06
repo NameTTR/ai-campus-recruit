@@ -25,6 +25,7 @@ import {
 } from '../api/client'
 
 import KnowledgeIndexPanel from '../features/student/KnowledgeIndexPanel.vue'
+import KnowledgePublicationPanel from '../features/admin/KnowledgePublicationPanel.vue'
 
 const route = useRoute()
 const activeModule = computed(() => typeof route.params.module === 'string' ? route.params.module : 'ai')
@@ -279,8 +280,6 @@ async function removeSelectedDocuments() {
 function loadModule(module: string) {
   if (module === 'accounts') {
     void loadAccounts()
-  } else {
-    void loadKnowledge()
   }
 }
 
@@ -290,7 +289,7 @@ watch(activeModule, loadModule)
 
 <template>
   <section class="page admin-page">
-    <header class="dashboard-header">
+    <header v-if="activeModule === 'accounts'" class="dashboard-header">
       <div class="title-block"><p class="eyebrow">平台治理中心</p><h1 class="page-title">{{ pageTitle }}</h1><p class="page-subtitle">维护账号权限与可检索的校园招聘知识资料</p></div>
       <span class="header-role"><ShieldCheck :size="16" />管理员</span>
     </header>
@@ -333,40 +332,7 @@ watch(activeModule, loadModule)
     </template>
 
     <template v-else>
-      <KnowledgeIndexPanel />
-      <section class="metric-grid" aria-label="知识库数据概览">
-        <article class="metric-card metric-mint"><span class="metric-icon"><Library :size="18" /></span><div><span>知识文档</span><strong>{{ knowledgeStats?.documentCount || 0 }}</strong><small>知识库统计文档数</small></div></article>
-        <article class="metric-card metric-lavender"><span class="metric-icon"><Library :size="18" /></span><div><span>检索分块</span><strong>{{ knowledgeStats?.chunkCount || 0 }}</strong><small>知识库统计知识块数</small></div></article>
-        <article class="metric-card metric-peach"><span class="metric-icon"><ShieldCheck :size="18" /></span><div><span>当前文档列表</span><strong>{{ visibleDocumentCount }}</strong><small>按当前检索条件已加载</small></div></article>
-        <article class="metric-card metric-blue"><span class="metric-icon"><Upload :size="18" /></span><div><span>最近导入任务</span><strong>{{ recentIngestionCount }}</strong><small>当前已加载的任务列表</small></div></article>
-      </section>
-      <section class="panel module-panel filter-panel" v-loading="knowledgeLoading">
-        <header class="section-heading"><div><p class="section-kicker">知识库管理</p><h2>知识文档</h2><span class="section-note">{{ knowledgeStats?.corpusVersion || '等待加载' }}</span></div><div class="heading-actions"><el-button circle size="small" aria-label="刷新知识库" @click="loadKnowledge"><RefreshCw :size="15" /></el-button><span class="heading-icon"><Library :size="19" /></span></div></header>
-        <div class="toolbar"><label class="field"><span>检索内容</span><el-input v-model="knowledgeFilters.keyword" clearable placeholder="搜索标题、标签或内容" @keyup.enter="loadKnowledge" /></label><label class="field"><span>读取角色</span><el-select v-model="knowledgeFilters.role"><el-option label="管理员" value="ADMIN" /><el-option label="学生" value="STUDENT" /><el-option label="企业" value="COMPANY" /></el-select></label><el-button type="primary" class="filter-button" :loading="knowledgeLoading" @click="loadKnowledge">查询</el-button></div>
-      </section>
-      <section class="admin-grid knowledge-editor-grid">
-        <article class="panel module-panel form-panel">
-          <header class="section-heading"><div><p class="section-kicker">内容录入</p><h2>手工新增</h2></div><span class="heading-icon"><Plus :size="19" /></span></header>
-          <div class="form-stack"><label class="field"><span>标题</span><el-input v-model="knowledgeForm.title" placeholder="输入文档标题" /></label><label class="field"><span>分类</span><el-input v-model="knowledgeForm.category" placeholder="例如 interview" /></label><label class="field"><span>标签</span><el-input v-model="knowledgeForm.tags" placeholder="使用逗号分隔" /></label><label class="field"><span>可读取角色</span><el-input v-model="knowledgeForm.roles" placeholder="例如 STUDENT,COMPANY" /></label><label class="field"><span>文档内容</span><el-input v-model="knowledgeForm.content" type="textarea" :rows="7" placeholder="输入可被检索的正文内容" /></label></div>
-          <div class="actions"><el-button type="primary" :loading="actionLoading" @click="submitKnowledgeDocument">创建文档</el-button></div>
-        </article>
-        <article class="panel module-panel form-panel import-panel">
-          <header class="section-heading"><div><p class="section-kicker">文件入库</p><h2>上传导入</h2></div><span class="heading-icon"><Upload :size="19" /></span></header>
-          <label class="file-control" :class="{ 'has-file': selectedFile }"><span class="upload-mark"><Upload :size="20" /></span><span class="file-copy"><strong>{{ selectedFile?.name || '选择知识文件' }}</strong><small>{{ selectedFile ? '已选择，提交后将进入导入任务' : '支持 TXT、MD、PDF、DOC、DOCX' }}</small></span><span class="file-action">选择文件</span><input ref="fileInput" type="file" accept=".txt,.md,.pdf,.doc,.docx" @change="chooseFile" /></label>
-          <div class="form-stack"><label class="field"><span>文档标题</span><el-input v-model="uploadForm.title" placeholder="未填写时使用文件名" /></label><label class="field"><span>标签</span><el-input v-model="uploadForm.tags" placeholder="使用逗号分隔" /></label><label class="field"><span>可读取角色</span><el-input v-model="uploadForm.roles" placeholder="例如 STUDENT,COMPANY" /></label></div>
-          <div class="actions"><el-button type="primary" :loading="actionLoading" @click="submitKnowledgeFile">上传到知识库</el-button></div>
-        </article>
-      </section>
-      <section class="panel module-panel list-panel" v-loading="knowledgeLoading">
-        <header class="section-heading"><div><p class="section-kicker">文件处理</p><h2>导入任务</h2><span class="section-note">显示当前已加载的 {{ ingestions.length }} 条任务</span></div><span class="heading-icon"><Upload :size="19" /></span></header>
-        <el-empty v-if="!ingestions.length" description="暂无导入任务" />
-        <div v-else class="ingestion-list"><article v-for="ingestion in ingestions" :key="ingestion.jobId" class="ingestion-row"><div class="ingestion-file"><span class="file-glyph"><Upload :size="16" /></span><div><strong>{{ ingestion.title }}</strong><span>{{ ingestion.fileName }} · {{ ingestion.source }}</span></div></div><el-tag :type="ingestion.status === 'READY' ? 'success' : ingestion.status === 'FAILED' ? 'danger' : 'warning'" effect="light">{{ ingestion.status }}</el-tag><span class="ingestion-meta">{{ ingestion.chunkCount }} 块 · {{ formatDateTime(ingestion.updatedAt) }}</span></article></div>
-      </section>
-      <section class="panel module-panel list-panel" v-loading="knowledgeLoading">
-        <header class="section-heading"><div><p class="section-kicker">检索资产</p><h2>已入库文档</h2><span class="section-note">显示当前筛选条件下的 {{ documents.length }} 条结果</span></div><div class="heading-actions"><el-button size="small" type="danger" plain :disabled="!selectedDocumentIds.length" :loading="actionLoading" @click="removeSelectedDocuments">批量删除</el-button><span class="heading-icon"><Library :size="19" /></span></div></header>
-        <el-empty v-if="!documents.length" description="暂无知识文档" />
-        <div v-else class="document-list"><div class="document-list-head"><span>选择</span><span>文档信息</span><span>读取权限</span></div><article v-for="document in documents" :key="document.documentId" class="document-row"><label class="document-select"><input v-model="selectedDocumentIds" type="checkbox" :value="document.documentId" /><span>选择</span></label><div class="document-identity"><strong>{{ document.title }}</strong><span>{{ document.category }} · {{ document.source }} · {{ formatDateTime(document.createdAt) }}</span><div class="tag-row"><el-tag v-for="tag in document.tags" :key="tag" type="info">{{ tag }}</el-tag></div></div><div class="document-actions"><label class="field inline-field"><span>角色</span><el-input v-model="roleDrafts[document.documentId]" size="small" placeholder="角色" /></label><div class="actions compact-actions"><el-button size="small" :loading="actionLoading" @click="saveDocumentRoles(document)">保存权限</el-button><el-button size="small" type="danger" plain :loading="actionLoading" @click="removeDocument(document)"><Trash2 :size="14" />删除</el-button></div></div></article></div>
-      </section>
+      <KnowledgePublicationPanel />
     </template>
   </section>
 </template>

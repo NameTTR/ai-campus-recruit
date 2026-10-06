@@ -2,7 +2,9 @@ package com.aicampus.ai.service.core;
 
 import com.aicampus.ai.service.AiCoachService;
 import com.aicampus.ai.service.DashScopeClient;
+import com.aicampus.ai.service.knowledge.workspace.KnowledgeCatalogService;
 import com.aicampus.common.dto.*;
+import com.aicampus.common.dto.KnowledgeWorkspaceModels.KnowledgeTopic;
 import com.aicampus.common.resume.ResumeWorkspaceModels.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -10,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.List;
 import java.util.stream.IntStream;
+import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -398,6 +401,86 @@ class InterviewPracticeServiceTest {
         assertThat(s.sourceMaterial()).doesNotContain("Spring Boot", "MySQL", "Docker");
     }
 
+    @Test void revokedKnowledgeSourceBlocksReadEvaluationReportAndFiltersHistoryWithoutModelCalls() {
+        Fixture f = fixture(); InterviewSession ordinary = f.create("COACHING", null, "JOB", null, 1);
+        KnowledgeCatalogService catalog = mock(KnowledgeCatalogService.class); KnowledgeTopic topic = topic(1, "缓存内容");
+        when(catalog.topic(topic.id(), "STUDENT")).thenReturn(topic); f.core.setKnowledgeCatalogService(catalog);
+        InterviewSession knowledge = f.createKnowledge(topic, "topic/content/v1");
+        String q = knowledge.questions().get(0).questionId();
+        f.service.answer(knowledge.sessionId(), q, "S", new InterviewSessionAnswerRequest(q, "saved answer"), true);
+        f.service.report(knowledge.sessionId(), "S", false);
+        assertThat(f.coach.calls).isEqualTo(1);
+        when(catalog.topic(topic.id(), "STUDENT")).thenThrow(new IllegalArgumentException("Access revoked"));
+        assertThatThrownBy(() -> f.service.get(knowledge.sessionId(), "S")).hasMessageContaining("Knowledge source");
+        assertThatThrownBy(() -> f.service.view(knowledge)).hasMessageContaining("Knowledge source");
+        assertThatThrownBy(() -> f.service.evaluate(knowledge.sessionId(), q, null, "S", false)).hasMessageContaining("Knowledge source");
+        assertThatThrownBy(() -> f.service.report(knowledge.sessionId(), "S", false)).hasMessageContaining("Knowledge source");
+        assertThat(f.service.listSessions("S", 100)).extracting(InterviewSession::sessionId).containsExactly(ordinary.sessionId());
+        assertThat(f.service.sources("S", "STUDENT", null, null, null)).noneSatisfy(source ->
+                assertThat(source.sourceId()).startsWith("INTERVIEW:" + knowledge.sessionId()));
+        assertThat(f.coach.calls).isEqualTo(1);
+        assertThat(f.store.findById(knowledge.sessionId()).orElseThrow().answers().get(0).answer()).isEqualTo("saved answer");
+    }
+
+    @Test void knowledgeVersionChangeRejectsEvenUnchangedTextAndLegacyContentChangeRejectsBeforeEvaluation() {
+        Fixture f = fixture(); AtomicReference<KnowledgeTopic> current = new AtomicReference<>(topic(1, "缓存内容"));
+        f.service.setKnowledgeSourceValidator(id -> current.get());
+        InterviewSession versioned = f.createKnowledge(current.get(), "topic/content/v1");
+        String q = versioned.questions().get(0).questionId();
+        f.service.answer(versioned.sessionId(), q, "S", new InterviewSessionAnswerRequest(q, "saved"), true);
+        current.set(topic(2, "缓存内容"));
+        assertThatThrownBy(() -> f.service.get(versioned.sessionId(), "S")).hasMessageContaining("updated");
+        assertThatThrownBy(() -> f.service.evaluate(versioned.sessionId(), q, null, "S", false)).hasMessageContaining("updated");
+        InterviewSession legacy = f.createKnowledge(current.get(), "topic/content");
+        String oldQuestion = legacy.questions().get(0).questionId();
+        f.service.answer(legacy.sessionId(), oldQuestion, "S", new InterviewSessionAnswerRequest(oldQuestion, "legacy saved"), true);
+        assertThat(f.service.get(legacy.sessionId(), "S").sourceMaterial()).contains("缓存内容");
+        current.set(topic(2, "已修正缓存内容"));
+        assertThatThrownBy(() -> f.service.get(legacy.sessionId(), "S")).hasMessageContaining("updated");
+        assertThatThrownBy(() -> f.service.evaluate(legacy.sessionId(), oldQuestion, null, "S", false)).hasMessageContaining("updated");
+        assertThat(f.coach.calls).isZero();
+    }
+
+    @Test void revocationDuringEvaluationDiscardsFeedbackAndRetainsImmutableAnswer() {
+        Fixture f = fixture(); AtomicReference<KnowledgeTopic> current = new AtomicReference<>(topic(1, "缓存内容"));
+        f.service.setKnowledgeSourceValidator(id -> current.get());
+        InterviewSession s = f.createKnowledge(current.get(), "topic/content/v1");
+        String q = s.questions().get(0).questionId();
+        f.service.answer(s.sessionId(), q, "S", new InterviewSessionAnswerRequest(q, "answer before revocation"), true);
+        f.coach.beforeEvaluation = () -> current.set(null);
+        assertThatThrownBy(() -> f.service.evaluate(s.sessionId(), q, null, "S", false)).hasMessageContaining("Knowledge source");
+        InterviewAnswerAttempt stored = f.store.findById(s.sessionId()).orElseThrow().attempts().get(0);
+        assertThat(stored.answer()).isEqualTo("answer before revocation");
+        assertThat(stored.evaluation()).isNull();
+        assertThat(f.service.listSessions("S", 100)).isEmpty();
+        assertThat(f.coach.calls).isEqualTo(1);
+    }
+
+    @Test void derivedGapPracticesRetainKnowledgePermissionAndVersionReferences() {
+        Fixture f = fixture(); AtomicReference<KnowledgeTopic> current = new AtomicReference<>(topic(1, "缓存内容"));
+        f.service.setKnowledgeSourceValidator(id -> current.get());
+        InterviewSession s = f.createKnowledge(current.get(), "topic/content/v1");
+        String q = s.questions().get(0).questionId();
+        f.service.answer(s.sessionId(), q, "S", new InterviewSessionAnswerRequest(q, "original"), true);
+        f.service.report(s.sessionId(), "S", false);
+        InterviewActionPreview preview = f.service.previewAction(s.sessionId(), "S", "PRACTICE-0", null);
+        String derivedId = f.service.confirmAction(s.sessionId(), "S", preview.previewId()).createdSessionId();
+        InterviewSession chosenGap = f.create("COACHING", null, "GAP", "INTERVIEW:" + s.sessionId() + ":0", 1);
+        assertThat(f.service.get(derivedId, "S").sourceReferences()).anySatisfy(ref -> assertThat(ref.kind()).isEqualTo("KNOWLEDGE"));
+        assertThat(chosenGap.sourceReferences()).anySatisfy(ref -> assertThat(ref.kind()).isEqualTo("KNOWLEDGE"));
+        current.set(null);
+        assertThatThrownBy(() -> f.service.get(derivedId, "S")).hasMessageContaining("Knowledge source");
+        assertThatThrownBy(() -> f.service.get(chosenGap.sessionId(), "S")).hasMessageContaining("Knowledge source");
+        assertThat(f.service.listSessions("S", 100)).isEmpty();
+    }
+
+    private static KnowledgeTopic topic(int version, String content) {
+        Instant now = Instant.now();
+        return new KnowledgeTopic("java-cache", "JAVA", "Redis", "缓存练习", "摘要", content, "验证缓存失效", "说明验证方法",
+                "EXPLAIN", "medium", 15, List.of(), "test source", null, "Redis 7", "2026-10-06", "KB-cache", version,
+                "PUBLISHED", List.of(), now, now);
+    }
+
     private static Fixture fixture() {
         return fixture(new InMemoryInterviewSessionStore());
     }
@@ -412,7 +495,7 @@ class InterviewPracticeServiceTest {
                 new Experience("p2", "PROJECT", "未确认项目", null, null, null, null, "unknown", null, null, List.of(), List.of(), null, false)), List.of(), null);
         when(context.loadMasterProfile(anyString(), anyString())).thenReturn(new MasterProfile("S", 1, data, null, Instant.now()));
         AiCareerCoreService core = new AiCareerCoreService(coach, new InMemoryLearningPlanStore(), store, context);
-        return new Fixture(core.interviewPractice(), coach, store);
+        return new Fixture(core, coach, store);
     }
 
     private static class ConfirmationFailingStore extends InMemoryInterviewSessionStore {
@@ -428,10 +511,20 @@ class InterviewPracticeServiceTest {
     }
 
     private static class Fixture {
-        final InterviewPracticeService service; final TestCoach coach; final InMemoryInterviewSessionStore store; String id;
-        Fixture(InterviewPracticeService service, TestCoach coach, InMemoryInterviewSessionStore store) { this.service=service; this.coach=coach; this.store=store; }
+        final AiCareerCoreService core; final InterviewPracticeService service; final TestCoach coach; final InMemoryInterviewSessionStore store; String id;
+        Fixture(AiCareerCoreService core, TestCoach coach, InMemoryInterviewSessionStore store) {
+            this.core=core; this.service=core.interviewPractice(); this.coach=coach; this.store=store;
+        }
         InterviewSession create(String mode, Integer minutes, String source, String sourceId, int count) {
             InterviewSession s = service.create("S", "STUDENT", new InterviewSessionCreateRequest("S", null, null, null, "Java", count, mode, source, sourceId, minutes));
+            id = s.sessionId(); return s;
+        }
+        InterviewSession createKnowledge(KnowledgeTopic topic, String location) {
+            String sourceId = "KNOWLEDGE:" + topic.id();
+            String material = topic.content() + "\n" + topic.example() + "\n" + topic.practicePrompt();
+            InterviewSession s = service.createKnowledgePractice("S", "STUDENT", new InterviewSessionCreateRequest(
+                    "S", null, null, null, "Java", 1, "COACHING", "GAP", sourceId, null), sourceId, material,
+                    List.of(new InterviewSourceReference(sourceId, "KNOWLEDGE", material, location)), List.of(topic.skill()), null);
             id = s.sessionId(); return s;
         }
     }

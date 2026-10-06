@@ -52,6 +52,26 @@ class JwtGatewayAuthFilterTest {
         assertThat(chain.exchange.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("ADMIN");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/ai/knowledge/publications", "/api/ai/knowledge/publications/DOC-1/publish",
+            "/api/ai/knowledge/admin/publications/DOC-1/publish"})
+    void studentsCannotManageKnowledgePublications(String path) {
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest.post(path)
+                .header("Authorization", "Bearer " + jwtTokenService.issue("S001", "Student", Role.STUDENT))
+                .header("X-User-Role", "ADMIN").build());
+        filter.filter(exchange, passThrough()).block();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/ai/knowledge/me/items", "/api/ai/knowledge/practices", "/api/ai/knowledge/actions/preview"})
+    void companyCannotUsePrivateStudentKnowledgeWorkflow(String path) {
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest.post(path)
+                .header("Authorization", "Bearer " + jwtTokenService.issue("C001", "Company", Role.COMPANY)).build());
+        filter.filter(exchange, passThrough()).block();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
     private static final String SECRET = "gateway-test-secret-that-is-long-enough";
     private final JwtGatewayAuthFilter filter = new JwtGatewayAuthFilter(SECRET, "ai-campus-test", 86400, true);
     private final JwtTokenService jwtTokenService = new JwtTokenService(SECRET, "ai-campus-test", 86400);

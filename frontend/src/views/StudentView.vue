@@ -92,6 +92,8 @@ import ResumeBuilderPanel from '../features/student/ResumeBuilderPanel.vue'
 import StudentModuleNav from '../features/student/StudentModuleNav.vue'
 import LearningEvidenceForm from '../features/student/LearningEvidenceForm.vue'
 import InterviewWorkspace from '../features/student/InterviewWorkspace.vue'
+import KnowledgeWorkspace from '../features/student/KnowledgeWorkspace.vue'
+import { knowledgeContext } from '../features/student/knowledgeWorkspace'
 import {
   citationLocation, matchContextIsCurrent, retrievalFromAnswer, retrievalModeLabel
 } from '../features/student/coreDeepening'
@@ -241,10 +243,7 @@ const moduleContext = computed<Record<string, string>>(() => {
   if (activeModule.value === 'resume' && queryValue('draftId')) context.draftId = queryValue('draftId')
   if (activeModule.value === 'plan' && selectedPlanId.value) context.planId = selectedPlanId.value
   if (activeModule.value === 'interview' && selectedSessionId.value) context.sessionId = selectedSessionId.value
-  if (activeModule.value === 'knowledge' && queryValue('q')) {
-    context.q = queryValue('q')
-    if (queryValue('ai')) context.ai = queryValue('ai')
-  }
+  if (activeModule.value === 'knowledge') Object.assign(context, knowledgeContext(route.query as Record<string, unknown>))
   if (queryValue('matchId') && ['plan', 'interview'].includes(activeModule.value)) context.matchId = queryValue('matchId')
   return context
 })
@@ -1584,7 +1583,6 @@ function syncModuleRoute() {
     selectedSessionId.value = queryValue('sessionId')
     void selectSession()
   }
-  if (activeModule.value === 'knowledge' && moduleDataReady.knowledge) void restoreKnowledgeResult()
 }
 
 function restoreRouteMatchContext() {
@@ -1626,6 +1624,7 @@ async function loadModule(module: string) {
     await loadInterviewSessions()
   } else if (module === 'knowledge') {
     await loadResumeData()
+    await loadJobsData()
   }
   if (route.query.matchId && selectedJob.value) {
     if (module === 'plan') planForm.targetRole = selectedJob.value.title
@@ -2007,43 +2006,7 @@ watch(targetRole, (value) => {
     </template>
 
     <template v-else-if="activeModule === 'knowledge'">
-      <el-alert v-if="knowledgeError" class="knowledge-error" type="warning" :title="knowledgeError" :closable="false" show-icon><template #default><el-button link type="primary" @click="knowledgePage === 'search' ? runKnowledgeSearch() : openKnowledgePage('search')">{{ knowledgePage === 'search' ? '重试' : '返回查询' }}</el-button></template></el-alert>
-      <section v-if="knowledgePage === 'search'" class="knowledge-shell" data-testid="knowledge-search">
-        <div class="knowledge-mode"><span>回答模式</span><el-switch v-model="knowledgeUseAi" active-text="AI 回答" inactive-text="仅检索" aria-label="AI 回答模式" /></div>
-        <div class="knowledge-search">
-          <el-input v-model="knowledgeQuery" placeholder="搜索 Java、Redis、面试或简历证据" aria-label="知识库查询" @keyup.enter="runKnowledgeSearch" />
-          <el-button type="primary" :loading="knowledgeLoading" @click="runKnowledgeSearch"><Search :size="17" />检索</el-button>
-        </div>
-        <div v-if="knowledgeAnswer" class="knowledge-history"><el-tag type="info">{{ retrievalModeLabel(knowledgeAnswer.retrievalMode) }}</el-tag><el-tag>{{ knowledgeAnswer.generationMode === 'AI' ? 'AI 回答' : '检索资料' }}</el-tag><span>{{ knowledgeAnswer.algorithmVersion }}</span></div>
-        <el-alert v-if="knowledgeAnswer && ['NO_EVIDENCE', 'INSUFFICIENT_EVIDENCE', 'INSUFFICIENT'].includes(knowledgeAnswer.evidenceStatus || '')" title="现有资料不足以支持完整回答，请核对检索资料或补充知识库。" type="info" :closable="false" />
-        <section v-if="knowledgeRetrieval" class="knowledge-retrieval"><header><span>{{ knowledgeRetrieval.results.length }} 条资料</span><el-button v-if="knowledgeAnswerUsedAi" link @click="openKnowledgePage('answer')">查看回答</el-button></header><p v-if="!knowledgeRetrieval.results.length" class="compact-empty">未检索到可引用资料，可调整关键词。</p><article v-for="result in knowledgeRetrieval.results" v-else :key="result.id" class="retrieval-result"><button class="retrieval-open" @click="openKnowledgePage('sources', result.citation?.chunkId)"><strong>{{ result.title }}</strong><ArrowUpRight :size="15" /></button><p>{{ summarizeText(result.summary, 200) }}</p><small v-if="result.citation">{{ citationLocation(result.citation) }}</small></article></section>
-      </section>
-      <section v-else-if="knowledgePage === 'history'" data-testid="knowledge-history">
-        <div class="knowledge-history module-record-list"><button v-for="query in knowledgeRecentQueries" :key="query" class="module-record" @click="repeatKnowledgeQuery(query)"><strong>{{ query }}</strong><ArrowUpRight :size="17" /></button></div><p v-if="!knowledgeRecentQueries.length" class="compact-empty">暂无最近查询。</p>
-      </section>
-      <section v-else-if="knowledgePage === 'answer'" data-testid="knowledge-answer" v-loading="knowledgeRestoring">
-        <div class="module-actions"><el-button text @click="openKnowledgePage('search')"><ArrowLeft :size="15" />返回查询</el-button><el-button v-if="knowledgeAnswer?.citations.length" @click="openKnowledgePage('sources')">查看引用原文 <ArrowUpRight :size="15" /></el-button></div>
-        <div v-if="knowledgeAnswer" class="rag-answer">
-          <header><strong>{{ knowledgeAnswerLabel() }}</strong><el-tag :type="knowledgeAnswer.mocked ? 'warning' : 'success'">{{ knowledgeAnswer.provider }}</el-tag></header>
-          <div class="knowledge-answer" v-html="renderMarkdown(knowledgeAnswer.answer)" />
-          <details v-if="knowledgeAnswer.claims?.length" class="claim-list"><summary>核对事实依据</summary><article v-for="(claim, index) in knowledgeAnswer.claims" :key="`${claim.text}-${index}`"><p>{{ claim.text }}</p><small>引用：{{ claim.citationIds?.join('、') || '未关联引用' }}</small><blockquote v-if="claim.supportQuote">{{ claim.supportQuote }}</blockquote></article></details>
-        </div>
-        <p v-else-if="!knowledgeRestoring" class="compact-empty">暂无可查看的回答，返回查询后重新检索。</p>
-      </section>
-      <section v-else-if="knowledgePage === 'sources'" data-testid="knowledge-sources" v-loading="knowledgeRestoring">
-        <div class="module-actions"><el-button text @click="openKnowledgePage('search')"><ArrowLeft :size="15" />返回查询</el-button><el-button v-if="queryValue('source')" @click="openKnowledgePage('sources')">全部引用</el-button></div>
-        <template v-if="knowledgeAnswer">
-          <div v-if="knowledgeAnswer.citations.length" class="citation-list">
-            <details v-for="(citation, index) in (queryValue('source') ? selectedKnowledgeCitation ? [selectedKnowledgeCitation] : [] : knowledgeAnswer.citations)" :key="citation.chunkId" :open="Boolean(queryValue('source'))" class="citation-row">
-              <summary>[{{ index + 1 }}] {{ citation.title }}</summary>
-              <p>{{ citation.source }} · {{ citation.score }} 分</p><p>{{ citationLocation(citation) }}</p>
-              <div v-html="renderMarkdown(citation.snippet)" />
-            </details>
-          </div>
-          <p v-if="!knowledgeAnswer.citations.length || (queryValue('source') && !selectedKnowledgeCitation)" class="compact-empty">没有可查看的引用资料。</p>
-        </template>
-        <p v-else-if="!knowledgeRestoring" class="compact-empty">暂无引用资料，返回查询后重新检索。</p>
-      </section>
+      <KnowledgeWorkspace v-if="profile?.userId" :user-id="profile.userId" :target-role="targetRole" :resume-id="queryValue('resumeId') || selectedResumeId || undefined" :job-id="queryValue('jobId') || undefined" :match-id="queryValue('matchId') || undefined" :plan-id="queryValue('planId') || undefined" :interview-session-id="queryValue('sessionId') || undefined" :jobs="jobs" :resumes="resumes" />
     </template>
     <el-dialog v-model="replanPreviewOpen" title="核对新计划并确认切换" width="min(760px, 94vw)">
       <template v-if="replanPreview"><p>确认后启用 V{{ replanPreview.version }}；原版本和已完成成果仍可查看。</p><p>调整原因：{{ replanPreview.revisionReason || planForm.replanReason }}</p><p>每周 {{ replanPreview.weeklyHours }} 小时 · {{ replanPreview.durationWeeks }} 周</p><div class="task-list"><article v-for="task in replanPreview.tasks" :key="task.taskId" class="preview-task"><strong>第 {{ task.week }} 周 · {{ task.title }} · {{ task.estimatedHours }}h</strong><el-tag v-if="task.status === 'COMPLETED'" type="success">已完成成果保留</el-tag><p>{{ task.description }}</p><p>{{ task.acceptanceCriteria }}</p></article></div></template>

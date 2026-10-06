@@ -10,6 +10,7 @@ import com.aicampus.ai.service.knowledge.KnowledgeChunkRecord;
 import com.aicampus.ai.service.knowledge.KnowledgeVectorIndex;
 import com.aicampus.ai.service.knowledge.KnowledgeVectorMatch;
 import com.aicampus.ai.service.knowledge.PersistentKnowledgeBaseStore;
+import com.aicampus.ai.service.knowledge.workspace.KnowledgeWorkspaceStore;
 import com.aicampus.common.demo.DemoDataFactory;
 import com.aicampus.common.dto.AiSearchResponse;
 import com.aicampus.common.dto.AiSearchResult;
@@ -52,10 +53,12 @@ import org.springframework.stereotype.Service;
 @Service
 public class KnowledgeBaseService {
     private static final Logger log = LoggerFactory.getLogger(KnowledgeBaseService.class);
-    public static final String ALGORITHM_VERSION = "semantic-rag-v2";
+    public static final String ALGORITHM_VERSION = "semantic-rag-v5";
     public static final String PROMPT_VERSION = "rag-claims-v2";
     private static final int ANSWER_CONTEXT_CHARS_PER_CHUNK = 2400;
     private static final int LOCAL_EVIDENCE_CHARS_PER_CHUNK = 1600;
+    private static final Set<String> QUERY_CONNECTORS = Set.of("如何", "怎样", "怎么", "什么", "哪些", "是否", "为何",
+            "可以", "需要", "应该", "相关", "一个", "这个", "以及", "时候", "通过");
 
     private final KnowledgeBaseStore store;
     private final DashScopeClient dashScopeClient;
@@ -66,6 +69,10 @@ public class KnowledgeBaseService {
     private final boolean demoSeedEnabled;
     private KnowledgeVectorIndex vectorIndex;
     private DashScopeKnowledgeClient semanticClient;
+    private KnowledgeWorkspaceStore workspaceStore;
+
+    @Autowired(required = false)
+    public void setWorkspaceStore(KnowledgeWorkspaceStore workspaceStore) { this.workspaceStore = workspaceStore; }
     private final Object[] operationLocks = java.util.stream.IntStream.range(0, 64).mapToObj(i -> new Object()).toArray();
     private final Object[] retrievalLocks = java.util.stream.IntStream.range(0, 64).mapToObj(i -> new Object()).toArray();
     private Object retrievalLock(String key) { return retrievalLocks[Math.floorMod(key.hashCode(), retrievalLocks.length)]; }
@@ -249,6 +256,42 @@ public class KnowledgeBaseService {
         return saveWithChunks(document);
     }
 
+    public KnowledgeDocument document(String documentId) {
+        return store.listDocuments().stream().filter(d -> d.documentId().equals(documentId)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Knowledge document not found"));
+    }
+
+    public List<KnowledgeChunkRecord> documentChunks(String documentId) {
+        return store.listChunks().stream().filter(c -> c.documentId().equals(documentId))
+                .sorted(Comparator.comparingInt(KnowledgeChunkRecord::chunkIndex)).toList();
+    }
+
+    public boolean readable(String documentId, String actorRole) {
+        return store.listDocuments().stream().filter(document -> document.documentId().equals(documentId))
+                .anyMatch(document -> canRead(document.roles(), normalizeRole(actorRole)) && published(documentId, actorRole));
+    }
+
+    public List<KnowledgeDocument> readableDocuments(String actorRole) {
+        String role = normalizeRole(actorRole);
+        Set<String> hidden = hiddenDocumentIds(role);
+        return store.listDocuments().stream().filter(document -> canRead(document.roles(), role))
+                .filter(document -> !hidden.contains(document.documentId())).toList();
+    }
+
+    private Set<String> hiddenDocumentIds(String actorRole) {
+        if (workspaceStore == null || "ADMIN".equals(normalizeRole(actorRole))) return Set.of();
+        return workspaceStore.list("DOCUMENT_METADATA", "system", com.fasterxml.jackson.databind.JsonNode.class).stream()
+                .filter(value -> !Set.of("PUBLISHED", "LEGACY").contains(value.path("status").asText("LEGACY")))
+                .map(value -> value.path("documentId").asText()).collect(Collectors.toSet());
+    }
+
+    private boolean published(String documentId, String actorRole) {
+        if ("ADMIN".equals(normalizeRole(actorRole)) || workspaceStore == null) return true;
+        return workspaceStore.get("DOCUMENT_METADATA", documentId, "system", com.fasterxml.jackson.databind.JsonNode.class)
+                .map(value -> Set.of("PUBLISHED", "LEGACY").contains(value.path("status").asText("LEGACY")))
+                .orElse(true);
+    }
+
     public synchronized KnowledgeDocument updateRoles(String documentId, KnowledgeDocumentRolesRequest request) {
         invalidateCaches();
         String normalizedDocumentId = valueOr(documentId, "");
@@ -269,6 +312,15 @@ public class KnowledgeBaseService {
                 .filter(chunk -> normalizedDocumentId.equals(chunk.documentId()))
                 .map(KnowledgeChunkRecord::chunkId)
                 .toList();
+        if (workspaceStore != null && exists(normalizedDocumentId)) {
+            com.fasterxml.jackson.databind.node.ObjectNode metadata = workspaceStore.get("DOCUMENT_METADATA",
+                    normalizedDocumentId, "system", com.fasterxml.jackson.databind.JsonNode.class)
+                    .map(value -> (com.fasterxml.jackson.databind.node.ObjectNode) value.deepCopy())
+                    .orElseGet(objectMapper::createObjectNode);
+            metadata.put("documentId", normalizedDocumentId);
+            metadata.put("status", "DELETED");
+            workspaceStore.put("DOCUMENT_METADATA", normalizedDocumentId, "system", metadata);
+        }
         boolean deleted = store.delete(normalizedDocumentId);
         if (deleted && vectorIndex != null) {
             try {
@@ -316,9 +368,11 @@ public class KnowledgeBaseService {
     public List<KnowledgeDocument> list(String keyword, String role, Integer limit) {
         String query = valueOr(keyword, "").toLowerCase(Locale.ROOT);
         String normalizedRole = normalizeRole(role);
+        Set<String> hidden = hiddenDocumentIds(normalizedRole);
         int normalizedLimit = limit == null ? 20 : Math.max(1, Math.min(100, limit));
         return store.listDocuments().stream()
                 .filter(document -> canRead(document.roles(), normalizedRole))
+                .filter(document -> !hidden.contains(document.documentId()))
                 .filter(document -> query.isBlank() || documentText(document).contains(query))
                 .sorted(Comparator.comparing(KnowledgeDocument::createdAt).reversed()
                         .thenComparing(KnowledgeDocument::documentId))
@@ -329,11 +383,15 @@ public class KnowledgeBaseService {
     public AiSearchResponse search(KnowledgeSearchRequest request) { return search(request, "anonymous"); }
 
     public AiSearchResponse search(KnowledgeSearchRequest request, String actorId) {
+        return search(request, actorId, null, "");
+    }
+
+    public AiSearchResponse search(KnowledgeSearchRequest request, String actorId, Set<String> documentIds, String filterKey) {
         Instant start = Instant.now();
         String query = valueOr(request == null ? null : request.query(), "");
         String role = normalizeRole(request == null ? null : request.role());
         int limit = request == null || request.limit() == null ? 5 : Math.max(1, Math.min(20, request.limit()));
-        Retrieval retrieved = retrieve(query, role, limit, actorId);
+        Retrieval retrieved = retrieve(query, role, limit, actorId, documentIds, filterKey);
         if (!retrieved.permissionVersion().equals(permissionVersion()))
             retrieved = new Retrieval(List.of(), "KEYWORD_ONLY", permissionVersion(), false);
         List<AiSearchResult> results = retrieved.chunks().stream().map(this::toSearchResult).toList();
@@ -349,10 +407,16 @@ public class KnowledgeBaseService {
     public KnowledgeAnswerResponse answer(KnowledgeAnswerRequest request) { return answer(request, "anonymous"); }
 
     public KnowledgeAnswerResponse answer(KnowledgeAnswerRequest request, String actorId) {
-        synchronized (operationLock("answer|" + request + "|" + actorId)) { return answerInternal(request, actorId); }
+        return answer(request, actorId, null, "");
     }
 
-    private KnowledgeAnswerResponse answerInternal(KnowledgeAnswerRequest request, String actorId) {
+    public KnowledgeAnswerResponse answer(KnowledgeAnswerRequest request, String actorId, Set<String> documentIds, String filterKey) {
+        synchronized (operationLock("answer|" + request + "|" + actorId + "|" + filterKey)) {
+            return answerInternal(request, actorId, documentIds, filterKey);
+        }
+    }
+
+    private KnowledgeAnswerResponse answerInternal(KnowledgeAnswerRequest request, String actorId, Set<String> documentIds, String filterKey) {
         Instant start = Instant.now();
         String query = valueOr(request == null ? null : request.query(), "");
         String role = normalizeRole(request == null ? null : request.role());
@@ -360,10 +424,10 @@ public class KnowledgeBaseService {
         boolean useAi = request != null && Boolean.TRUE.equals(request.useAi());
         String permission = permissionVersion();
         String fingerprint = fingerprint(query + "|" + role + "|" + actorId + "|" + limit + "|" + useAi
-                + "|" + permission + "|" + analysisVersion());
+                + "|" + permission + "|" + analysisVersion() + "|" + filterKey + "|" + canonicalFilter(documentIds));
         KnowledgeAnswerResponse cached = cacheGet(answerCache, fingerprint);
         if (cached != null && permission.equals(permissionVersion())) return cached;
-        Retrieval retrieval = retrieve(query, role, limit, actorId);
+        Retrieval retrieval = retrieve(query, role, limit, actorId, documentIds, filterKey);
         List<ScoredChunk> chunks = retrieval.chunks();
         List<KnowledgeCitation> citations = chunks.stream().map(this::toCitation).toList();
         if (!retrieval.permissionVersion().equals(permissionVersion()))
@@ -469,24 +533,29 @@ public class KnowledgeBaseService {
         return List.copyOf(result);
     }
 
-    private Retrieval retrieve(String query, String role, int limit, String actorId) {
-        synchronized (retrievalLock("retrieval|" + query + "|" + role + "|" + limit + "|" + actorId)) {
-            return retrieveInternal(query, role, limit, actorId);
+    private Retrieval retrieve(String query, String role, int limit, String actorId, Set<String> documentIds, String filterKey) {
+        synchronized (retrievalLock("retrieval|" + query + "|" + role + "|" + limit + "|" + actorId + "|" + filterKey)) {
+            return retrieveInternal(query, role, limit, actorId, documentIds, filterKey);
         }
     }
 
-    private Retrieval retrieveInternal(String query, String role, int limit, String actorId) {
+    private Retrieval retrieveInternal(String query, String role, int limit, String actorId, Set<String> documentIds, String filterKey) {
         String permission = permissionVersion();
-        String cacheKey = fingerprint(query + "|" + role + "|" + actorId + "|" + limit + "|" + permission + "|" + analysisVersion());
+        String cacheKey = fingerprint(query + "|" + role + "|" + actorId + "|" + limit + "|" + permission + "|" + analysisVersion()
+                + "|" + filterKey + "|" + canonicalFilter(documentIds));
         Retrieval cached = cacheGet(retrievalCache, cacheKey);
         if (cached != null) return cached;
         List<String> queryTokens = tokens(query);
-        List<KnowledgeChunkRecord> readable = store.listChunks().stream().filter(c -> canRead(c.roles(), role)).toList();
+        Set<String> hidden = hiddenDocumentIds(role);
+        List<KnowledgeChunkRecord> readable = store.listChunks().stream().filter(c -> canRead(c.roles(), role))
+                .filter(c -> !hidden.contains(c.documentId()))
+                .filter(c -> documentIds == null || documentIds.contains(c.documentId())).toList();
         List<ScoredChunk> lexical = readable.stream().filter(c -> query.isBlank() || matchesQuery(c, query, queryTokens))
                 .map(c -> new ScoredChunk(c, query.isBlank() ? 55 : lexicalScore(c, query, queryTokens),
                         highlights(c, query, queryTokens, 0)))
                 .filter(c -> c.score() > 0).sorted(Comparator.comparingInt(ScoredChunk::score).reversed()
                         .thenComparing(c -> c.chunk().chunkId())).limit(20).toList();
+        traceCandidates("keyword", lexical);
         List<ScoredChunk> vectors = List.of();
         boolean semanticFailed = false;
         boolean semanticUsed = false;
@@ -495,21 +564,22 @@ public class KnowledgeBaseService {
             try {
                 List<Double> embedded = semanticClient.embed(List.of(query), true).get(0);
                 // Full local exact search preserves recall when the optional external index is rebuilding or unavailable.
-                vectors = compatible.stream().map(c -> new ScoredChunk(c,
-                                (int) Math.round(cosine(embedded, c.embedding()) * 100), List.of("语义向量候选")))
-                        .filter(c -> c.score() >= Math.round(properties.getSemantic().getMinimumVectorSimilarity() * 100))
-                        .sorted(Comparator.comparingInt(ScoredChunk::score).reversed().thenComparing(c -> c.chunk().chunkId()))
+                vectors = compatible.stream().map(c -> vectorCandidate(c, embedded))
+                        .filter(c -> c.rankingScore() >= properties.getSemantic().getMinimumVectorSimilarity())
+                        .sorted(candidateRanking())
                         .limit(20).toList();
                 if (vectorIndex != null && vectorIndex.supports(semanticClient.model(), semanticClient.dimension(), semanticClient.version())) {
                     try {
                         Map<String, KnowledgeChunkRecord> current = compatible.stream().collect(Collectors.toMap(KnowledgeChunkRecord::chunkId, java.util.function.Function.identity()));
                         List<ScoredChunk> remote = vectorIndex.search(embedded, role, 20).stream()
                                 .filter(match -> current.containsKey(match.chunkId()))
-                                .map(match -> new ScoredChunk(current.get(match.chunkId()),
-                                        (int) Math.round(cosine(embedded, current.get(match.chunkId()).embedding()) * 100), List.of("语义向量候选")))
-                                .filter(c -> c.score() >= Math.round(properties.getSemantic().getMinimumVectorSimilarity() * 100))
+                                .map(match -> vectorCandidate(current.get(match.chunkId()), embedded))
+                                .filter(c -> c.rankingScore() >= properties.getSemantic().getMinimumVectorSimilarity())
                                 .limit(20).toList();
-                        if (!remote.isEmpty()) vectors = remote;
+                        Map<String, ScoredChunk> complete = new java.util.LinkedHashMap<>();
+                        vectors.forEach(c -> complete.put(c.chunk().chunkId(), c));
+                        remote.forEach(c -> complete.putIfAbsent(c.chunk().chunkId(), c));
+                        vectors = complete.values().stream().sorted(candidateRanking()).limit(20).toList();
                     } catch (RuntimeException ex) { log.warn("Optional Milvus query unavailable; exact local semantic search remains available"); }
                 }
                 semanticUsed = true;
@@ -518,6 +588,7 @@ public class KnowledgeBaseService {
                 log.warn("Semantic query unavailable; readable keyword retrieval remains available");
             }
         }
+        traceCandidates("vector", vectors);
         Map<String, ScoredChunk> candidates = new java.util.LinkedHashMap<>();
         Map<String, Double> scores = new java.util.HashMap<>();
         addRankedCandidates(lexical, candidates, scores);
@@ -526,25 +597,65 @@ public class KnowledgeBaseService {
                 .sorted(Comparator.<ScoredChunk>comparingDouble(c -> scores.get(c.chunk().chunkId())).reversed()
                         .thenComparing(c -> c.chunk().chunkId()))
                 .limit(20).map(c -> new ScoredChunk(c.chunk(),
-                        (int) Math.round(scores.get(c.chunk().chunkId()) * 3000), c.highlights())).toList();
+                        (int) Math.round(scores.get(c.chunk().chunkId()) * 3000), c.highlights(),
+                        scores.get(c.chunk().chunkId()))).toList();
+        traceCandidates("rrf", merged);
         String mode = semanticUsed ? "HYBRID_RRF" : "KEYWORD_ONLY";
         if (!query.isBlank() && !merged.isEmpty() && semanticClient != null && semanticClient.isRerankEnabled()) {
             try {
                 List<DashScopeKnowledgeClient.RerankResult> ranks = semanticClient.rerank(query,
                         merged.stream().map(c -> c.chunk().title() + "\n" + c.chunk().text()).toList());
                 List<ScoredChunk> source = merged;
+                if (log.isDebugEnabled()) log.debug("Knowledge retrieval rerank candidates: {}", ranks.stream()
+                        .map(r -> source.get(r.index()).chunk().chunkId() + "=" + r.score()).toList());
                 merged = ranks.stream().filter(r -> r.score() >= properties.getSemantic().getMinimumRerankScore())
                         .map(r -> new ScoredChunk(source.get(r.index()).chunk(),
-                                (int) Math.round(r.score() * 100), source.get(r.index()).highlights())).toList();
+                                (int) Math.round(r.score() * 100), source.get(r.index()).highlights(), r.score())).toList();
                 mode = semanticUsed ? "HYBRID_RRF_RERANK" : "KEYWORD_RERANK";
             } catch (RuntimeException ex) {
                 semanticFailed = true;
                 log.warn("Semantic rerank unavailable; independent retrieval candidates remain available");
             }
         }
-        Retrieval result = new Retrieval(merged.stream().limit(limit).toList(), mode, permission, !semanticFailed);
+        if (properties.getSemantic().isConceptGateEnabled() && sensitiveQuery(query)
+                && merged.stream().noneMatch(c -> hasSensitiveConceptEvidence(c.chunk(), query))) {
+            traceCandidates("concept-rejected", merged);
+            merged = List.of();
+        }
+        List<ScoredChunk> selected = diverseSources(merged, limit);
+        traceCandidates("selected", selected);
+        Retrieval result = new Retrieval(selected, mode, permission, !semanticFailed);
         if (!semanticFailed) cachePut(retrievalCache, cacheKey, result);
         return result;
+    }
+
+    private ScoredChunk vectorCandidate(KnowledgeChunkRecord chunk, List<Double> embedded) {
+        double similarity = cosine(embedded, chunk.embedding());
+        return new ScoredChunk(chunk, (int) Math.round(similarity * 100), List.of("语义向量候选"), similarity);
+    }
+
+    private static Comparator<ScoredChunk> candidateRanking() {
+        return Comparator.comparingDouble(ScoredChunk::rankingScore).reversed()
+                .thenComparing(c -> c.chunk().chunkId());
+    }
+
+    private List<ScoredChunk> diverseSources(List<ScoredChunk> ranked, int limit) {
+        Map<String, ScoredChunk> selected = new java.util.LinkedHashMap<>();
+        Set<String> documents = new LinkedHashSet<>();
+        for (ScoredChunk item : ranked) {
+            if (documents.add(item.chunk().documentId())) selected.put(item.chunk().chunkId(), item);
+            if (selected.size() >= limit) return List.copyOf(selected.values());
+        }
+        for (ScoredChunk item : ranked) {
+            selected.putIfAbsent(item.chunk().chunkId(), item);
+            if (selected.size() >= limit) break;
+        }
+        return List.copyOf(selected.values());
+    }
+
+    private void traceCandidates(String stage, List<ScoredChunk> candidates) {
+        if (log.isDebugEnabled()) log.debug("Knowledge retrieval {} candidates: {}", stage,
+                candidates.stream().map(c -> c.chunk().chunkId() + "=" + c.rankingScore()).toList());
     }
 
     private void addRankedCandidates(List<ScoredChunk> ranked, Map<String, ScoredChunk> candidates, Map<String, Double> scores) {
@@ -564,10 +675,19 @@ public class KnowledgeBaseService {
 
     public String permissionVersion() { return documentsFingerprint(store.listDocuments()); }
 
+    private static String canonicalFilter(Set<String> values) {
+        return values == null ? "ALL" : values.stream().sorted().collect(Collectors.joining(","));
+    }
+
     private String documentsFingerprint(List<KnowledgeDocument> documents) {
+        Set<String> currentIds = documents.stream().map(KnowledgeDocument::documentId).collect(Collectors.toSet());
+        String metadata = workspaceStore == null ? "" : workspaceStore.list("DOCUMENT_METADATA", "system", com.fasterxml.jackson.databind.JsonNode.class)
+                .stream().filter(value -> currentIds.contains(value.path("documentId").asText()))
+                .sorted(Comparator.comparing(value -> value.path("documentId").asText()))
+                .map(com.fasterxml.jackson.databind.JsonNode::toString).collect(Collectors.joining("\n"));
         return fingerprint(documents.stream().sorted(Comparator.comparing(KnowledgeDocument::documentId))
                 .map(d -> d.documentId() + "|" + d.content() + "|" + d.title() + "|" + d.tags() + "|" + d.roles() + "|" + d.source())
-                .collect(Collectors.joining("\n")));
+                .collect(Collectors.joining("\n")) + "|" + metadata);
     }
 
     private String retrievalModels(String mode) {
@@ -578,8 +698,10 @@ public class KnowledgeBaseService {
     private String analysisVersion() {
         return ALGORITHM_VERSION + "|" + PROMPT_VERSION + "|" + dashScopeClient.status().model() + "|" + properties.getSemantic().getVersion() + "|" + properties.getSemantic().getEmbeddingModel()
                 + "|" + properties.getSemantic().getDimension() + "|" + properties.getSemantic().getRerankModel()
+                + "|concept-gate=" + properties.getSemantic().isConceptGateEnabled()
                 + "|" + properties.getSemantic().isEnabled() + "|" + properties.getSemantic().isRerankEnabled()
-                + "|" + properties.getSemantic().getMinimumVectorSimilarity() + "|" + properties.getSemantic().getMinimumRerankScore();
+                + "|" + properties.getSemantic().getMinimumVectorSimilarity() + "|" + properties.getSemantic().getMinimumRerankScore()
+                + "|sensitive-terms=" + properties.getSemantic().getSensitiveQueryTerms();
     }
 
     public static String fingerprint(String value) {
@@ -632,7 +754,7 @@ public class KnowledgeBaseService {
         int score = text.contains(normalizedQuery) ? 35 : 0;
         for (String token : meaningfulTokens(tokens)) {
             if (text.contains(token)) {
-                score += token.length() > 4 ? 12 : 8;
+                score += chineseToken(token) && token.length() == 2 ? 1 : token.length() > 4 ? 12 : 8;
             }
         }
         if (chunk.title().toLowerCase(Locale.ROOT).contains(normalizedQuery)) {
@@ -642,7 +764,10 @@ public class KnowledgeBaseService {
     }
 
     private boolean matchesQuery(KnowledgeChunkRecord chunk, String query, List<String> tokens) {
-        String text = chunkText(chunk);
+        return matchesQuery(chunkText(chunk), query, tokens);
+    }
+
+    private boolean matchesQuery(String text, String query, List<String> tokens) {
         String normalizedQuery = query.toLowerCase(Locale.ROOT);
         if (text.contains(normalizedQuery)) {
             return true;
@@ -658,17 +783,30 @@ public class KnowledgeBaseService {
         if (importantTokens.isEmpty()) {
             return false;
         }
-        if (importantTokens.stream().anyMatch(token -> token.length() >= 4 && text.contains(token))) {
+        int chineseLength = (int) normalizedQuery.chars().filter(c -> isCjk((char) c)).count();
+        if (importantTokens.stream().anyMatch(token -> token.matches("[a-z][a-z0-9._+-]{2,}")
+                && java.util.regex.Pattern.compile("(?<![a-z0-9_])" + java.util.regex.Pattern.quote(token)
+                        + "(?![a-z0-9_])").matcher(text).find())) return true;
+        if (importantTokens.stream().anyMatch(token -> token.length() >= 3 && text.contains(token)
+                && (chineseToken(token) || chineseLength <= 6))) {
             return true;
         }
-        long matches = importantTokens.stream().filter(text::contains).count();
-        if (matches >= 2) {
-            return true;
+        List<String> shortMatches = importantTokens.stream().filter(token -> token.length() == 2
+                && chineseToken(token) && text.contains(token)).toList();
+        if (chineseLength <= 6 && !shortMatches.isEmpty()) return true;
+        // Overlapping Chinese bigrams count as one fragment, not independent evidence.
+        int covered = 0;
+        int fragments = 0;
+        for (int index = 0; index < normalizedQuery.length() - 1; index++) {
+            String fragment = normalizedQuery.substring(index, index + 2);
+            if (shortMatches.contains(fragment)) { covered += 2; fragments++; index++; }
         }
-        if (importantTokens.size() <= 2) {
-            return matches >= 1;
-        }
-        return matches >= Math.min(3, Math.ceil(importantTokens.size() * 0.30));
+        return fragments >= 2 && covered >= Math.ceil(chineseLength * 0.30);
+    }
+
+    public boolean hasQueryEvidence(String documentId, String query) {
+        List<String> queryTokens = tokens(query);
+        return documentChunks(documentId).stream().anyMatch(chunk -> matchesQuery(conceptText(chunk), query, queryTokens));
     }
 
     private AiSearchResult toSearchResult(ScoredChunk scoredChunk) {
@@ -685,6 +823,22 @@ public class KnowledgeBaseService {
 
     private KnowledgeCitation toCitation(ScoredChunk scoredChunk) {
         KnowledgeChunkRecord chunk = scoredChunk.chunk();
+        Integer version = null;
+        Integer pageNumber = null;
+        if (workspaceStore != null) {
+            var metadata = workspaceStore.get("DOCUMENT_METADATA", chunk.documentId(), "system",
+                    com.fasterxml.jackson.databind.JsonNode.class).orElse(null);
+            if (metadata != null) {
+                if (metadata.path("revision").canConvertToInt()) version = metadata.path("revision").asInt();
+                if (chunk.startOffset() != null) for (var page : metadata.path("pages")) {
+                    if (chunk.startOffset() >= page.path("startOffset").asInt()
+                            && chunk.startOffset() < page.path("endOffset").asInt()) {
+                        pageNumber = page.path("pageNumber").asInt();
+                        break;
+                    }
+                }
+            }
+        }
         return new KnowledgeCitation(
                 chunk.documentId(),
                 chunk.chunkId(),
@@ -692,7 +846,7 @@ public class KnowledgeBaseService {
                 chunk.source(),
                 scoredChunk.score(),
                 chunk.text(), chunk.chunkIndex(), chunk.startOffset(),
-                chunk.endOffset(), chunk.heading(), chunk.roles());
+                chunk.endOffset(), chunk.heading(), chunk.roles(), version, pageNumber);
     }
 
     private boolean seed(KnowledgeDocument document) {
@@ -863,6 +1017,28 @@ public class KnowledgeBaseService {
                 .toLowerCase(Locale.ROOT);
     }
 
+    private String conceptText(KnowledgeChunkRecord chunk) {
+        return String.join(" ", valueOr(chunk.title(), ""), valueOr(chunk.text(), ""),
+                String.join(" ", cleanList(chunk.tags(), List.of()))).toLowerCase(Locale.ROOT);
+    }
+
+    private boolean sensitiveQuery(String query) {
+        String normalized = valueOr(query, "").toLowerCase(Locale.ROOT);
+        return sensitiveTerms().stream().anyMatch(normalized::contains);
+    }
+
+    private boolean hasSensitiveConceptEvidence(KnowledgeChunkRecord chunk, String query) {
+        String queryText = valueOr(query, "").toLowerCase(Locale.ROOT);
+        String evidence = conceptText(chunk);
+        return sensitiveTerms().stream().filter(queryText::contains).anyMatch(evidence::contains);
+    }
+
+    private List<String> sensitiveTerms() {
+        return Arrays.stream(valueOr(properties.getSemantic().getSensitiveQueryTerms(), "").toLowerCase(Locale.ROOT)
+                        .split(","))
+                .map(String::trim).filter(term -> term.length() >= 2).distinct().toList();
+    }
+
     private List<String> normalizeRoles(List<String> roles) {
         List<String> normalized = cleanList(roles, List.of("ALL")).stream()
                 .map(this::normalizeRole)
@@ -925,7 +1101,18 @@ public class KnowledgeBaseService {
             }
         }
         flushLatin(values, latin);
+        java.util.regex.Matcher chinese = java.util.regex.Pattern.compile("[\\p{IsHan}]+").matcher(query.toLowerCase(Locale.ROOT));
+        while (chinese.find()) {
+            String phrase = chinese.group();
+            for (int length = 3; length <= 4; length++) {
+                for (int start = 0; start + length <= phrase.length(); start++) values.add(phrase.substring(start, start + length));
+            }
+        }
         return values.stream().filter(token -> !token.isBlank()).toList();
+    }
+
+    private boolean chineseToken(String token) {
+        return !token.isEmpty() && token.chars().allMatch(c -> isCjk((char) c));
     }
 
     private List<String> meaningfulTokens(List<String> tokens) {
@@ -934,6 +1121,9 @@ public class KnowledgeBaseService {
         }
         return tokens.stream()
                 .filter(token -> token != null && token.length() >= 2)
+                .filter(token -> !QUERY_CONNECTORS.contains(token))
+                .filter(token -> !chineseToken(token) || ("的了着地得请".indexOf(token.charAt(0)) < 0
+                        && "的了着地得".indexOf(token.charAt(token.length() - 1)) < 0))
                 .distinct()
                 .toList();
     }
@@ -987,6 +1177,9 @@ public class KnowledgeBaseService {
         return value == null || value.isBlank() ? fallback : value.trim();
     }
 
-    private record ScoredChunk(KnowledgeChunkRecord chunk, int score, List<String> highlights) {
+    private record ScoredChunk(KnowledgeChunkRecord chunk, int score, List<String> highlights, double rankingScore) {
+        private ScoredChunk(KnowledgeChunkRecord chunk, int score, List<String> highlights) {
+            this(chunk, score, highlights, score);
+        }
     }
 }

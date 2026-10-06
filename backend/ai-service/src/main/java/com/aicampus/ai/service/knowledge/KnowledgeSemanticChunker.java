@@ -20,13 +20,12 @@ public final class KnowledgeSemanticChunker {
             while (start < text.length() && Character.isWhitespace(text.charAt(start))) start++;
             if (start >= text.length()) break;
             Matcher initialHeading = HEADING.matcher(text);
-            initialHeading.region(start, text.length());
+            initialHeading.region(start, text.length()).useAnchoringBounds(false);
             if (initialHeading.lookingAt()) heading = initialHeading.group().replaceFirst("^#{1,6}\\s+", "");
             int max = Math.min(text.length(), start + TARGET);
             int end = max;
             Matcher nextHeading = HEADING.matcher(text);
-            nextHeading.region(start + 1, text.length());
-            if (nextHeading.find() && nextHeading.start() < max) {
+            if (nextHeading.find(start + 1) && nextHeading.start() < max) {
                 end = nextHeading.start();
             } else if (max < text.length()) {
                 // Prefer complete paragraphs, then Chinese/Latin sentences, and only finally a hard bound.
@@ -41,7 +40,19 @@ public final class KnowledgeSemanticChunker {
             parts.add(new Part(text.substring(start, end), start, end, heading));
             start = end;
         }
-        return List.copyOf(parts);
+        List<Part> merged = new ArrayList<>();
+        for (int index = 0; index < parts.size(); index++) {
+            Part first = parts.get(index);
+            Part last = first;
+            while (headingOnly(last) && index + 1 < parts.size()) last = parts.get(++index);
+            merged.add(new Part(text.substring(first.startOffset(), last.endOffset()), first.startOffset(),
+                    last.endOffset(), last.heading()));
+        }
+        return List.copyOf(merged);
+    }
+    private static boolean headingOnly(Part part) {
+        return part.text().length() <= 160 && part.text().lines().filter(line -> !line.isBlank())
+                .allMatch(line -> HEADING.matcher(line).matches());
     }
     public record Part(String text, int startOffset, int endOffset, String heading) {}
 }

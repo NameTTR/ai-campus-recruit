@@ -1,6 +1,7 @@
 package com.aicampus.ai.service.knowledge;
 
 import com.aicampus.ai.service.KnowledgeBaseService;
+import com.aicampus.ai.service.knowledge.workspace.KnowledgeCatalogService;
 import com.aicampus.common.dto.KnowledgeDocument;
 import com.aicampus.common.dto.KnowledgeFileIngestionJob;
 import java.security.MessageDigest;
@@ -15,6 +16,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,10 @@ public class KnowledgeFileIngestionService implements DisposableBean {
     private final KnowledgeIngestionJobStore jobStore;
     private final KnowledgeBaseProperties properties;
     private final ExecutorService executor;
+    private KnowledgeCatalogService catalogService;
+
+    @Autowired(required = false)
+    public void setCatalogService(KnowledgeCatalogService catalogService) { this.catalogService = catalogService; }
 
     public KnowledgeFileIngestionService(
             KnowledgeBaseService knowledgeBaseService,
@@ -112,6 +118,12 @@ public class KnowledgeFileIngestionService implements DisposableBean {
                 storedObject.storageStatus());
         jobStore.create(job);
 
+        if (storedObject.storageStatus().startsWith("FAILED")) {
+            return jobStore.update(KnowledgeIngestionJobMutations.withStatus(job, KnowledgeIngestionStatuses.FAILED,
+                    "The original file could not be saved. Retry the upload after object storage recovers",
+                    null, 0, 0, "Original file storage failed"));
+        }
+
         if (reusable != null) {
             KnowledgeFileIngestionJob duplicate = KnowledgeIngestionJobMutations.withStatus(
                     job,
@@ -188,11 +200,15 @@ public class KnowledgeFileIngestionService implements DisposableBean {
                     normalizeRoles(roles),
                     job.createdBy(),
                     LocalDateTime.now());
+            if (catalogService != null) {
+                catalogService.recordImportedDocument(document.documentId(), current.objectKey(), job.fileName(),
+                        extracted.fileFormat(), extracted.pages(), current.storageStatus());
+            }
             int chunkCount = knowledgeBaseService.saveDocument(document).size();
             jobStore.update(KnowledgeIngestionJobMutations.withStatus(
                     current,
                     KnowledgeIngestionStatuses.READY,
-                    "Knowledge file indexed successfully",
+                    catalogService == null ? "Knowledge file indexed successfully" : "Knowledge file parsed as a draft; review and publish before students can read it",
                     document.documentId(),
                     chunkCount,
                     chunkCount,

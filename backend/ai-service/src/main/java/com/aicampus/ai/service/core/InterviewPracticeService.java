@@ -2,6 +2,7 @@ package com.aicampus.ai.service.core;
 
 import com.aicampus.ai.service.AiCoachService;
 import com.aicampus.common.dto.*;
+import com.aicampus.common.dto.KnowledgeWorkspaceModels.KnowledgeTopic;
 import com.aicampus.common.resume.ResumeWorkspaceModels.Experience;
 import com.aicampus.common.resume.ResumeWorkspaceModels.MasterProfile;
 
@@ -11,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.UnaryOperator;
+import java.util.function.Function;
 import java.util.concurrent.ConcurrentHashMap;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -24,10 +26,15 @@ public final class InterviewPracticeService {
     private final AiCareerCoreService career;
     private final Object[] locks = java.util.stream.IntStream.range(0, 128).mapToObj(i -> new Object()).toArray();
     private final Set<String> inFlightAttempts = ConcurrentHashMap.newKeySet();
+    private volatile Function<String, KnowledgeTopic> knowledgeSourceValidator;
 
     public InterviewPracticeService(AiCoachService coach, InterviewSessionStore store,
             RecruitmentContextClient contexts, AiCareerCoreService career) {
         this.coach = coach; this.store = store; this.contexts = contexts; this.career = career;
+    }
+
+    public void setKnowledgeSourceValidator(Function<String, KnowledgeTopic> validator) {
+        this.knowledgeSourceValidator = validator;
     }
 
     private Object lock(String id) { return locks[Math.floorMod(id.hashCode(), locks.length)]; }
@@ -72,7 +79,7 @@ public final class InterviewPracticeService {
                         gaps.get(i), "岗位材料中尚未体现的要求", resumeId, jobId, context.match().matchId(),
                         context.job() == null ? null : context.job().title(), "MATCH"));
         }
-        for (InterviewSession session : store.listByStudent(student, 100))
+        for (InterviewSession session : listSessions(student, 100))
             if (session.report() != null && "FINAL".equals(session.report().reportType())) {
                 List<String> gaps = list(session.report().gaps());
                 for (int i = 0; i < gaps.size(); i++)
@@ -85,6 +92,13 @@ public final class InterviewPracticeService {
 
     public InterviewSession create(String student, String role, InterviewSessionCreateRequest request) {
         return create(student, role, request, null, null);
+    }
+
+    public InterviewSession createKnowledgePractice(String student, String role, InterviewSessionCreateRequest request,
+            String sourceId, String material, List<InterviewSourceReference> references, List<String> gaps, String stableSessionId) {
+        if (material == null || material.isBlank() || references == null || references.isEmpty())
+            throw new IllegalArgumentException("Knowledge practice requires authorized source material");
+        return create(student, role, request, stableSessionId, new Source(sourceId, material, references, gaps, request.targetRole()));
     }
 
     private InterviewSession create(String student, String role, InterviewSessionCreateRequest request,
@@ -130,10 +144,12 @@ public final class InterviewPracticeService {
         String material = "JOB".equals(type)
                 ? join(selected.material(), context.job() == null ? null : context.job().description(), AiCareerCoreService.contextMaterial(context))
                 : selected.material();
+        validateKnowledgeSources(sourceId, material, selected.references());
         String generationContext = "JOB".equals(type) ? material : scopedGenerationContext(type, sourceId, selected);
         List<InterviewQuestion> generated = coach.generateInterviewQuestions(new InterviewQuestionRequest(
                 student, resumeId, jobId, target, "JOB".equals(type) ? list(context.resumeSkills()) : ("GAP".equals(type) ? selected.gaps() : List.of()), count, true, 6,
                 generationContext, requirements, gaps));
+        validateKnowledgeSources(sourceId, material, selected.references());
         if (generated == null || generated.size() < count)
             throw new IllegalArgumentException("Interview question generation did not return enough questions");
         String id = stableSessionId == null ? "IS-" + UUID.randomUUID().toString().substring(0, 12) : stableSessionId;
@@ -203,6 +219,7 @@ public final class InterviewPracticeService {
             LearningEvidence evidence = career.listLearningEvidence(parts[1], parts[2], student).stream()
                     .filter(e -> parts[3].equals(e.evidenceId()) && usableEvidence(e)).findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("Only confirmed evaluated learning evidence can be selected"));
+            refs.addAll(career.learningTaskSourceReferences(parts[1], parts[2], student));
             refs.add(new InterviewSourceReference(id, "LEARNING_EVIDENCE", evidence.description(), "description"));
             for (String link : list(evidence.links()))
                 refs.add(new InterviewSourceReference(id, "LEARNING_EVIDENCE", link, "links"));
@@ -243,6 +260,7 @@ public final class InterviewPracticeService {
                 throw new IllegalArgumentException("Only completed interview gaps can be selected");
             String gap = previous.report().gaps().get(index(id.substring(separator + 1), previous.report().gaps().size()));
             refs.add(new InterviewSourceReference(id, "INTERVIEW_GAP", gap, "report/gaps"));
+            refs.addAll(previous.sourceReferences().stream().filter(InterviewPracticeService::knowledgeReference).toList());
             return new Source(gap, gap, refs, List.of(gap), previous.targetRole());
         }
         throw new IllegalArgumentException("Source was not found in authorized materials");
@@ -251,6 +269,7 @@ public final class InterviewPracticeService {
     public InterviewSession get(String id, String student) {
         InterviewSession session = store.findById(id).orElseThrow(() -> new IllegalArgumentException("Interview session not found"));
         if (!Objects.equals(student, session.studentId())) throw new IllegalArgumentException("Interview session is not owned by the current student");
+        validateKnowledgeSources(session);
         if (session.attempts().isEmpty() && !list(session.answers()).isEmpty()) {
             List<InterviewAnswerAttempt> attempts = session.answers().stream().map(a -> new InterviewAnswerAttempt(
                     "IA-LEGACY-" + a.questionId(), a.questionId(), 1, a.answer(), a.answeredAt(), a.evaluationStatus(),
@@ -277,7 +296,8 @@ public final class InterviewPracticeService {
 
     public List<InterviewSession> listSessions(String student, Integer limit) {
         int count = limit == null ? 30 : Math.max(1, Math.min(limit, 100));
-        return store.listByStudent(student, count).stream().map(s -> get(s.sessionId(), student)).toList();
+        return store.listByStudent(student, count).stream().map(s -> accessibleSession(s.sessionId(), student))
+                .flatMap(Optional::stream).toList();
     }
 
     public InterviewSession answer(String id, String qid, String student, InterviewSessionAnswerRequest request, boolean allowRetry) {
@@ -358,6 +378,7 @@ public final class InterviewPracticeService {
                             fallback.summary(), true, fallback.dimensions(), fallback.evidence(), RUBRIC, null,
                             new AnalysisMetadata(input, "interview-practice-v2", "RULES", PROMPT, "RULES", Instant.now()), Instant.now());
                 }
+                validateKnowledgeSources(session);
                 InterviewSessionQuestion followUp = null;
                 if (error == null && feedback != null && (!reportEvaluation || "MOCK".equals(session.mode())) && !question.followUp()
                         && text(feedback.followUpQuestion()) != null && session.questions().stream().noneMatch(q -> q.followUp() && q.mainQuestionId().equals(qid))) {
@@ -452,7 +473,7 @@ public final class InterviewPracticeService {
             List<String> gaps = feedback.stream().flatMap(f -> list(f.gaps()).stream()).distinct().limit(6).toList();
             List<String> recommendations = feedback.stream().flatMap(f -> list(f.suggestions()).stream()).distinct().limit(6).toList();
             String target = session.targetRole(), mode = session.mode();
-            List<String> comparable = partial ? List.of() : store.listByStudent(student, 100).stream()
+            List<String> comparable = partial ? List.of() : listSessions(student, 100).stream()
                     .filter(s -> !id.equals(s.sessionId()) && s.report() != null && "FINAL".equals(s.report().reportType())
                             && "COMPLETED".equals(s.status()) && RUBRIC.equals(s.report().rubricVersion())
                             && mode.equals(s.mode()) && normalize(target).equals(normalize(s.targetRole()))
@@ -555,7 +576,8 @@ public final class InterviewPracticeService {
                 if (session.report() == null) throw new IllegalArgumentException("Finish the interview before creating a gap practice");
                 String stableSessionId = "IS-ACTION-" + hash(join(student, id, preview.previewId())).substring(0, 24);
                 Source sourceSnapshot = new Source(preview.skillGap(), preview.skillGap(), list(preview.sourceReferences()).stream()
-                        .filter(r -> "INTERVIEW_GAP".equals(r.kind()) && preview.skillGap().equals(r.quote())).toList(),
+                        .filter(r -> knowledgeReference(r)
+                                || "INTERVIEW_GAP".equals(r.kind()) && preview.skillGap().equals(r.quote())).toList(),
                         List.of(preview.skillGap()), session.targetRole());
                 newSession = create(student, "STUDENT", new InterviewSessionCreateRequest(student, session.resumeId(), session.jobId(),
                         session.matchId(), session.targetRole(), 1, "COACHING", "GAP", "INTERVIEW:" + id + ":" + i, null),
@@ -588,6 +610,7 @@ public final class InterviewPracticeService {
 
     /** Every API view applies the same mock-mode disclosure policy. */
     public InterviewSession view(InterviewSession session) {
+        validateKnowledgeSources(session);
         boolean hidden = liveMock(session);
         List<InterviewSessionQuestion> questions = session.questions().stream()
                 .filter(q -> !hidden || !q.followUp())
@@ -637,6 +660,7 @@ public final class InterviewPracticeService {
     }
 
     private InterviewEvaluationResponse evaluationResponse(InterviewSession session, InterviewAnswerAttempt answer) {
+        validateKnowledgeSources(session);
         InterviewSessionQuestion followUp = session.questions().stream().filter(q -> q.followUp() && q.mainQuestionId().equals(answer.questionId())).findFirst().orElse(null);
         return new InterviewEvaluationResponse(session.sessionId(), answer.questionId(), answer.evaluationStatus(), answer.evaluation(), answer.evaluationError(), followUp);
     }
@@ -682,6 +706,71 @@ public final class InterviewPracticeService {
         return normalized;
     }
     private static String normalize(String value) { return value == null ? "" : value.trim().toLowerCase(Locale.ROOT); }
+
+    private Optional<InterviewSession> accessibleSession(String id, String student) {
+        try { return Optional.of(get(id, student)); }
+        catch (KnowledgeSourceUnavailableException ex) { return Optional.empty(); }
+    }
+
+    private void validateKnowledgeSources(InterviewSession session) {
+        String id = session.sourceId();
+        if (id != null && id.startsWith("EVIDENCE:")) {
+            String[] parts = id.split(":", 4);
+            try {
+                if (parts.length != 4) throw new IllegalArgumentException();
+                career.learningTaskSourceReferences(parts[1], parts[2], session.studentId());
+            } catch (IllegalArgumentException ex) { throw new KnowledgeSourceUnavailableException(); }
+        }
+        if (id != null && id.startsWith("INTERVIEW:")) {
+            int separator = id.lastIndexOf(':');
+            if (separator <= 10) throw new KnowledgeSourceUnavailableException();
+            get(id.substring(10, separator), session.studentId());
+        }
+        List<InterviewSourceReference> refs = new ArrayList<>(session.sourceReferences());
+        session.questions().forEach(question -> refs.addAll(list(question.sourceReferences())));
+        validateKnowledgeSources(session.sourceId(), session.sourceMaterial(), refs);
+    }
+
+    private void validateKnowledgeSources(String sourceId, String material, List<InterviewSourceReference> references) {
+        for (InterviewSourceReference reference : list(references)) if ("KNOWLEDGE_DOCUMENT".equals(reference.kind())) {
+            try { career.validateKnowledgeDocumentReference(reference); }
+            catch (IllegalArgumentException ex) { throw new KnowledgeSourceUnavailableException(); }
+        }
+        List<InterviewSourceReference> knowledgeRefs = list(references).stream()
+                .filter(ref -> "KNOWLEDGE".equals(ref.kind())).distinct().toList();
+        boolean primaryKnowledge = sourceId != null && sourceId.startsWith("KNOWLEDGE:");
+        if (!primaryKnowledge && knowledgeRefs.isEmpty()) return;
+        Function<String, KnowledgeTopic> validator = knowledgeSourceValidator;
+        if (validator == null || knowledgeRefs.isEmpty()) throw new KnowledgeSourceUnavailableException();
+        Map<String, KnowledgeTopic> currentTopics = new HashMap<>();
+        for (InterviewSourceReference ref : knowledgeRefs) {
+            if (ref.sourceId() == null || !ref.sourceId().startsWith("KNOWLEDGE:") || ref.sourceId().length() == 10)
+                throw new KnowledgeSourceUnavailableException();
+            KnowledgeTopic topic;
+            try { topic = currentTopics.computeIfAbsent(ref.sourceId(), key -> validator.apply(key.substring(10))); }
+            catch (IllegalArgumentException ex) { throw new KnowledgeSourceUnavailableException(); }
+            if (topic == null) throw new KnowledgeSourceUnavailableException();
+            String currentMaterial = Objects.toString(topic.content(), "") + "\n" + Objects.toString(topic.example(), "")
+                    + "\n" + Objects.toString(topic.practicePrompt(), "");
+            if (!"topic/content".equals(ref.location()) && !("topic/content/v" + topic.version()).equals(ref.location())
+                    || !Objects.toString(ref.quote(), "").trim().equals(currentMaterial.trim())
+                    || primaryKnowledge && ref.sourceId().equals(sourceId)
+                            && !Objects.toString(material, "").trim().equals(currentMaterial.trim()))
+                throw new KnowledgeSourceUnavailableException();
+        }
+        if (primaryKnowledge && knowledgeRefs.stream().noneMatch(ref -> sourceId.equals(ref.sourceId())))
+            throw new KnowledgeSourceUnavailableException();
+    }
+
+    private static boolean knowledgeReference(InterviewSourceReference reference) {
+        return "KNOWLEDGE".equals(reference.kind()) || "KNOWLEDGE_DOCUMENT".equals(reference.kind());
+    }
+
+    private static final class KnowledgeSourceUnavailableException extends IllegalArgumentException {
+        private KnowledgeSourceUnavailableException() {
+            super("Knowledge source is unavailable or updated; choose current material and start a new practice");
+        }
+    }
     private static String reportFingerprint(InterviewSessionReport report) {
         if (report == null) throw new IllegalArgumentException("Generate a report before choosing next actions");
         try { return hash(new ObjectMapper().findAndRegisterModules().writeValueAsString(report)); }

@@ -1,6 +1,7 @@
 package com.aicampus.ai.service.core;
 
 import com.aicampus.ai.service.AiCoachService;
+import com.aicampus.ai.service.knowledge.workspace.KnowledgeCatalogService;
 import com.aicampus.common.dto.*;
 import com.aicampus.common.dto.CareerPlanResponse;
 import com.aicampus.common.dto.InterviewFeedback;
@@ -59,6 +60,7 @@ public class AiCareerCoreService {
     private final InterviewPracticeService interviewPractice;
     private LearningEvidenceStore learningEvidenceStore = new InMemoryLearningEvidenceStore();
     private LearningWeeklyReviewStore learningWeeklyReviewStore = new InMemoryLearningWeeklyReviewStore();
+    private KnowledgeCatalogService knowledgeCatalogService;
     private static final String ALGORITHM_VERSION = "career-evidence-v2";
     private static final String RUBRIC_VERSION = "interview-four-dimensions-v1";
     private final Object[] operationLocks =
@@ -72,6 +74,12 @@ public class AiCareerCoreService {
     @Autowired(required = false)
     public void setLearningWeeklyReviewStore(LearningWeeklyReviewStore store) {
         this.learningWeeklyReviewStore = store;
+    }
+
+    @Autowired(required = false)
+    public void setKnowledgeCatalogService(KnowledgeCatalogService catalog) {
+        this.knowledgeCatalogService = catalog;
+        interviewPractice.setKnowledgeSourceValidator(id -> catalog.topic(id, "STUDENT"));
     }
 
     private Object operationLock(String key) {
@@ -252,6 +260,7 @@ public class AiCareerCoreService {
             if (!"ACTIVE".equals(plan.status())) {
                 throw new IllegalArgumentException("Only active learning plans can be updated");
             }
+            validateKnowledgePlan(plan, false);
             Instant now = Instant.now();
             List<LearningTask> tasks = new ArrayList<>();
             LearningTask updatedTask = null;
@@ -315,6 +324,7 @@ public class AiCareerCoreService {
         synchronized (operationLock("plan:" + planId)) {
             LearningPlan previous = requireLearningPlan(planId);
             requireOwner(previous.studentId(), studentId, "Learning plan");
+            validateKnowledgePlan(previous, false);
             if (!"ACTIVE".equals(previous.status()))
                 throw new IllegalArgumentException("Only active learning plans can be replanned");
             RecruitmentContextClient.ValidatedContext context =
@@ -369,6 +379,7 @@ public class AiCareerCoreService {
                             context,
                             previous,
                             additionalContext);
+            generated = attachKnowledgeInterviewSources(generated, request == null ? null : request.interviewSessionId(), studentId);
             if (request != null && (valueOr(request.startDate()) != null
                     || request.studyDays() != null && !request.studyDays().isEmpty()
                     || request.dailyMinutesCap() != null)) {
@@ -407,6 +418,33 @@ public class AiCareerCoreService {
         }
     }
 
+    private LearningPlan attachKnowledgeInterviewSources(LearningPlan plan, String interviewSessionId, String studentId) {
+        if (valueOr(interviewSessionId) == null) return plan;
+        InterviewSession session = interviewSessionStore.findById(interviewSessionId).orElse(null);
+        if (session == null || !studentId.equals(session.studentId())) return plan;
+        List<InterviewSourceReference> refs = safeList(session.sourceReferences()).stream()
+                .filter(ref -> "KNOWLEDGE".equals(ref.kind()) || "KNOWLEDGE_DOCUMENT".equals(ref.kind())).toList();
+        if (refs.isEmpty()) return plan;
+        String source = refs.stream().filter(ref -> "KNOWLEDGE".equals(ref.kind())).findFirst().map(ref -> {
+            if (ref.sourceId() == null || ref.location() == null || !ref.location().contains("/v")) return null;
+            return ref.sourceId() + ":" + ref.location().substring(ref.location().lastIndexOf("/v") + 2);
+        }).orElse(null);
+        if (source == null) {
+            InterviewSourceReference ref = refs.get(0);
+            if (ref.sourceId() != null && ref.sourceId().startsWith("KNOWLEDGE_DOCUMENT:") && ref.location() != null
+                    && ref.location().startsWith("document/v"))
+                source = ref.sourceId() + ":" + ref.location().substring("document/v".length());
+        }
+        if (source == null) return plan;
+        final String inherited = source;
+        List<LearningTask> tasks = safeTasks(plan.tasks()).stream().map(task -> new LearningTask(task.taskId(), task.week(),
+                task.title(), task.description(), task.skillGap(), task.stage(), task.acceptanceCriteria(), task.practiceDeliverable(),
+                task.estimatedHours(), task.status(), task.feedback(), task.completedAt(), task.updatedAt(), safeList(task.prerequisites()),
+                safeList(task.references()), task.referenceStatus(), safeList(task.evidence()), task.taskDate(), task.estimatedMinutes(),
+                safeList(task.dependencies()), inherited, task.actualMinutes(), task.delayed(), task.deferredUntil())).toList();
+        return copyPlan(plan, plan.status(), tasks, plan.updatedAt());
+    }
+
     public LearningPlan confirmLearningRevision(
             String planId, String studentId, String revisionId) {
         synchronized (operationLock("plan:" + planId)) {
@@ -415,6 +453,7 @@ public class AiCareerCoreService {
             requireOwner(draft.studentId(), studentId, "Learning plan");
             if (!planId.equals(draft.revisionOfPlanId()))
                 throw new IllegalArgumentException("Draft does not revise the selected plan");
+            validateKnowledgePlan(draft, true);
             if ("ACTIVE".equals(draft.status())) return enrichEvidence(draft);
             if (!"DRAFT".equals(draft.status()))
                 throw new IllegalArgumentException("Selected learning revision is not a draft");
@@ -429,11 +468,13 @@ public class AiCareerCoreService {
                         copyPlan(
                                 draft,
                                 "ACTIVE",
-                                preserveCompletedTasks(
-                                        draft.tasks(),
-                                        enrichEvidence(current).tasks(),
-                                        draft.weeklyHours(),
-                                        draft.durationWeeks()),
+                                isKnowledgeActionDraft(draft)
+                                        ? validatedKnowledgeRevisionTasks(draft, current)
+                                        : preserveCompletedTasks(
+                                                draft.tasks(),
+                                                enrichEvidence(current).tasks(),
+                                                draft.weeklyHours(),
+                                                draft.durationWeeks()),
                                 Instant.now());
                 if (learningPlanStore.replaceActiveWithRevision(
                         current,
@@ -456,6 +497,12 @@ public class AiCareerCoreService {
             String studentId, String userRole, InterviewSessionCreateRequest request) {
         requireStudentId(studentId);
         return interviewPractice.create(studentId, userRole, request);
+    }
+
+    public InterviewSession createKnowledgeInterview(String studentId, String userRole, InterviewSessionCreateRequest request,
+            String sourceId, String material, List<InterviewSourceReference> references, List<String> gaps, String stableSessionId) {
+        requireStudentId(studentId);
+        return interviewPractice.createKnowledgePractice(studentId, userRole, request, sourceId, material, references, gaps, stableSessionId);
     }
 
 
@@ -950,13 +997,15 @@ public class AiCareerCoreService {
             }
         }
         synchronized (operationLock("evidence:" + taskId)) {
-            LearningPlan plan = getLearningPlan(planId, studentId);
+            LearningPlan plan = requireLearningPlan(planId);
+            requireOwner(plan.studentId(), studentId, "Learning plan");
             LearningTask task =
                     plan.tasks().stream()
                             .filter(t -> taskId.equals(t.taskId()))
                             .findFirst()
                             .orElseThrow(
                                     () -> new IllegalArgumentException("Learning task not found"));
+            requireKnowledgeTaskSource(task);
             if (!"ACTIVE".equals(plan.status()) && !"COMPLETED".equals(plan.status()))
                 throw new IllegalArgumentException(
                         "Only the selected active or completed learning plan can receive evidence");
@@ -1001,8 +1050,10 @@ public class AiCareerCoreService {
             learningEvidenceStore.save(pending);
             LearningEvidence result;
             try {
+                requireKnowledgeTaskSource(task);
                 LearningEvidenceEvaluation evaluation =
                         aiCoachService.evaluateLearningEvidence(task, description, links);
+                requireKnowledgeTaskSource(task);
                 result =
                         new LearningEvidence(
                                 id,
@@ -1041,10 +1092,13 @@ public class AiCareerCoreService {
     }
 
     public List<LearningEvidence> listLearningEvidence(String planId, String taskId, String studentId) {
-        LearningPlan plan = getLearningPlan(planId, studentId);
-        if (safeTasks(plan.tasks()).stream().noneMatch(t -> taskId.equals(t.taskId())))
-            throw new IllegalArgumentException("Learning task not found");
-        return learningEvidenceStore.listByTask(studentId, taskId);
+        LearningPlan plan = requireLearningPlan(planId);
+        requireOwner(plan.studentId(), studentId, "Learning plan");
+        LearningTask task = safeTasks(plan.tasks()).stream().filter(t -> taskId.equals(t.taskId())).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Learning task not found"));
+        List<LearningEvidence> evidence = learningEvidenceStore.listByTask(studentId, taskId);
+        try { requireKnowledgeTaskSource(task); return evidence; }
+        catch (IllegalArgumentException ex) { return evidence.stream().map(AiCareerCoreService::maskedKnowledgeEvidence).toList(); }
     }
 
     public LearningEvidence retryLearningEvidence(String planId, String taskId, String evidenceId, String studentId) {
@@ -1073,9 +1127,174 @@ public class AiCareerCoreService {
     }
 
     private LearningEvidence findEvidence(String planId, String taskId, String evidenceId, String studentId) {
+        LearningPlan raw = requireLearningPlan(planId);
+        requireOwner(raw.studentId(), studentId, "Learning plan");
+        raw.tasks().stream().filter(task -> taskId.equals(task.taskId())).findFirst().ifPresent(this::requireKnowledgeTaskSource);
         return listLearningEvidence(planId, taskId, studentId).stream()
                 .filter(e -> evidenceId.equals(e.evidenceId()))
                 .findFirst().orElseThrow(() -> new IllegalArgumentException("Learning evidence not found"));
+    }
+
+    /** Shared guard for the knowledge action bridge and the legacy confirmation endpoint. */
+    public void validateKnowledgeDraft(String planId, String studentId) {
+        LearningPlan plan = requireLearningPlan(planId);
+        requireOwner(plan.studentId(), studentId, "Learning plan");
+        validateKnowledgePlan(plan, true);
+    }
+
+    private void validateKnowledgePlan(LearningPlan plan, boolean verifyBudget) {
+        safeTasks(plan.tasks()).forEach(this::requireKnowledgeTaskSource);
+        if (verifyBudget && isKnowledgeActionDraft(plan)) validateKnowledgeBudget(plan);
+    }
+
+    private void requireKnowledgeTaskSource(LearningTask task) {
+        if ("SOURCE_UNAVAILABLE".equals(task.referenceStatus()))
+            throw new IllegalArgumentException("知识来源已不可用，请重新选择资料并预览");
+        for (LearningReference reference : safeList(task.references())) validateKnowledgeReference(reference);
+        String source = task.source();
+        if (source == null) return;
+        if (source.startsWith("KNOWLEDGE_DOCUMENT:")) {
+            String[] parts = source.split(":", 3);
+            if (parts.length != 3) throw new IllegalArgumentException("知识来源已不可用，请重新选择资料并预览");
+            try { validateKnowledgeReference(new LearningReference(parts[1], "", "", task.description(), Integer.valueOf(parts[2]))); }
+            catch (RuntimeException ex) { throw new IllegalArgumentException("知识来源已不可用，请重新选择资料并预览"); }
+            return;
+        }
+        if (!source.startsWith("KNOWLEDGE:")) return;
+        String[] parts = source.split(":", 3);
+        if (knowledgeCatalogService == null || parts.length != 3)
+            throw new IllegalArgumentException("知识来源已不可用，请重新选择资料并预览");
+        com.aicampus.common.dto.KnowledgeWorkspaceModels.KnowledgeTopic topic;
+        try { topic = knowledgeCatalogService.topic(parts[1], "STUDENT"); }
+        catch (RuntimeException ex) { throw new IllegalArgumentException("知识来源已不可用，请重新选择资料并预览"); }
+        if (topic == null || !Integer.toString(topic.version()).equals(parts[2]))
+            throw new IllegalArgumentException("知识资料已更新，请重新选择资料并预览");
+    }
+
+    private com.aicampus.common.dto.KnowledgeWorkspaceModels.KnowledgeLibraryDocument validateKnowledgeReference(LearningReference reference) {
+        if (knowledgeCatalogService == null || reference == null || valueOr(reference.documentId()) == null)
+            throw new IllegalArgumentException("知识来源已不可用，请重新选择资料并预览");
+        com.aicampus.common.dto.KnowledgeWorkspaceModels.KnowledgeLibraryDocument document;
+        try { document = knowledgeCatalogService.library(reference.documentId(), "STUDENT"); }
+        catch (RuntimeException ex) { throw new IllegalArgumentException("知识来源已不可用，请重新选择资料并预览"); }
+        if (document == null) throw new IllegalArgumentException("知识来源已不可用，请重新选择资料并预览");
+        if (reference.documentVersion() != null && reference.documentVersion() != document.version()
+                || valueOr(reference.snippet()) == null || !document.content().contains(reference.snippet()))
+            throw new IllegalArgumentException("知识资料已更新，请重新选择资料并预览");
+        return document;
+    }
+
+    public void validateKnowledgeDocumentReference(InterviewSourceReference reference) {
+        if (reference == null || reference.sourceId() == null || !reference.sourceId().startsWith("KNOWLEDGE_DOCUMENT:"))
+            throw new IllegalArgumentException("Knowledge source is unavailable or updated");
+        Integer version;
+        try {
+            if (reference.location() == null || !reference.location().startsWith("document/v"))
+                throw new IllegalArgumentException();
+            version = Integer.valueOf(reference.location().substring("document/v".length()));
+        } catch (RuntimeException ex) { throw new IllegalArgumentException("Knowledge source is unavailable or updated"); }
+        validateKnowledgeReference(new LearningReference(reference.sourceId().substring("KNOWLEDGE_DOCUMENT:".length()),
+                "", "", reference.quote(), version));
+    }
+
+    public List<InterviewSourceReference> learningTaskSourceReferences(String planId, String taskId, String studentId) {
+        LearningPlan plan = requireLearningPlan(planId);
+        requireOwner(plan.studentId(), studentId, "Learning plan");
+        LearningTask task = safeTasks(plan.tasks()).stream().filter(t -> taskId.equals(t.taskId())).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Learning task source was not found"));
+        requireKnowledgeTaskSource(task);
+        List<InterviewSourceReference> references = new ArrayList<>();
+        for (LearningReference reference : safeList(task.references())) {
+            var document = validateKnowledgeReference(reference);
+            references.add(new InterviewSourceReference("KNOWLEDGE_DOCUMENT:" + document.documentId(), "KNOWLEDGE_DOCUMENT",
+                    reference.snippet(), "document/v" + document.version()));
+        }
+        if (task.source() != null && task.source().startsWith("KNOWLEDGE:")) {
+            String[] parts = task.source().split(":", 3);
+            var topic = knowledgeCatalogService.topic(parts[1], "STUDENT");
+            String material = Objects.toString(topic.content(), "") + "\n" + Objects.toString(topic.example(), "")
+                    + "\n" + Objects.toString(topic.practicePrompt(), "");
+            references.add(new InterviewSourceReference("KNOWLEDGE:" + topic.id(), "KNOWLEDGE", material,
+                    "topic/content/v" + topic.version()));
+        }
+        return List.copyOf(references);
+    }
+
+    private LearningTask knowledgePublicTask(LearningTask task) {
+        try { requireKnowledgeTaskSource(task); return task; }
+        catch (IllegalArgumentException ex) {
+            return new LearningTask(task.taskId(), task.week(), "知识来源已更新或不可用", "请重新选择有权阅读的知识资料，原任务进度与学生成果已保留。",
+                    task.skillGap(), task.stage(), "请重新预览当前资料的验收标准", "学生实践成果", task.estimatedHours(),
+                    task.status(), null, task.completedAt(), task.updatedAt(), safeList(task.prerequisites()),
+                    List.of(), "SOURCE_UNAVAILABLE", safeList(task.evidence()).stream().map(AiCareerCoreService::maskedKnowledgeEvidence).toList(), task.taskDate(), task.estimatedMinutes(),
+                    safeList(task.dependencies()), task.source(), task.actualMinutes(), task.delayed(), task.deferredUntil());
+        }
+    }
+
+    private static LearningEvidence maskedKnowledgeEvidence(LearningEvidence evidence) {
+        return new LearningEvidence(evidence.evidenceId(), evidence.planId(), evidence.taskId(), evidence.studentId(),
+                evidence.description(), safeList(evidence.links()), evidence.status(), null,
+                "知识来源已更新或不可用，学生提交内容已保留，评价依据暂不可查看。", evidence.analysisMetadata(),
+                evidence.submittedAt(), evidence.evaluatedAt(), evidence.confirmed(), evidence.resumeCandidate());
+    }
+
+    private static boolean isKnowledgeActionDraft(LearningPlan plan) {
+        return plan.analysisMetadata() != null && "knowledge-actions-v1".equals(plan.analysisMetadata().algorithmVersion());
+    }
+
+    private List<LearningTask> validatedKnowledgeRevisionTasks(LearningPlan draft, LearningPlan current) {
+        validateKnowledgePlan(current, false);
+        List<LearningTask> currentTasks = enrichEvidence(current).tasks();
+        for (LearningTask task : currentTasks) {
+            LearningTask copied = draft.tasks().stream().filter(candidate -> task.taskId().equals(candidate.taskId()))
+                    .findFirst().orElseThrow(() -> new IllegalArgumentException("知识调整草稿不能删除已有任务或成果，请重新预览"));
+            if (!task.equals(copied)) throw new IllegalArgumentException("原计划任务或成果已变化，请重新预览");
+        }
+        validateKnowledgeBudget(draft);
+        return draft.tasks();
+    }
+
+    private static void validateKnowledgeBudget(LearningPlan plan) {
+        LocalDate start;
+        try { start = LocalDate.parse(plan.startDate()); }
+        catch (RuntimeException ex) { throw new IllegalArgumentException("知识调整计划缺少有效开始日期"); }
+        if (plan.dailyMinutesCap() <= 0 || plan.weeklyHours() <= 0 || plan.durationWeeks() <= 0)
+            throw new IllegalArgumentException("知识调整计划缺少有效时间预算");
+        Set<DayOfWeek> days = new HashSet<>();
+        try { for (String day : safeList(plan.studyDays())) days.add(DayOfWeek.valueOf(day)); }
+        catch (RuntimeException ex) { throw new IllegalArgumentException("知识调整计划的学习日无效"); }
+        if (days.isEmpty()) throw new IllegalArgumentException("请选择学习日");
+        Map<String, Integer> daily = new HashMap<>();
+        Map<Integer, Integer> weekly = new HashMap<>();
+        Map<String, LocalDate> dates = new HashMap<>();
+        Map<String, Integer> order = new HashMap<>();
+        for (LearningTask task : safeTasks(plan.tasks())) {
+            LocalDate date;
+            try { date = task.taskDate() == null || task.taskDate().isBlank()
+                    ? start.plusWeeks(Math.max(0, task.week() - 1)) : LocalDate.parse(task.taskDate()); }
+            catch (RuntimeException ex) { throw new IllegalArgumentException("任务缺少计划日期，请先在学习路径安排日程"); }
+            long offset = java.time.temporal.ChronoUnit.DAYS.between(start, date);
+            if (offset < 0 || offset >= plan.durationWeeks() * 7L || task.week() != offset / 7 + 1 || !days.contains(date.getDayOfWeek()))
+                throw new IllegalArgumentException("任务日期与计划周或学习日不一致，请先调整原计划日程");
+            int minutes = taskMinutes(task);
+            if (minutes <= 0 || dates.putIfAbsent(task.taskId(), date) != null)
+                throw new IllegalArgumentException("任务时间或标识无效");
+            order.put(task.taskId(), order.size());
+            if (daily.merge(date.toString(), minutes, Integer::sum) > plan.dailyMinutesCap())
+                throw new IllegalArgumentException("知识调整超过每日时间上限：" + date);
+            if (weekly.merge(task.week(), minutes, Integer::sum) > plan.weeklyHours() * 60)
+                throw new IllegalArgumentException("知识调整超过每周时间预算：" + task.week());
+        }
+        for (LearningTask task : safeTasks(plan.tasks())) for (String prerequisite : safeList(task.dependencies()).isEmpty()
+                ? safeList(task.prerequisites()) : safeList(task.dependencies())) {
+            LocalDate prior = dates.get(prerequisite);
+            if (!safeList(task.dependencies()).isEmpty() && prior == null)
+                throw new IllegalArgumentException("任务前置依赖不存在");
+            if (task.taskId().equals(prerequisite)) throw new IllegalArgumentException("任务不能依赖自身");
+            if (prior != null && (prior.isAfter(dates.get(task.taskId()))
+                    || prior.equals(dates.get(task.taskId())) && order.get(prerequisite) >= order.get(task.taskId())))
+                throw new IllegalArgumentException("任务前置依赖顺序无效");
+        }
     }
 
     private static LearningEvidence withEvidenceFlags(LearningEvidence evidence, String status,
@@ -1116,8 +1335,16 @@ public class AiCareerCoreService {
                                                 t.actualMinutes(),
                                                 t.delayed(),
                                                 t.deferredUntil()))
+                        .map(this::knowledgePublicTask)
                         .toList();
-        return copyPlan(plan, plan.status(), tasks, plan.updatedAt());
+        LearningPlan result = copyPlan(plan, plan.status(), tasks, plan.updatedAt());
+        if (tasks.stream().anyMatch(task -> "SOURCE_UNAVAILABLE".equals(task.referenceStatus())))
+            return new LearningPlan(result.planId(), result.rootPlanId(), result.studentId(), result.resumeId(), result.jobId(),
+                    result.matchId(), result.targetRole(), result.contextSnapshot(), result.weeklyHours(), result.durationWeeks(),
+                    result.startDate(), result.studyDays(), result.dailyMinutesCap(), result.status(), result.version(),
+                    result.revisionOfPlanId(), result.tasks(), result.mocked(), result.createdAt(), result.updatedAt(),
+                    "部分知识来源已更新或不可用，保留任务进度与学生成果", result.analysisMetadata());
+        return result;
     }
 
     private String learningEvidenceSummary(LearningPlan plan) {
@@ -1213,7 +1440,12 @@ public class AiCareerCoreService {
                 throw new IllegalStateException(
                         "AI learning tasks exceed the requested weekly budget");
             List<LearningReference> references =
-                    referenceCache.computeIfAbsent(skill, aiCoachService::learningReferences);
+                    referenceCache.computeIfAbsent(skill, value -> aiCoachService.learningReferences(value).stream()
+                            .map(reference -> {
+                                var document = validateKnowledgeReference(reference);
+                                return new LearningReference(reference.documentId(), reference.title(), reference.source(),
+                                        reference.snippet(), document.version());
+                            }).toList());
             tasks.add(
                     new LearningTask(
                             planId + "-W" + task.week() + "-T" + (tasks.size() + 1),

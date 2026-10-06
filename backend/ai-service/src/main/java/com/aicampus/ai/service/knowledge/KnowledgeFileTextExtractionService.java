@@ -4,6 +4,8 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -27,18 +29,23 @@ public class KnowledgeFileTextExtractionService {
         }
         String extension = extension(fileName);
         try {
-            String text = switch (extension) {
-                case "txt", "md" -> extractPlainText(bytes);
+            ExtractedKnowledgeText extracted = switch (extension) {
+                case "txt", "md" -> new ExtractedKnowledgeText(extension, normalize(extractPlainText(bytes)), List.of());
                 case "pdf" -> extractPdf(new ByteArrayInputStream(bytes));
-                case "docx" -> extractDocx(new ByteArrayInputStream(bytes));
-                case "doc" -> extractDoc(new ByteArrayInputStream(bytes));
+                case "docx" -> new ExtractedKnowledgeText(extension, normalize(extractDocx(new ByteArrayInputStream(bytes))), List.of());
+                case "doc" -> new ExtractedKnowledgeText(extension, normalize(extractDoc(new ByteArrayInputStream(bytes))), List.of());
                 default -> throw new IllegalArgumentException("Unsupported knowledge file format: " + extension);
             };
-            String normalized = normalize(text, properties.getIngestion().getMaxTextChars());
-            if (normalized.isBlank()) {
-                throw new IllegalArgumentException("No readable text was extracted from the knowledge file");
+            if (extracted.text().isBlank()) {
+                throw new IllegalArgumentException("No readable text was extracted; scanned documents require a text-based original (OCR is unavailable)");
             }
-            return new ExtractedKnowledgeText(extension, normalized);
+            int maxLength = Math.max(1_000, properties.getIngestion().getMaxTextChars());
+            if (extracted.text().length() > maxLength) {
+                throw new IllegalArgumentException("Knowledge file contains " + extracted.text().length()
+                        + " text characters, exceeding the limit of " + maxLength
+                        + "; split the document before importing. No text has been silently discarded");
+            }
+            return extracted;
         } catch (IllegalArgumentException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -54,14 +61,25 @@ public class KnowledgeFileTextExtractionService {
         return new String(bytes, Charset.forName("GB18030"));
     }
 
-    private String extractPdf(InputStream inputStream) throws Exception {
+    private ExtractedKnowledgeText extractPdf(InputStream inputStream) throws Exception {
         try (PDDocument document = PDDocument.load(inputStream)) {
             if (document.isEncrypted()) {
                 throw new IllegalArgumentException("Encrypted PDF files are not supported");
             }
             PDFTextStripper stripper = new PDFTextStripper();
             stripper.setSortByPosition(true);
-            return stripper.getText(document);
+            StringBuilder fullText = new StringBuilder();
+            List<PageSpan> pages = new ArrayList<>();
+            for (int page = 1; page <= document.getNumberOfPages(); page++) {
+                stripper.setStartPage(page);
+                stripper.setEndPage(page);
+                String text = normalize(stripper.getText(document));
+                if (fullText.length() > 0 && !text.isEmpty()) fullText.append('\n');
+                int startOffset = fullText.length();
+                fullText.append(text);
+                pages.add(new PageSpan(page, startOffset, fullText.length()));
+            }
+            return new ExtractedKnowledgeText("pdf", fullText.toString(), List.copyOf(pages));
         }
     }
 
@@ -90,7 +108,7 @@ public class KnowledgeFileTextExtractionService {
         return fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
-    private static String normalize(String text, int maxTextChars) {
+    private static String normalize(String text) {
         if (text == null || text.isBlank()) {
             return "";
         }
@@ -99,8 +117,7 @@ public class KnowledgeFileTextExtractionService {
                 .replaceAll(" *\\n+ *", "\n")
                 .replaceAll(" {2,}", " ")
                 .trim();
-        int maxLength = Math.max(1_000, maxTextChars);
-        return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength);
+        return normalized;
     }
 
     private static String safeMessage(Exception ex) {
@@ -108,6 +125,12 @@ public class KnowledgeFileTextExtractionService {
         return message == null || message.isBlank() ? ex.getClass().getSimpleName() : message;
     }
 
-    public record ExtractedKnowledgeText(String fileFormat, String text) {
+    public record PageSpan(int pageNumber, int startOffset, int endOffset) {
+    }
+
+    public record ExtractedKnowledgeText(String fileFormat, String text, List<PageSpan> pages) {
+        public ExtractedKnowledgeText(String fileFormat, String text) {
+            this(fileFormat, text, List.of());
+        }
     }
 }

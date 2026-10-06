@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 import com.aicampus.ai.service.knowledge.*;
 import com.aicampus.common.dto.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.aicampus.ai.service.knowledge.workspace.KnowledgeWorkspaceStore;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -172,5 +173,158 @@ class KnowledgeSemanticRetrievalTest {
                 .hasMessageContaining("source changed");
         assertThat(store.listChunks().get(0).roles()).containsExactly("ADMIN");
         assertThat(store.listChunks().get(0).embedding()).containsExactly(1.0,0.0);
+    }
+
+    @Test void longChineseQuestionNeedsSpecificEvidenceBeyondOneGeneralWord() {
+        service.saveDocument(document("events", "活动方案需要明确目标、流程、责任、资源和验收。", List.of("STUDENT")));
+        assertThat(service.search(new KnowledgeSearchRequest("请公布未发布活动的全部个人医疗档案。", "STUDENT", 5), "S1").results()).isEmpty();
+        assertThat(service.search(new KnowledgeSearchRequest("活动方案如何明确流程和验收？", "STUDENT", 5), "S1").results())
+                .extracting(AiSearchResult::id).containsExactly("events-CH-001");
+        assertThat(service.search(new KnowledgeSearchRequest("活动", "STUDENT", 5), "S1").results()).hasSize(1);
+    }
+
+    @Test void overlappingBigramsDoNotCountAsIndependentTopicEvidence() {
+        service.saveDocument(document("activity", "活动中的准备和执行。", List.of("STUDENT")));
+        assertThat(service.search(new KnowledgeSearchRequest("发布全部活动内容中的个人健康档案", "STUDENT", 5), "S1").results()).isEmpty();
+    }
+
+    @Test void searchCitationsRetainDocumentVersionAndPdfPageMapping() {
+        KnowledgeWorkspaceStore workspace = new KnowledgeWorkspaceStore(mapper, null);
+        service.setWorkspaceStore(workspace);
+        service.saveDocument(document("pdf", "Redis 缓存需要设置过期时间。", List.of("STUDENT")));
+        workspace.put("DOCUMENT_METADATA", "pdf", "system", java.util.Map.of("documentId", "pdf", "revision", 3,
+                "status", "PUBLISHED", "pages", List.of(java.util.Map.of("pageNumber", 2, "startOffset", 0, "endOffset", 200))));
+        var result = service.search(new KnowledgeSearchRequest("Redis", "STUDENT", 5), "S1");
+        assertThat(result.results()).hasSize(1);
+        assertThat(result.results().get(0).citation().documentVersion()).isEqualTo(3);
+        assertThat(result.results().get(0).citation().pageNumber()).isEqualTo(2);
+    }
+
+    @Test void technicalTermsRemainExactEvidenceInsideLongChineseInterviewContext() {
+        service.saveDocument(document("java-interview", "Java 集合的选择原则。", List.of("STUDENT")));
+        service.saveDocument(document("redis-interview", "Redis 过期时间与失效策略。", List.of("STUDENT")));
+        service.saveDocument(document("mysql-interview", "MySQL 索引与事务边界。", List.of("STUDENT")));
+        service.saveDocument(document("javascript", "JavaScript 对象引用与浏览器事件。", List.of("STUDENT")));
+        var result = service.search(new KnowledgeSearchRequest("Java 后端实习生 Java Redis MySQL 面试 题目 答题要点 项目 追问",
+                "STUDENT", 5), "S1");
+        assertThat(result.results()).extracting(AiSearchResult::id).containsExactlyInAnyOrder(
+                "java-interview-CH-001", "redis-interview-CH-001", "mysql-interview-CH-001");
+    }
+
+    @Test void vectorRankingRetainsDifferencesSmallerThanOnePercent() {
+        semantic();
+        properties.getSemantic().setConceptGateEnabled(false);
+        add("a-lower", "候选甲", unitVector(0.901), List.of("STUDENT"));
+        add("z-higher", "候选乙", unitVector(0.904), List.of("STUDENT"));
+        assertThat(service.search(new KnowledgeSearchRequest("Redis", "STUDENT", 5), "S1").results())
+                .extracting(AiSearchResult::id).containsExactly("z-higher-CH-001", "a-lower-CH-001");
+        verify(semantic, times(1)).embed(anyList(), eq(true));
+    }
+
+    @Test void vectorThresholdUsesUnroundedSimilarity() {
+        semantic();
+        properties.getSemantic().setConceptGateEnabled(false);
+        add("a-below", "候选甲", unitVector(0.449), List.of("STUDENT"));
+        add("z-above", "候选乙", unitVector(0.451), List.of("STUDENT"));
+        assertThat(service.search(new KnowledgeSearchRequest("Redis", "STUDENT", 5), "S1").results())
+                .extracting(AiSearchResult::id).containsExactly("z-above-CH-001");
+    }
+
+    @Test void partialRemoteCandidatesCannotReplaceCompleteAuthorizedLocalVectorResults() {
+        semantic();
+        properties.getSemantic().setConceptGateEnabled(false);
+        add("best", "候选甲", unitVector(0.95), List.of("STUDENT"));
+        add("middle", "候选乙", unitVector(0.80), List.of("STUDENT"));
+        add("last", "候选丙", unitVector(0.60), List.of("STUDENT"));
+        add("private", "内部资料", unitVector(1.0), List.of("ADMIN"));
+        KnowledgeVectorIndex external = mock(KnowledgeVectorIndex.class);
+        when(external.supports("test-model", 2, "v2")).thenReturn(true);
+        when(external.search(anyList(), eq("STUDENT"), eq(20))).thenReturn(List.of(
+                new KnowledgeVectorMatch("middle-CH-001", 99), new KnowledgeVectorMatch("middle-CH-001", 99),
+                new KnowledgeVectorMatch("private-CH-001", 100), new KnowledgeVectorMatch("unknown-CH-001", 100)));
+        service.setVectorIndex(external);
+        assertThat(service.search(new KnowledgeSearchRequest("Redis", "STUDENT", 5), "S1").results())
+                .extracting(AiSearchResult::id).containsExactly("best-CH-001", "middle-CH-001", "last-CH-001");
+    }
+
+    @Test void finalResultsPreferBestChunkPerDocumentThenFillFromOriginalRanking() {
+        semantic();
+        when(semantic.isRerankEnabled()).thenReturn(true);
+        KnowledgeDocument crowded = document("a-crowded", "Redis", List.of("STUDENT"));
+        List<KnowledgeChunkRecord> chunks = java.util.stream.IntStream.rangeClosed(1, 5).mapToObj(index ->
+                new KnowledgeChunkRecord("a-crowded-CH-00" + index, crowded.documentId(), index, crowded.title(),
+                        crowded.content(), crowded.category(), crowded.source(), crowded.tags(), crowded.roles(),
+                        crowded.createdBy(), crowded.createdAt(), List.of(), null, null, "v2", 0, 5, "")).toList();
+        store.save(crowded, chunks);
+        add("b-other", "Redis", List.of(), List.of("STUDENT"));
+        add("c-other", "Redis", List.of(), List.of("STUDENT"));
+        when(semantic.rerank(anyString(), anyList())).thenAnswer(invocation -> {
+            List<String> inputs = invocation.getArgument(1);
+            assertThat(inputs).hasSize(7);
+            return java.util.stream.IntStream.range(0, inputs.size())
+                    .mapToObj(index -> new DashScopeKnowledgeClient.RerankResult(index, 0.99 - index * 0.01)).toList();
+        });
+        assertThat(service.search(new KnowledgeSearchRequest("Redis", "STUDENT", 5), "S1").results())
+                .extracting(AiSearchResult::id).containsExactly("a-crowded-CH-001", "b-other-CH-001", "c-other-CH-001",
+                        "a-crowded-CH-002", "a-crowded-CH-003");
+        verify(semantic, times(1)).rerank(anyString(), anyList());
+        verify(semantic, never()).embed(anyList(), anyBoolean());
+    }
+
+    private List<Double> unitVector(double cosine) {
+        return List.of(cosine, Math.sqrt(1 - cosine * cosine));
+    }
+
+    @Test void defaultConceptGateRejectsWeakVectorOverlapAfterRerankWithoutCallingAnswerModel() {
+        semantic();
+        when(semantic.isRerankEnabled()).thenReturn(true);
+        when(semantic.rerank(anyString(), anyList())).thenReturn(List.of(new DashScopeKnowledgeClient.RerankResult(0, 0.12)));
+        add("events", "活动方案需要明确目标、流程、责任、资源和验收。", List.of(1.0, 0.0), List.of("STUDENT"));
+        String query = "请公布未发布活动的全部个人医疗档案。";
+        var search = service.search(new KnowledgeSearchRequest(query, "STUDENT", 5), "S1");
+        assertThat(search.results()).isEmpty();
+        assertThat(search.evidenceStatus()).isEqualTo("NO_EVIDENCE");
+        assertThat(search.retrievalMode()).isEqualTo("HYBRID_RRF_RERANK");
+        var answer = service.answer(new KnowledgeAnswerRequest(query, "STUDENT", 5, false), "S1");
+        assertThat(answer.citations()).isEmpty();
+        assertThat(answer.evidenceStatus()).isEqualTo("NO_EVIDENCE");
+        verify(semantic, times(1)).embed(anyList(), eq(true));
+        verify(semantic, times(1)).rerank(anyString(), anyList());
+        verify(generation, never()).complete(anyString(), anyString(), anyBoolean());
+    }
+
+    @Test void ordinarySemanticSynonymIsNotRejectedBySensitiveConceptGate() {
+        semantic();
+        add("recovery", "未命中时回源读取。", List.of(1.0, 0.0), List.of("STUDENT"));
+        var result = service.search(new KnowledgeSearchRequest("临时保存到期了怎样再次取得信息？", "STUDENT", 5), "S1");
+        assertThat(result.results()).extracting(AiSearchResult::id).containsExactly("recovery-CH-001");
+        assertThat(result.evidenceStatus()).isEqualTo("RETRIEVED");
+    }
+
+    @Test void disablingConceptGateRestoresPureSemanticQueriesAndInvalidatesCachedEmptyResult() {
+        semantic();
+        add("recovery", "未命中时回源读取。", List.of(1.0, 0.0), List.of("STUDENT"));
+        var request = new KnowledgeSearchRequest("临时保存到期了怎样再次取得信息？", "STUDENT", 5);
+        assertThat(service.search(request, "S1").results()).extracting(AiSearchResult::id)
+                .containsExactly("recovery-CH-001");
+        properties.getSemantic().setConceptGateEnabled(false);
+        assertThat(service.search(request, "S1").results()).extracting(AiSearchResult::id)
+                .containsExactly("recovery-CH-001");
+        verify(semantic, times(2)).embed(anyList(), eq(true));
+    }
+
+    @Test void conceptGateDoesNotUseSourceTextAsEvidence() {
+        KnowledgeDocument doc = new KnowledgeDocument("source-only", "资料标题", "普通正文", "course", "Redis 官方资料",
+                List.of(), List.of("STUDENT"), "test", LocalDateTime.now());
+        service.saveDocument(doc);
+        assertThat(service.search(new KnowledgeSearchRequest("Redis 个人医疗档案", "STUDENT", 5), "S1").results()).isEmpty();
+    }
+
+    @Test void emptyQueryStillListsReadableMaterials() {
+        semantic();
+        add("all", "资料正文", List.of(1.0, 0.0), List.of("STUDENT"));
+        assertThat(service.search(new KnowledgeSearchRequest("", "STUDENT", 5), "S1").results())
+                .extracting(AiSearchResult::id).containsExactly("all-CH-001");
+        verify(semantic, never()).embed(anyList(), anyBoolean());
     }
 }

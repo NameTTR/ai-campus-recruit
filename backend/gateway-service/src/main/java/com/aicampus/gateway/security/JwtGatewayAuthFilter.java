@@ -281,8 +281,14 @@ public class JwtGatewayAuthFilter implements WebFilter, Ordered {
                 || path.startsWith("/api/ai/knowledge/files")
                 || path.startsWith("/api/ai/knowledge/ingestions")
                 || path.startsWith("/api/ai/knowledge/vector/status")
+                || path.startsWith("/api/ai/knowledge/publications")
+                || path.startsWith("/api/ai/knowledge/admin/publications")
                 || path.startsWith("/api/ai/knowledge/index")) {
             return Permission.AI_OBSERVABILITY_READ;
+        }
+        if (path.startsWith("/api/ai/knowledge/me") || path.startsWith("/api/ai/knowledge/practices")
+                || path.startsWith("/api/ai/knowledge/actions") || path.startsWith("/api/ai/knowledge/recommendations")) {
+            return Permission.STUDENT_INTERVIEW_WRITE;
         }
         if (path.startsWith("/api/ai/knowledge/search") || path.startsWith("/api/ai/knowledge/answer")) {
             return Permission.AI_ANALYZE;

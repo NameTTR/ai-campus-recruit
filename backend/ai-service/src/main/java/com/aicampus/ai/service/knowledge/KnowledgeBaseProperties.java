@@ -45,6 +45,8 @@ public class KnowledgeBaseProperties {
         private String rerankModel = "gte-rerank-v2";
         private String rerankUrl = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank";
         private boolean rerankEnabled = true;
+        private boolean conceptGateEnabled = true;
+        private String sensitiveQueryTerms = "隐私,个人信息,个人资料,个人档案,医疗,医疗档案,健康档案,病历,凭据,密码,令牌,未公开,未发布,内部资料,机密,保密,privacy,credential,credentials,medical,personal record,unpublished";
         private String version = "semantic-rag-v2";
         private double minimumVectorSimilarity = 0.45;
         private double minimumRerankScore = 0.10;
@@ -63,6 +65,10 @@ public class KnowledgeBaseProperties {
         public void setRerankUrl(String v) { rerankUrl = v; }
         public boolean isRerankEnabled() { return rerankEnabled; }
         public void setRerankEnabled(boolean v) { rerankEnabled = v; }
+        public boolean isConceptGateEnabled() { return conceptGateEnabled; }
+        public void setConceptGateEnabled(boolean v) { conceptGateEnabled = v; }
+        public String getSensitiveQueryTerms() { return sensitiveQueryTerms; }
+        public void setSensitiveQueryTerms(String v) { sensitiveQueryTerms = v; }
         public String getVersion() { return version; }
         public void setVersion(String v) { version = v; }
         public double getMinimumVectorSimilarity() { return minimumVectorSimilarity; }

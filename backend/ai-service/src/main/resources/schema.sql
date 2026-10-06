@@ -184,3 +184,12 @@ CREATE TABLE IF NOT EXISTS ai_knowledge_index_rebuild (
     updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     KEY idx_ai_knowledge_index_rebuild_status_updated (status, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Versioned document metadata and private workflow snapshots. Existing records are retained.
+CREATE TABLE IF NOT EXISTS ai_knowledge_workspace (
+    record_kind VARCHAR(64) NOT NULL,
+    owner_id VARCHAR(100) NOT NULL,
+    record_id VARCHAR(150) NOT NULL,
+    snapshot MEDIUMTEXT NOT NULL,
+    PRIMARY KEY (record_kind, owner_id, record_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

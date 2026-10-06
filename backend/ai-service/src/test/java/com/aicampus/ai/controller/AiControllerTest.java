@@ -646,6 +646,15 @@ class AiControllerTest {
         mockMvc.perform(post("/api/ai/knowledge/search")
                         .header("X-User-Role", "STUDENT")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"query\":\"bulk-upload-keyword\",\"limit\":3}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.results").isEmpty());
+        mockMvc.perform(post("/api/ai/knowledge/publications/{documentId}/publish", knowledgeJobDocumentId(jobId))
+                        .header("X-User-Id", "A-RAG-UPLOAD").header("X-User-Role", "ADMIN"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0));
+
+        mockMvc.perform(post("/api/ai/knowledge/search")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
                                   "query": "bulk-upload-keyword Milvus",
@@ -727,6 +736,10 @@ class AiControllerTest {
                 .getContentAsString();
         String secondJobId = JsonPath.read(secondResponse, "$.data.jobId");
         waitUntilKnowledgeJobStatus(secondJobId, "READY");
+
+        mockMvc.perform(post("/api/ai/knowledge/publications/{documentId}/publish", knowledgeJobDocumentId(secondJobId))
+                        .header("X-User-Id", "A-RAG-REUPLOAD").header("X-User-Role", "ADMIN"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0));
 
         mockMvc.perform(post("/api/ai/knowledge/search")
                         .header("X-User-Role", "STUDENT")

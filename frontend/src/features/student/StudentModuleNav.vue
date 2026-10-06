@@ -45,11 +45,11 @@ const navigation: Record<StudentModule, { label: string; items: NavigationItem[]
     ]
   },
   knowledge: {
-    label: '知识问答导航',
+    label: '知识库导航',
     items: [
-      { key: 'search', label: '查询', icon: Search, path: '/student/knowledge', pages: ['search', 'answer'] },
-      { key: 'sources', label: '资料原文', icon: Library, path: '/student/knowledge/sources', pages: ['sources'] },
-      { key: 'history', label: '最近查询', icon: History, path: '/student/knowledge/history', pages: ['history'] }
+      { key: 'search', label: '查知识', icon: Search, path: '/student/knowledge', pages: ['search', 'answer', 'topics', 'topic', 'reader', 'sources'] },
+      { key: 'learning', label: '我的学习', icon: BookOpen, path: '/student/knowledge/learning', pages: ['learning', 'practice'] },
+      { key: 'history', label: '查询历史', icon: History, path: '/student/knowledge/history', pages: ['history'] }
     ]
   }
 }

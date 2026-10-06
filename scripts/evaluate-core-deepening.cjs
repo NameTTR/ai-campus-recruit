@@ -166,6 +166,7 @@ async function ragEvaluate() {
     for (const fixture of fixtures.rag.documents) {
       const doc = await api('/api/ai/knowledge/documents', admin.token, 'POST', { title: fixture.title + ' · ' + runId,
         content: fixture.content, category: fixture.category, source: 'synthetic-evaluation:' + runId, tags: fixture.tags, roles: fixture.roles })
+      await api('/api/ai/knowledge/publications/' + encodeURIComponent(doc.documentId) + '/publish', admin.token, 'POST')
       byFixture.set(fixture.fixtureId, doc.documentId); documents.set(doc.documentId, doc); created.push(doc.documentId)
     }
     for (const split of ['calibration', 'test']) {
