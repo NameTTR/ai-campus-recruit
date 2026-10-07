@@ -7,8 +7,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.aicampus.job.JobServiceApplication;
+import com.aicampus.common.dto.JobPostRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
+import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,6 +30,9 @@ import org.springframework.test.web.servlet.MvcResult;
 class JobControllerTest {
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void companyCreatesAndUpdatesItsOwnOpenJobWithoutFakeOwnerData() throws Exception {
@@ -43,7 +52,155 @@ class JobControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.title").value("Updated Skills API Engineer"))
+                .andExpect(jsonPath("$.data.companyName").value("C-JOB-OWNER"))
                 .andExpect(jsonPath("$.data.requiredSkills[1]").value("Redis"));
+    }
+
+    @Test
+    void companyDisplayNameIsTrimmedAndStoredWithoutChangingAuthenticatedOwner() throws Exception {
+        MvcResult created = mockMvc.perform(post("/api/jobs")
+                        .headers(companyHeaders("C-DISPLAY-OWNER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(namedJobBody("C-FORGED", "  星河科技  ", "Display Name Job", "Java")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.companyId").value("C-DISPLAY-OWNER"))
+                .andExpect(jsonPath("$.data.companyName").value("星河科技"))
+                .andReturn();
+        String jobId = jobId(created);
+
+        mockMvc.perform(get("/api/jobs").headers(companyHeaders("C-DISPLAY-OWNER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].jobId").value(jobId))
+                .andExpect(jsonPath("$.data[0].companyName").value("星河科技"));
+        mockMvc.perform(put("/api/jobs/{id}", jobId)
+                        .headers(companyHeaders("星河科技"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(namedJobBody("C-DISPLAY-OWNER", "星河科技", "Forged By Display Name", "Java")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("You do not have permission to update this job"));
+
+        mockMvc.perform(put("/api/jobs/{id}", jobId)
+                        .headers(companyHeaders("C-DISPLAY-OWNER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(namedJobBody("C-DISPLAY-OWNER", "  星河科技研发中心  ", "Renamed Company Job", "Java")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.companyId").value("C-DISPLAY-OWNER"))
+                .andExpect(jsonPath("$.data.companyName").value("星河科技研发中心"));
+        mockMvc.perform(get("/api/jobs/{id}", jobId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.companyId").value("C-DISPLAY-OWNER"))
+                .andExpect(jsonPath("$.data.companyName").value("星河科技研发中心"));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   "})
+    void emptyCompanyDisplayNameFallsBackToOwnerOnCreate(String companyName) throws Exception {
+        mockMvc.perform(post("/api/jobs")
+                        .headers(companyHeaders("C-BLANK-NAME"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(namedJobBody("C-FORGED", companyName, "Blank Display Name Job", "Java")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.companyId").value("C-BLANK-NAME"))
+                .andExpect(jsonPath("$.data.companyName").value("C-BLANK-NAME"));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   "})
+    void emptyCompanyDisplayNamePreservesExistingNameOnUpdate(String companyName) throws Exception {
+        MvcResult created = mockMvc.perform(post("/api/jobs")
+                        .headers(companyHeaders("C-PRESERVE-NAME"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(namedJobBody("C-PRESERVE-NAME", "星河科技", "Keep Display Name Job", "Java")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andReturn();
+        String jobId = jobId(created);
+
+        mockMvc.perform(put("/api/jobs/{id}", jobId)
+                        .headers(companyHeaders("C-PRESERVE-NAME"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(namedJobBody("C-PRESERVE-NAME", companyName, "Updated Keep Display Name Job", "Redis")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.companyName").value("星河科技"));
+        mockMvc.perform(put("/api/jobs/{id}", jobId)
+                        .headers(companyHeaders("C-PRESERVE-NAME"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jobBody("C-PRESERVE-NAME", "Legacy Update Job", "Java")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.companyName").value("星河科技"));
+        mockMvc.perform(get("/api/jobs/{id}", jobId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.companyName").value("星河科技"));
+    }
+
+    @Test
+    void displayNameDoesNotAllowAnOwnerToTransferJobToAnotherCompany() throws Exception {
+        String jobId = jobId(create("C-NO-TRANSFER", "Original Owner Job", "Java"));
+
+        mockMvc.perform(put("/api/jobs/{id}", jobId)
+                        .headers(companyHeaders("C-NO-TRANSFER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(namedJobBody("C-OTHER-OWNER", "星河科技", "Transferred Job", "Java")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("A company cannot transfer a job to another owner"));
+        mockMvc.perform(get("/api/jobs/{id}", jobId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.companyId").value("C-NO-TRANSFER"))
+                .andExpect(jsonPath("$.data.companyName").value("C-NO-TRANSFER"))
+                .andExpect(jsonPath("$.data.title").value("Original Owner Job"));
+    }
+
+    @Test
+    void administratorCanCreateAndTransferJobUsingCompanyIdWithSeparateDisplayName() throws Exception {
+        MvcResult created = mockMvc.perform(post("/api/jobs")
+                        .header("X-User-Id", "A-DISPLAY-ADMIN")
+                        .header("X-User-Role", "ADMIN")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(namedJobBody("  C-ADMIN-CREATED  ", "  星河科技  ", "Admin Created Job", "Java")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.companyId").value("C-ADMIN-CREATED"))
+                .andExpect(jsonPath("$.data.companyName").value("星河科技"))
+                .andReturn();
+        String jobId = jobId(created);
+
+        mockMvc.perform(put("/api/jobs/{id}", jobId)
+                        .header("X-User-Id", "A-DISPLAY-ADMIN")
+                        .header("X-User-Role", "ADMIN")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jobBody("C-ADMIN-TRANSFERRED", "Admin Transferred Job", "Java")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.companyId").value("C-ADMIN-TRANSFERRED"))
+                .andExpect(jsonPath("$.data.companyName").value("星河科技"));
+        mockMvc.perform(get("/api/jobs").headers(companyHeaders("C-ADMIN-CREATED")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+        mockMvc.perform(get("/api/jobs").headers(companyHeaders("C-ADMIN-TRANSFERRED")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].jobId").value(jobId));
+    }
+
+    @Test
+    void legacySixArgumentRequestConstructorRemainsCompatible() throws Exception {
+        JobPostRequest request = new JobPostRequest("C-LEGACY-REQUEST", "Legacy Request Job", "Shanghai",
+                "200-260/day", List.of("Java"), "Build production APIs.");
+
+        mockMvc.perform(post("/api/jobs")
+                        .headers(companyHeaders("C-LEGACY-REQUEST"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.companyName").value("C-LEGACY-REQUEST"));
     }
 
     @Test
@@ -119,6 +276,12 @@ class JobControllerTest {
         return "{\"companyId\":\"" + companyId + "\",\"title\":\"" + title
                 + "\",\"city\":\"Shanghai\",\"salaryRange\":\"200-260/day\",\"requiredSkills\":["
                 + jsonSkills + "],\"description\":\"Build production APIs with measured quality.\"}";
+    }
+
+    private static String namedJobBody(String companyId, String companyName, String title, String... skills) {
+        return JsonPath.parse(jobBody(companyId, title, skills))
+                .put("$", "companyName", companyName)
+                .jsonString();
     }
 
     private static org.springframework.http.HttpHeaders companyHeaders(String companyId) {

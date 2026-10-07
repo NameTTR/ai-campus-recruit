@@ -76,7 +76,7 @@ public class JobController {
         JobSummary job = new JobSummary(
                 "J" + UUID.randomUUID().toString().substring(0, 8),
                 companyId,
-                companyId,
+                isBlank(request.companyName()) ? companyId : request.companyName().trim(),
                 request.title().trim(),
                 request.city().trim(),
                 request.salaryRange().trim(),
@@ -145,7 +145,9 @@ public class JobController {
                 ? request.companyId().trim()
                 : current.companyId();
         JobSummary updated = new JobSummary(
-                current.jobId(), companyId, companyId, request.title().trim(), request.city().trim(),
+                current.jobId(), companyId,
+                isBlank(request.companyName()) ? current.companyName() : request.companyName().trim(),
+                request.title().trim(), request.city().trim(),
                 request.salaryRange().trim(), normalizedList(request.requiredSkills()), request.description().trim(),
                 current.aiSummary(), statusOrOpen(current.status()));
         jobStore.save(updated);

@@ -380,10 +380,13 @@ public class AiCareerCoreService {
                             previous,
                             additionalContext);
             generated = attachKnowledgeInterviewSources(generated, request == null ? null : request.interviewSessionId(), studentId);
-            if (request != null && (valueOr(request.startDate()) != null
+            if (hasScheduledSegments(previous.tasks()) || request != null && (valueOr(request.startDate()) != null
                     || request.studyDays() != null && !request.studyDays().isEmpty()
                     || request.dailyMinutesCap() != null)) {
-                generated = applySchedule(generated, request.startDate(), request.studyDays(), request.dailyMinutesCap());
+                generated = applySchedule(generated,
+                        valueOr(request.startDate()) == null ? previous.startDate() : request.startDate(),
+                        safeList(request.studyDays()).isEmpty() ? previous.studyDays() : request.studyDays(),
+                        request.dailyMinutesCap() == null ? previous.dailyMinutesCap() : request.dailyMinutesCap());
             }
             if (Boolean.TRUE.equals(request.previewOnly())) {
                 LearningPlan draft =
@@ -749,6 +752,35 @@ public class AiCareerCoreService {
             List<LearningTask> previousTasks,
             int weeklyHours,
             int durationWeeks) {
+        if (safeTasks(newTasks).stream().anyMatch(task -> valueOr(task.taskDate()) != null)) {
+            Map<String, LearningTask> completed = new LinkedHashMap<>();
+            for (LearningTask task : safeTasks(previousTasks))
+                if ("COMPLETED".equals(task.status())) completed.putIfAbsent(task.taskId(), task);
+            Set<String> ids = new HashSet<>();
+            Map<Integer, Integer> weeklyMinutes = new HashMap<>();
+            List<LearningTask> result = new ArrayList<>();
+            for (LearningTask task : safeTasks(newTasks)) {
+                if (!ids.add(task.taskId()))
+                    throw new IllegalArgumentException("Scheduled revision contains duplicate task identifiers");
+                LearningTask original = completed.get(task.taskId());
+                if (original != null && (!Objects.equals(original.taskDate(), task.taskDate())
+                        || taskMinutes(original) != taskMinutes(task)))
+                    throw new IllegalArgumentException("Completed work has changed; generate a new preview");
+                LearningTask preserved = original == null ? task : original;
+                if (preserved.week() < 1 || preserved.week() > durationWeeks
+                        || taskMinutes(preserved) <= 0
+                        || weeklyMinutes.merge(preserved.week(), taskMinutes(preserved), Integer::sum) > weeklyHours * 60)
+                    throw new IllegalArgumentException("Scheduled revision exceeds the weekly learning budget");
+                result.add(preserved);
+            }
+            if (!ids.containsAll(completed.keySet()))
+                throw new IllegalArgumentException("Completed work has changed; generate a new preview");
+            // The preview already allocated every segment. Re-applying the legacy
+            // two-task limit would delete segments and inflate the surviving ones.
+            return List.copyOf(result);
+        }
+        if (hasScheduledSegments(previousTasks))
+            return preserveSegmentedPlanWork(newTasks, previousTasks, weeklyHours, durationWeeks);
         Map<Integer, Map<String, LearningTask>> completedByWeek = new HashMap<>();
         for (LearningTask task : safeTasks(previousTasks)) {
             if ("COMPLETED".equals(task.status())) {
@@ -1668,43 +1700,219 @@ public class AiCareerCoreService {
         while (!weekdays.contains(first.getDayOfWeek())) {
             first = first.plusDays(1);
         }
-        List<LearningTask> scheduled = new ArrayList<>();
-        Map<Integer, Integer> weekTaskIndex = new HashMap<>();
-        Map<Integer, Integer> dailyMinutes = new HashMap<>();
-        for (LearningTask task : safeTasks(plan.tasks())) {
-            String taskDate = task.taskDate();
-            int slot = weekTaskIndex.merge(task.week(), 1, Integer::sum) - 1;
-            DayOfWeek selectedDay = weekdays.get(slot % weekdays.size());
-            taskDate = first.plusDays(Math.max(0, task.week() - 1) * 7L)
-                    .with(java.time.temporal.TemporalAdjusters.nextOrSame(selectedDay)).toString();
-            int minutes = task.estimatedMinutes() > 0 ? task.estimatedMinutes() : task.estimatedHours() * 60;
-            if (minutes <= 0) throw new IllegalArgumentException("Every learning task must have estimated minutes");
-            // A generated task may be longer than one sitting. Schedule the first
-            // sitting within the daily cap and keep the task itself intact for the
-            // student's next session.
-            minutes = Math.min(minutes, cap);
-            int dayKey = (int) (LocalDate.parse(taskDate).toEpochDay());
-            int used = dailyMinutes.merge(dayKey, minutes, Integer::sum);
-            if (used > cap) throw new IllegalArgumentException("Daily learning limit exceeded on " + taskDate);
-            boolean delayed = task.delayed() || task.deferredUntil() != null;
-            scheduled.add(new LearningTask(task.taskId(), task.week(), task.title(), task.description(),
-                    task.skillGap(), task.stage(), task.acceptanceCriteria(), task.practiceDeliverable(),
-                    task.estimatedHours(), task.status(), task.feedback(), task.completedAt(), task.updatedAt(),
-                    safeList(task.prerequisites()), safeList(task.references()), task.referenceStatus(),
-                    safeList(task.evidence()), taskDate, minutes,
-                    safeList(task.dependencies()), task.source(), task.actualMinutes(), delayed,
-                    task.deferredUntil()));
-        }
+        List<LearningTask> ordered = scheduleTaskOrder(safeTasks(plan.tasks()));
+        Map<Integer, List<LocalDate>> datesByWeek = new HashMap<>();
+        Map<Integer, Integer> minutesByWeek = new HashMap<>();
         int weeklyBudget = Math.max(1, plan.weeklyHours()) * 60;
+        for (LearningTask task : ordered) {
+            if (task.week() < 1 || task.week() > plan.durationWeeks())
+                throw new IllegalArgumentException("Learning task week is outside the requested schedule");
+            int minutes = taskMinutes(task);
+            if (minutes <= 0) throw new IllegalArgumentException("Every learning task must have estimated minutes");
+            if (minutesByWeek.merge(task.week(), minutes, Integer::sum) > weeklyBudget)
+                throw new IllegalArgumentException("Week " + task.week() + " exceeds the weekly learning budget");
+        }
+        for (int week = 1; week <= plan.durationWeeks(); week++) {
+            List<LocalDate> dates = new ArrayList<>();
+            LocalDate weekStart = first.plusWeeks(week - 1);
+            for (int day = 0; day < 7; day++) {
+                LocalDate date = weekStart.plusDays(day);
+                if (weekdays.contains(date.getDayOfWeek())) dates.add(date);
+            }
+            datesByWeek.put(week, dates);
+        }
+
+        Map<LocalDate, Integer> dailyMinutes = new HashMap<>();
+        // Reserve recorded work before placing new tasks. Its dates, IDs, feedback
+        // and evidence must survive a schedule change without being split.
+        for (LearningTask task : ordered) {
+            if (!hasLearningHistory(task) || valueOr(task.taskDate()) == null) continue;
+            LocalDate date;
+            try { date = LocalDate.parse(task.taskDate()); }
+            catch (DateTimeException ex) { throw new IllegalArgumentException("Recorded learning task has an invalid date"); }
+            // New preferences constrain future work; they cannot rewrite or
+            // invalidate a session already recorded on a previous study day.
+            dailyMinutes.merge(date, taskMinutes(task), Integer::sum);
+        }
         for (int week = 1; week <= plan.durationWeeks(); week++) {
             final int currentWeek = week;
-            int total = scheduled.stream().filter(t -> t.week() == currentWeek).mapToInt(LearningTask::estimatedMinutes).sum();
-            if (total > weeklyBudget) throw new IllegalArgumentException("Week " + week + " exceeds the weekly learning budget");
+            int pendingMinutes = ordered.stream().filter(task -> task.week() == currentWeek)
+                    .filter(task -> !hasLearningHistory(task) || valueOr(task.taskDate()) == null)
+                    .mapToInt(AiCareerCoreService::taskMinutes).sum();
+            int capacity = 0;
+            for (LocalDate date : datesByWeek.get(week))
+                capacity += Math.max(0, cap - dailyMinutes.getOrDefault(date, 0));
+            if (pendingMinutes > capacity)
+                throw new IllegalArgumentException("Week " + week + " exceeds available study days at the daily learning limit");
         }
+
+        List<LearningTask> scheduled = new ArrayList<>();
+        Map<Integer, Integer> dayIndexByWeek = new HashMap<>();
+        Map<String, LocalDate> completedDates = new HashMap<>();
+        Set<String> taskIds = ordered.stream().map(LearningTask::taskId).collect(java.util.stream.Collectors.toSet());
+        for (LearningTask task : ordered) {
+            List<LocalDate> dates = datesByWeek.get(task.week());
+            int dayIndex = dayIndexByWeek.getOrDefault(task.week(), 0);
+            List<String> dependencies = scheduleDependencies(task, taskIds);
+            for (String dependency : dependencies) {
+                LocalDate prerequisiteDate = completedDates.get(dependency);
+                while (dayIndex < dates.size() && dates.get(dayIndex).isBefore(prerequisiteDate)) dayIndex++;
+            }
+            if (hasLearningHistory(task) && valueOr(task.taskDate()) != null) {
+                LocalDate date = LocalDate.parse(task.taskDate());
+                for (String dependency : dependencies)
+                    if (date.isBefore(completedDates.get(dependency)))
+                        throw new IllegalArgumentException("Recorded learning task dependency is scheduled after its work");
+                scheduled.add(task);
+                completedDates.put(task.taskId(), date);
+                dayIndexByWeek.put(task.week(), Math.max(dayIndex, dates.indexOf(date)));
+                continue;
+            }
+
+            int remaining = taskMinutes(task);
+            List<LocalDate> segmentDates = new ArrayList<>();
+            List<Integer> segmentMinutes = new ArrayList<>();
+            while (remaining > 0 && dayIndex < dates.size()) {
+                LocalDate date = dates.get(dayIndex);
+                int available = cap - dailyMinutes.getOrDefault(date, 0);
+                if (available <= 0 || hasLearningHistory(task) && available < remaining) {
+                    dayIndex++;
+                    continue;
+                }
+                int minutes = Math.min(remaining, available);
+                segmentDates.add(date);
+                segmentMinutes.add(minutes);
+                dailyMinutes.merge(date, minutes, Integer::sum);
+                remaining -= minutes;
+                if (remaining > 0) dayIndex++;
+            }
+            if (remaining > 0)
+                throw new IllegalArgumentException("Week " + task.week()
+                        + " has insufficient daily learning capacity for task " + task.taskId());
+
+            String previousSegmentId = null;
+            for (int segment = 0; segment < segmentDates.size(); segment++) {
+                // Keep the original ID on the last segment: tasks depending on
+                // that ID must wait for the entire original exercise to finish.
+                String id = task.taskId();
+                if (segment < segmentDates.size() - 1) {
+                    String baseId = task.taskId() + "-S" + (segment + 1);
+                    id = baseId;
+                    for (int suffix = 2; !taskIds.add(id); suffix++) id = baseId + "-" + suffix;
+                }
+                List<String> segmentDependencies = new ArrayList<>(safeList(task.dependencies()));
+                if (previousSegmentId != null) segmentDependencies.add(previousSegmentId);
+                String title = segmentDates.size() == 1 ? task.title()
+                        : task.title() + "（第 " + (segment + 1) + "/" + segmentDates.size() + " 段）";
+                int minutes = segmentMinutes.get(segment);
+                scheduled.add(new LearningTask(id, task.week(), title, task.description(), task.skillGap(), task.stage(),
+                        task.acceptanceCriteria(), task.practiceDeliverable(),
+                        segmentDates.size() == 1 ? task.estimatedHours() : (minutes + 59) / 60,
+                        task.status(), task.feedback(), task.completedAt(), task.updatedAt(), safeList(task.prerequisites()),
+                        safeList(task.references()), task.referenceStatus(), safeList(task.evidence()),
+                        segmentDates.get(segment).toString(), minutes, List.copyOf(segmentDependencies), task.source(),
+                        task.actualMinutes(), task.delayed() || task.deferredUntil() != null, task.deferredUntil()));
+                previousSegmentId = id;
+            }
+            completedDates.put(task.taskId(), segmentDates.get(segmentDates.size() - 1));
+            dayIndexByWeek.put(task.week(), dayIndex);
+        }
+        scheduled.sort(Comparator.comparing(LearningTask::taskDate));
         return new LearningPlan(plan.planId(), plan.rootPlanId(), plan.studentId(), plan.resumeId(), plan.jobId(),
                 plan.matchId(), plan.targetRole(), plan.contextSnapshot(), plan.weeklyHours(), plan.durationWeeks(),
                 first.toString(), studyDays, cap, plan.status(), plan.version(), plan.revisionOfPlanId(), scheduled,
                 plan.mocked(), plan.createdAt(), plan.updatedAt(), plan.revisionReason(), plan.analysisMetadata());
+    }
+
+    private static List<LearningTask> scheduleTaskOrder(List<LearningTask> tasks) {
+        Set<String> ids = new HashSet<>();
+        for (LearningTask task : tasks)
+            if (valueOr(task.taskId()) == null || !ids.add(task.taskId()))
+                throw new IllegalArgumentException("Learning task identifiers must be present and unique");
+        List<LearningTask> pending = new ArrayList<>(tasks);
+        pending.sort(Comparator.comparingInt(LearningTask::week));
+        List<LearningTask> ordered = new ArrayList<>();
+        Set<String> resolved = new HashSet<>();
+        while (!pending.isEmpty()) {
+            int week = pending.get(0).week();
+            LearningTask next = pending.stream().filter(task -> task.week() == week)
+                    .filter(task -> resolved.containsAll(scheduleDependencies(task, ids)))
+                    .findFirst().orElseThrow(() -> new IllegalArgumentException("Learning task dependency order is invalid"));
+            pending.remove(next);
+            ordered.add(next);
+            resolved.add(next.taskId());
+        }
+        return ordered;
+    }
+
+    private static List<String> scheduleDependencies(LearningTask task, Set<String> taskIds) {
+        if (!safeList(task.dependencies()).isEmpty()) {
+            if (!taskIds.containsAll(task.dependencies()))
+                throw new IllegalArgumentException("Learning task dependency is missing");
+            return task.dependencies();
+        }
+        // Older AI plans record skill prerequisites; only actual task IDs form
+        // scheduling dependencies. The original prerequisite text is retained.
+        return safeList(task.prerequisites()).stream().filter(taskIds::contains).toList();
+    }
+
+    private static boolean hasLearningHistory(LearningTask task) {
+        return "COMPLETED".equals(task.status()) || "SKIPPED".equals(task.status())
+                || "IN_PROGRESS".equals(task.status()) || task.actualMinutes() != null && task.actualMinutes() > 0
+                || !safeList(task.evidence()).isEmpty();
+    }
+
+    private static boolean hasScheduledSegments(List<LearningTask> tasks) {
+        return safeTasks(tasks).stream().anyMatch(task -> valueOr(task.taskDate()) != null
+                && safeList(task.dependencies()).stream().anyMatch(id -> id.startsWith(task.taskId() + "-S")));
+    }
+
+    private static List<LearningTask> preserveSegmentedPlanWork(
+            List<LearningTask> newTasks, List<LearningTask> previousTasks, int weeklyHours, int durationWeeks) {
+        Map<String, LearningTask> previousById = new LinkedHashMap<>();
+        for (LearningTask task : safeTasks(previousTasks)) previousById.putIfAbsent(task.taskId(), task);
+        Set<String> retainedIds = previousById.values().stream()
+                .filter(task -> "COMPLETED".equals(task.status())).map(LearningTask::taskId)
+                .collect(java.util.stream.Collectors.toCollection(HashSet::new));
+        // A completed final segment may refer to an earlier segment. Keep that
+        // predecessor as well so preserved history never gains a missing dependency.
+        List<String> closure = new ArrayList<>(retainedIds);
+        for (int index = 0; index < closure.size(); index++) {
+            LearningTask task = previousById.get(closure.get(index));
+            for (String id : scheduleDependencies(task, previousById.keySet()))
+                if (retainedIds.add(id)) closure.add(id);
+        }
+        List<LearningTask> result = new ArrayList<>();
+        for (int week = 1; week <= durationWeeks; week++) {
+            final int currentWeek = week;
+            List<LearningTask> retained = previousById.values().stream()
+                    .filter(task -> task.week() == currentWeek && retainedIds.contains(task.taskId())).toList();
+            result.addAll(retained);
+            int remaining = weeklyHours * 60 - retained.stream().mapToInt(AiCareerCoreService::taskMinutes).sum();
+            if (remaining < 0) throw new IllegalArgumentException("Retained work exceeds the weekly learning budget");
+            if (remaining == 0) continue;
+            List<LearningTask> candidates = safeTasks(newTasks).stream()
+                    .filter(task -> task.week() == currentWeek && !retainedIds.contains(task.taskId())).toList();
+            int generatedMinutes = candidates.stream().mapToInt(AiCareerCoreService::taskMinutes).sum();
+            int target = Math.min(remaining, generatedMinutes);
+            if (candidates.isEmpty() || target < candidates.size())
+                throw new IllegalArgumentException("Remaining weekly budget cannot retain every generated learning task");
+            int distributable = target - candidates.size();
+            int weight = generatedMinutes - candidates.size();
+            List<Integer> minutes = new ArrayList<>();
+            for (LearningTask candidate : candidates)
+                minutes.add(1 + (weight == 0 ? 0
+                        : (int) ((long) (taskMinutes(candidate) - 1) * distributable / weight)));
+            int leftover = target - minutes.stream().mapToInt(Integer::intValue).sum();
+            for (int index = 0; leftover > 0 && index < candidates.size(); index++)
+                if (minutes.get(index) < taskMinutes(candidates.get(index))) {
+                    minutes.set(index, minutes.get(index) + 1);
+                    leftover--;
+                }
+            for (int index = 0; index < candidates.size(); index++)
+                result.add(copyTaskWithMinutes(candidates.get(index), minutes.get(index)));
+        }
+        return List.copyOf(result);
     }
 
     private LearningPlan withAnalysisMetadata(

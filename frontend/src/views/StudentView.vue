@@ -94,6 +94,7 @@ import LearningEvidenceForm from '../features/student/LearningEvidenceForm.vue'
 import InterviewWorkspace from '../features/student/InterviewWorkspace.vue'
 import KnowledgeWorkspace from '../features/student/KnowledgeWorkspace.vue'
 import { knowledgeContext } from '../features/student/knowledgeWorkspace'
+import { formatLearningTaskDuration, sumLearningTaskMinutes } from '../features/student/learningDuration'
 import {
   citationLocation, matchContextIsCurrent, retrievalFromAnswer, retrievalModeLabel
 } from '../features/student/coreDeepening'
@@ -595,7 +596,7 @@ async function savePlanSchedule() {
     try {
       await submitLearningWeeklyReview(plan.planId, {
         week: currentPlanWeek.value,
-        plannedMinutes: weeklyReviewData.value?.plannedMinutes,
+        plannedMinutes: sumLearningTaskMinutes(weekTasks.value),
         actualMinutes: weeklyReviewData.value?.actualMinutes,
         completedTasks: selectedPlanCompletedTasks.value,
         incompleteReason: weeklyReviewDraft.value.trim()
@@ -1947,7 +1948,7 @@ watch(targetRole, (value) => {
       <section v-else-if="planPage === 'today'" data-testid="plan-today" v-loading="planLoading">
         <template v-if="selectedPlan && !invalidPlan">
           <div class="section-heading"><h2>今日任务</h2><span class="task-context">本周 {{ weekTasks.length }} 项 · {{ selectedPlanProgress }}%</span></div>
-          <div class="module-record-list"><button v-for="task in visibleTodayTasks" :key="task.taskId" class="module-record" :data-task-id="task.taskId" @click="openPlanPage('task', selectedPlanId, task.taskId)"><div><strong>{{ task.title }}</strong><small>{{ taskActionLabel(task) }} · {{ task.estimatedHours }} 小时</small></div><ArrowUpRight :size="17" /></button></div>
+          <div class="module-record-list"><button v-for="task in visibleTodayTasks" :key="task.taskId" class="module-record" :data-task-id="task.taskId" @click="openPlanPage('task', selectedPlanId, task.taskId)"><div><strong>{{ task.title }}</strong><small>{{ taskActionLabel(task) }} · {{ formatLearningTaskDuration(task) }}</small></div><ArrowUpRight :size="17" /></button></div>
           <p v-if="!visibleTodayTasks.length" class="compact-empty">今天没有待完成任务。<el-button link @click="openPlanPage('tasks')">查看完整计划</el-button></p>
           <div v-if="overdueTasks.length || pendingEvidenceTasks.length" class="module-reminders"><h3>待处理</h3><button v-for="task in overdueTasks.slice(0, 3)" :key="task.taskId" @click="openPlanPage('task', selectedPlanId, task.taskId)"><Clock3 :size="15" /><span>已逾期 · {{ task.title }}</span><ArrowUpRight :size="15" /></button><button v-for="task in pendingEvidenceTasks" :key="task.taskId" @click="openPlanPage('task', selectedPlanId, task.taskId)"><FileText :size="15" /><span>待提交成果 · {{ task.title }}</span><ArrowUpRight :size="15" /></button></div>
           <div class="module-actions"><el-button @click="openPlanPage('tasks')"><List :size="15" />完整计划</el-button><el-button @click="openPlanPage('review')">本周复盘 <ArrowUpRight :size="15" /></el-button></div>
@@ -1959,7 +1960,7 @@ watch(targetRole, (value) => {
         <template v-if="selectedPlan && !invalidPlan">
           <div class="module-actions"><el-select v-model="planListWeek" clearable placeholder="全部周次" aria-label="筛选计划周次"><el-option v-for="week in selectedPlan.durationWeeks" :key="week" :label="`第 ${week} 周`" :value="week" /></el-select><span class="task-context">{{ filteredPlanTasks.length }} 项任务</span></div>
           <p v-if="!selectedPlanIsActive" class="form-dirty-note">当前为历史版本，任务和重新规划只读。</p>
-          <div class="task-list"><button v-for="task in pagedPlanTasks" :key="task.taskId" class="task-row task-list-link" :data-task-id="task.taskId" @click="openPlanPage('task', selectedPlanId, task.taskId)"><div class="task-main"><span class="week-chip">W{{ task.week }}</span><div class="task-title-line"><strong>{{ task.title }}</strong><el-tag size="small" :type="task.status === 'COMPLETED' ? 'success' : 'info'">{{ taskActionLabel(task) }}</el-tag></div></div><span class="task-hours">{{ task.estimatedHours }}h<ArrowUpRight :size="15" /></span></button></div>
+          <div class="task-list"><button v-for="task in pagedPlanTasks" :key="task.taskId" class="task-row task-list-link" :data-task-id="task.taskId" @click="openPlanPage('task', selectedPlanId, task.taskId)"><div class="task-main"><span class="week-chip">W{{ task.week }}</span><div class="task-title-line"><strong>{{ task.title }}</strong><el-tag size="small" :type="task.status === 'COMPLETED' ? 'success' : 'info'">{{ taskActionLabel(task) }}</el-tag></div></div><span class="task-hours">{{ formatLearningTaskDuration(task) }}<ArrowUpRight :size="15" /></span></button></div>
           <el-pagination v-if="filteredPlanTasks.length > modulePageSize" v-model:current-page="planListPage" layout="prev, pager, next" :page-size="modulePageSize" :total="filteredPlanTasks.length" :pager-count="5" class="jobs-pagination" />
         </template>
         <div v-else-if="!planLoading && !invalidPlan && !moduleLoadError" class="module-empty"><span>暂无学习计划。</span><el-button @click="openPlanPage('create', '')">创建计划</el-button></div>
@@ -1968,7 +1969,7 @@ watch(targetRole, (value) => {
       <section v-else-if="planPage === 'task'" class="module-detail-page" data-testid="plan-task" v-loading="planLoading">
         <div class="module-actions"><el-button text @click="openPlanPage('tasks')"><ArrowLeft :size="15" />完整计划</el-button></div>
         <article v-if="selectedPlan && selectedTask && !invalidPlan" class="task-row task-detail-row">
-          <h2>{{ selectedTask.title }}</h2><div class="tag-row"><el-tag>{{ taskActionLabel(selectedTask) }}</el-tag><span>{{ taskSchedule(selectedTask).scheduledDate || `第 ${selectedTask.week} 周` }} · {{ selectedTask.estimatedHours }} 小时</span></div>
+          <h2>{{ selectedTask.title }}</h2><div class="tag-row"><el-tag>{{ taskActionLabel(selectedTask) }}</el-tag><span>{{ taskSchedule(selectedTask).scheduledDate || `第 ${selectedTask.week} 周` }} · {{ formatLearningTaskDuration(selectedTask) }}</span></div>
           <p>{{ selectedTask.description }}</p>
           <dl class="task-facts"><template v-if="selectedTask.skillGap"><dt>能力缺口</dt><dd>{{ selectedTask.skillGap }}</dd></template><template v-if="selectedTask.acceptanceCriteria"><dt>验收标准</dt><dd>{{ selectedTask.acceptanceCriteria }}</dd></template><template v-if="selectedTask.practiceDeliverable"><dt>成果形式</dt><dd>{{ selectedTask.practiceDeliverable }}</dd></template><template v-if="taskSchedule(selectedTask).actualMinutes"><dt>实际投入</dt><dd>{{ taskSchedule(selectedTask).actualMinutes }} 分钟</dd></template></dl>
           <p v-if="!selectedPlanIsActive" class="form-dirty-note">当前为历史版本，任务只读。</p>
@@ -2009,7 +2010,7 @@ watch(targetRole, (value) => {
       <KnowledgeWorkspace v-if="profile?.userId" :user-id="profile.userId" :target-role="targetRole" :resume-id="queryValue('resumeId') || selectedResumeId || undefined" :job-id="queryValue('jobId') || undefined" :match-id="queryValue('matchId') || undefined" :plan-id="queryValue('planId') || undefined" :interview-session-id="queryValue('sessionId') || undefined" :jobs="jobs" :resumes="resumes" />
     </template>
     <el-dialog v-model="replanPreviewOpen" title="核对新计划并确认切换" width="min(760px, 94vw)">
-      <template v-if="replanPreview"><p>确认后启用 V{{ replanPreview.version }}；原版本和已完成成果仍可查看。</p><p>调整原因：{{ replanPreview.revisionReason || planForm.replanReason }}</p><p>每周 {{ replanPreview.weeklyHours }} 小时 · {{ replanPreview.durationWeeks }} 周</p><div class="task-list"><article v-for="task in replanPreview.tasks" :key="task.taskId" class="preview-task"><strong>第 {{ task.week }} 周 · {{ task.title }} · {{ task.estimatedHours }}h</strong><el-tag v-if="task.status === 'COMPLETED'" type="success">已完成成果保留</el-tag><p>{{ task.description }}</p><p>{{ task.acceptanceCriteria }}</p></article></div></template>
+      <template v-if="replanPreview"><p>确认后启用 V{{ replanPreview.version }}；原版本和已完成成果仍可查看。</p><p>调整原因：{{ replanPreview.revisionReason || planForm.replanReason }}</p><p>每周 {{ replanPreview.weeklyHours }} 小时 · {{ replanPreview.durationWeeks }} 周</p><div class="task-list"><article v-for="task in replanPreview.tasks" :key="task.taskId" class="preview-task"><strong>第 {{ task.week }} 周 · {{ task.title }} · {{ formatLearningTaskDuration(task) }}</strong><el-tag v-if="task.status === 'COMPLETED'" type="success">已完成成果保留</el-tag><p>{{ task.description }}</p><p>{{ task.acceptanceCriteria }}</p></article></div></template>
       <template #footer><el-button @click="replanPreviewOpen = false">继续当前计划</el-button><el-button type="primary" :loading="planActionLoading" @click="confirmReplan">确认切换计划版本</el-button></template>
     </el-dialog>
   </section>

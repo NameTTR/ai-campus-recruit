@@ -113,6 +113,14 @@ RAG 沿用 `/api/ai/knowledge/*` 接口。检索和回答使用认证角色，�
 ## Job
 
 - `POST /api/jobs`：发布岗位。
+  - 请求体：`companyId`、`title`、`city`、`salaryRange`、`requiredSkills`、`description`，以及可选的 `companyName`（企业展示名）。职位、城市、薪资、描述不可为空，技能列表至少有一项有效内容。
+  - 企业请求的归属 `companyId` 使用 Gateway 验证后注入的 `X-User-Id`；管理员发布时使用请求体中的 `companyId`。`companyName` 仅用于展示，不参与归属或权限判断。
+  - `companyName` 去除首尾空格后保存；未传、`null`、空字符串或仅空白时，创建接口使用最终归属 `companyId` 作为展示名，旧版请求仍可使用。
+  - 返回：`ApiResponse<JobSummary>`，`companyId` 是企业归属编号，`companyName` 是企业展示名；新岗位的 `status=OPEN`。
+- `PUT /api/jobs/{id}`：企业修改本人岗位，管理员可修改任意岗位；请求字段与创建接口相同。
+  - 非空 `companyName` 去除首尾空格后替换展示名；未传、`null`、空字符串或仅空白时保留原展示名。
+  - 企业不能通过 `companyId` 转移岗位归属；管理员提供非空 `companyId` 时可修改归属，未提供新的展示名时仍保留原 `companyName`。
+  - 返回：`ApiResponse<JobSummary>`，保留原岗位编号、AI 分析和发布状态。
 - `GET /api/jobs`：岗位列表。
   - 设置 `DEMO_SEED_ENABLED=true` 时初始化跨行业样例岗位，已有岗位不会被覆盖；普通启动不自动添加演示岗位。
   - 默认使用内存仓储；设置 `JOB_PERSISTENCE_ENABLED=true` 且提供 `SPRING_DATASOURCE_URL` 后写入 MySQL 表 `job_record`。
@@ -777,6 +785,8 @@ Gateway 验证 Bearer Token 后清理外部身份头，再注入 `X-User-Id` 和
 Learning plan creation accepts optional `startDate` (`yyyy-MM-dd`), `studyDays` (weekday names, default Monday-Friday), and `dailyMinutesCap`. The service normalizes a weekend start to the next selected study day, assigns each task a `taskDate` and `estimatedMinutes`, and rejects schedules that exceed weekly or daily budgets. Legacy requests remain valid.
 
 Structured AI tasks retain exact `estimatedMinutes`. Positive fractional `estimatedHours` are converted to minutes without integer truncation (for example, `0.5` hours becomes `30` minutes); legacy whole-hour inputs remain supported. Weekly budgets and preserved completed work use minutes. The older `estimatedHours` field remains an integer estimate rounded up for display and must not be used to sum a plan's budget.
+
+Tasks longer than a day's remaining capacity are split into consecutive dated segments without losing minutes, requirements, references, or acceptance criteria. Each segment has a unique ID; the final segment keeps the original task ID so dependent work waits for the whole exercise. Recorded work retains its original dates and evidence. Replanning a segmented plan inherits its schedule when new schedule fields are omitted, and confirmation preserves every preview segment. Insufficient capacity returns an error without saving an invalid plan or raising the student's budget.
 
 - `GET /api/ai/learning/plans/{planId}/today?date=yyyy-MM-dd`: today's tasks, planned/actual minutes, and reminders.
 - `GET /api/ai/learning/plans/{planId}/reminders`: server-computed in-app reminders for due work and evidence needing attention.
