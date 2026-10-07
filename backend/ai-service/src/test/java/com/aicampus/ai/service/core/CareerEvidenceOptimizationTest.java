@@ -56,6 +56,43 @@ class CareerEvidenceOptimizationTest {
     }
 
     @Test
+    void staleRetrievedKnowledgeReferenceDoesNotAbortNormalPlanCreation() {
+        CountingCoach coach = new CountingCoach() {
+            @Override
+            public CareerPlanResponse careerPlan(CareerPlanRequest request) {
+                return new CareerPlanResponse(request.studentId(), request.targetRole(), 50,
+                        "Use current practice evidence", List.of(), List.of("Java"), List.of(),
+                        List.of(), List.of(), false,
+                        List.of(new CareerLearningTask(1, "Java practice", "Java", List.of(), 1,
+                                "Implement a small validation example", "Record the test cases and result",
+                                "Practice notes", 30)));
+            }
+
+            @Override
+            public List<LearningReference> learningReferences(String skill) {
+                return List.of(new LearningReference("DOC-OLD", "Old Java material", "test",
+                        "snippet from an old version"));
+            }
+        };
+        var catalog = org.mockito.Mockito.mock(
+                com.aicampus.ai.service.knowledge.workspace.KnowledgeCatalogService.class);
+        org.mockito.Mockito.when(catalog.library("DOC-OLD", "STUDENT"))
+                .thenReturn(new com.aicampus.common.dto.KnowledgeWorkspaceModels.KnowledgeLibraryDocument(
+                        "DOC-OLD", "Current Java material", "current content", "test", "TOPIC",
+                        List.of("Java"), 2, "PUBLISHED", false, List.of(), List.of()));
+        AiCareerCoreService service = service(coach);
+        service.setKnowledgeCatalogService(catalog);
+
+        LearningPlan plan = service.createLearningPlan("S", "STUDENT",
+                new LearningPlanCreateRequest("S", null, null, null, "Java", 2, 1));
+
+        assertThat(plan.tasks()).singleElement().satisfies(task -> {
+            assertThat(task.referenceStatus()).isEqualTo("NO_MATCHING_MATERIAL");
+            assertThat(task.references()).isEmpty();
+        });
+    }
+
+    @Test
     void selfReportedCompletionAndSubmittedOutcomeStayIndependent() {
         AiCareerCoreService service = service(new CountingCoach());
         LearningPlan plan =

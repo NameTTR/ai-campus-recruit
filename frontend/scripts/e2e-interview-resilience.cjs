@@ -3,20 +3,12 @@ const fs = require('fs')
 const path = require('path')
 
 const root = path.resolve(__dirname, '../..')
-const reportPath = process.env.E2E_INTERVIEW_REPORT || path.join(root, 'output/playwright/interview-workspace/release-20261006/report.json')
-const sourceReport = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
-const account = sourceReport.account || {}
-if (!account.username || !account.token) throw new Error(`Report has no reusable account: ${reportPath}`)
 const options = {
   baseUrl: (process.env.E2E_INTERVIEW_BASE_URL || 'http://localhost').replace(/\/+$/, ''),
   apiUrl: (process.env.E2E_INTERVIEW_API_URL || 'http://localhost:18080').replace(/\/+$/, ''),
   artifacts: path.resolve(process.env.E2E_INTERVIEW_RESILIENCE_ARTIFACTS_DIR || path.join(root, 'output/playwright/interview-resilience-20261006')),
-  reportPath,
   runId: new Date().toISOString().replace(/[:.]/g, '-')
 }
-const suffix = account.username.replace(/^interview_e2e_/, '')
-const password = `InterviewE2e!${suffix}`
-options.account = { ...account, password }
 const sessionName = `interview-resilience-${Date.now().toString(36)}`
 const command = process.platform === 'win32' ? 'npx.cmd' : 'npx'
 const runner = path.join(options.artifacts, 'browser-run.js')
@@ -31,7 +23,10 @@ function cli(args) {
 }
 
 async function resilienceSuite(page, config) {
-  const account = config.account
+  // Every run provisions its own disposable account. The previous version read a
+  // token from an old report, which made the suite fail as soon as that account
+  // expired and also made its saved-answer fixture non-deterministic.
+  let account = config.account || {}
   const checks = []
   const screenshots = []
   const browserErrors = []
@@ -79,11 +74,32 @@ async function resilienceSuite(page, config) {
         modelRequests.push({ path: pathname, controlled: controlledEvaluationPaths.has(pathname) })
       }
     })
-    const sessions = await api('/api/ai/interview/sessions')
-    const session = sessions.find(item => item.status !== 'COMPLETED') || sessions[0]
-    if (!session) throw new Error('No reusable interview session in supplied report account')
+    const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+    const username = `interview_ir_${suffix}`
+    const password = `InterviewE2e!${suffix}`
+    const registered = await api('/api/auth/register', 'POST', {
+      username, password, displayName: '面试韧性测试', role: 'STUDENT'
+    }, null)
+    account = { ...registered, username, password }
+    check('fresh disposable account is provisioned', Boolean(account.token && account.userId), { kind: 'real API' })
+
+    // Create exactly one real, one-question session and persist one answer. All
+    // later outage and retry cases are browser-controlled snapshots derived from
+    // this live data, so the run does not repeatedly invoke the model.
+    const session = await api('/api/ai/interview/sessions', 'POST', {
+      targetRole: 'Java 后端实习生', mode: 'COACHING', sourceType: 'JOB', questionCount: 1
+    })
     const sessionId = session.sessionId
+    const firstQuestion = session.questions?.find(question => !question.followUp)
+    if (!firstQuestion) throw new Error('Fresh interview session has no main question')
+    const savedAnswer = '我先明确接口约束，再分别验证正常参数、边界参数和异常输入，最后用测试结果说明实现是否满足需求。'
+    await api(`/api/ai/interview/sessions/${sessionId}/questions/${firstQuestion.questionId}/answer`, 'PUT', {
+      questionId: firstQuestion.questionId, answer: savedAnswer
+    })
     const sessionSnapshot = await api(`/api/ai/interview/sessions/${sessionId}`)
+    const ownerProfile = await api('/api/students/profile')
+    const draftOwner = ownerProfile.userId || ownerProfile.studentId || account.userId
+    if (!draftOwner) throw new Error('Student profile has no draft owner id')
     const matchQuery = session.matchId ? `?matchId=${encodeURIComponent(session.matchId)}` : ''
     await login()
 
@@ -205,21 +221,39 @@ async function resilienceSuite(page, config) {
     // Draft is browser-local by design. Save no answer to the API, log out, log back in, and recover it.
     await page.goto(`${config.baseUrl}/student/interview/practice?sessionId=${encodeURIComponent(sessionId)}`)
     await waitView('interview-practice')
+    // The live fixture already contains one saved answer. Enter re-answer mode
+    // before editing so the page intentionally exposes an editable draft.
+    const reanswer = page.getByTestId('interview-reanswer')
+    if (await reanswer.count()) await reanswer.click()
     await page.waitForFunction(() => {
       const input = document.querySelector('#interview-answer')
       return input && !input.readOnly && !input.disabled
     })
-    const draftKey = `aicampus.draft.${encodeURIComponent(account.userId)}.interview-practice.${encodeURIComponent(sessionId)}`
+    // The profile endpoint is authoritative for the owner id used by the page
+    // when reading and writing browser drafts.
+    const draftKey = `aicampus.draft.${encodeURIComponent(draftOwner)}.interview-practice.${encodeURIComponent(sessionId)}`
     draftState = await page.evaluate(key => ({ key, value: localStorage.getItem(key) }), draftKey)
     const draftText = `未提交草稿恢复检查 ${Date.now()}`
     const answerBox = page.locator('#interview-answer')
     await answerBox.fill(draftText)
+    await page.waitForFunction(key => Boolean(localStorage.getItem(key)), draftKey)
+    check('unsubmitted draft is written before logout', await page.evaluate(key => Boolean(localStorage.getItem(key)), draftKey), { kind: 'real browser local draft', draftOwner })
     await page.getByRole('button', { name: '退出登录', exact: true }).click()
     await page.waitForURL('**/login')
     await login()
     await page.goto(`${config.baseUrl}/student/interview/practice?sessionId=${encodeURIComponent(sessionId)}`)
     await waitView('interview-practice')
-    await page.waitForFunction(text => document.querySelector('#interview-answer')?.value === text, draftText)
+    try {
+      await page.waitForFunction(args => document.querySelector('#interview-answer')?.value === args.text && Boolean(localStorage.getItem(args.key)), { text: draftText, key: draftKey }, { timeout: 10000 })
+    } catch {
+      const diagnostic = await page.evaluate(key => ({
+        url: location.href,
+        value: document.querySelector('#interview-answer')?.value || '',
+        keys: Object.keys(localStorage).filter(item => item.includes('interview-practice')),
+        stored: localStorage.getItem(key)
+      }), draftKey)
+      throw new Error(`Draft was not restored after re-login: ${JSON.stringify(diagnostic)}`)
+    }
     check('unsubmitted answer draft survives logout and login', await answerBox.inputValue() === draftText, { kind: 'real browser local draft' })
     check('draft recovery did not create a server attempt', !(await api(`/api/ai/interview/sessions/${sessionId}`)).attempts?.some(item => item.answer === draftText), { kind: 'real API' })
     await snap('04-draft-restored-after-login')

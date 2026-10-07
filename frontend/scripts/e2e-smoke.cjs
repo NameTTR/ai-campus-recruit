@@ -17,9 +17,16 @@ const rootDir = path.resolve(__dirname, '..')
 const explicitBaseUrl = Boolean(process.env.E2E_BASE_URL)
 const demoMode = ['1', 'true', 'yes', 'on'].includes((process.env.VITE_DEMO_MODE || '').trim().toLowerCase())
 const localPort = process.env.E2E_PORT || '5174'
-const rawBaseUrl = process.env.E2E_BASE_URL || `http://127.0.0.1:${localPort}`
+// Use the Docker-served frontend by default. A local Vite server remains
+// available by setting E2E_BASE_URL explicitly (for example, 127.0.0.1:5174).
+const rawBaseUrl = process.env.E2E_BASE_URL || 'http://localhost'
 const baseUrl = rawBaseUrl.replace(/\/+$/, '')
-const apiProxyTarget = process.env.E2E_API_PROXY_TARGET || process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8080'
+// The repository's Docker gateway is exposed on IPv4 loopback port 18080.
+// Keep the target overridable for a local single-service setup, but make an
+// unconfigured live smoke run exercise the same gateway that the browser uses
+// in Docker. Using the numeric loopback avoids Node resolving localhost to an
+// IPv6 address on Windows while Docker is listening on IPv4.
+const apiProxyTarget = process.env.E2E_API_PROXY_TARGET || process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:18080'
 const artifactsDir = process.env.E2E_ARTIFACTS_DIR || path.join(rootDir, '.e2e-artifacts')
 const coreFixturePath = path.resolve(rootDir, '../logs/core-mvp-verification.json')
 const coreFixturePassword = process.env.MVP_SMOKE_PASSWORD || 'Verification123!'
@@ -117,7 +124,7 @@ async function main() {
     await waitForExpression(client, "location.pathname === '/company/jobs'")
 
     await loginAs(client, 'admin', 'ADMIN', '/admin/ai')
-    await assertText(client, ['知识库管理', '知识文档', '手工新增', '上传导入'])
+    await assertText(client, ['知识库管理', '资料', '导入任务', '维护'])
     await assertNoHorizontalOverflow(client)
     await screenshot(client, '09-admin-knowledge.png')
     await navigate(client, `${baseUrl}/admin/accounts`)
@@ -149,7 +156,7 @@ async function main() {
       ['jobs', ['岗位匹配', '岗位列表']],
       ['plan', ['学习路径']],
       ['interview', ['开始辅导练习', '本次目标岗位']],
-      ['knowledge', ['仅检索', 'AI 回答', '检索']]
+      ['knowledge', ['查知识', '我的学习', '查询历史']]
     ]) {
       await navigate(client, `${baseUrl}/student/${name}`)
       await assertText(client, expected)
@@ -488,7 +495,19 @@ const modulePages = {
   resume: ['profile', 'templates', 'edit', 'diagnosis', 'versions', 'history', 'original', 'original-diagnosis'],
   plan: ['today', 'tasks', 'task', 'create', 'review', 'history'],
   interview: ['start', 'practice', 'report', 'history'],
-  knowledge: ['search', 'answer', 'sources', 'history']
+  knowledge: ['search', 'answer', 'sources', 'reader', 'learning', 'topics', 'topic', 'practice', 'history']
+}
+
+const knowledgePageSelectors = {
+  search: '[data-testid="knowledge-search"]',
+  answer: '[data-testid="knowledge-answer"]',
+  sources: '[data-testid="knowledge-reader"]',
+  reader: '[data-testid="knowledge-reader"]',
+  learning: '[data-testid="knowledge-learning"]',
+  topics: '[data-testid="knowledge-topics"]',
+  topic: '[data-testid="knowledge-topic"]',
+  practice: '[data-testid="knowledge-practice"]',
+  history: '[data-testid="knowledge-history"]'
 }
 
 const resumePageSelectors = {
@@ -509,11 +528,21 @@ async function assertOnlyModulePage(client, module, expected) {
     }
     return
   }
-  await waitForExpression(client, `Boolean(document.querySelector('[data-testid="${module}-${expected}"]')?.getClientRects().length)`)
-  const visible = await elementBox(client, `(() => ${JSON.stringify(modulePages[module])}
+  const selector = module === 'knowledge' ? knowledgePageSelectors[expected] : `[data-testid="${module}-${expected}"]`
+  await waitForExpression(client, `Boolean(document.querySelector(${JSON.stringify(selector)})?.getClientRects().length)`)
+  if (module === 'knowledge') {
+    const knowledgeVisible = await elementBox(client, `(() => Object.entries(${JSON.stringify(knowledgePageSelectors)})
+      .filter(([, selector]) => document.querySelector(selector)?.getClientRects().length).map(([page]) => page))()`)
+    const aliases = ['sources', 'reader'].includes(expected) ? ['sources', 'reader'] : [expected]
+    if (knowledgeVisible.filter(page => aliases.includes(page)).length === 0 || knowledgeVisible.some(page => !aliases.includes(page))) {
+      throw new Error(`knowledge should display only ${expected}: ${JSON.stringify(knowledgeVisible)}`)
+    }
+    return
+  }
+  const visiblePages = await elementBox(client, `(() => ${JSON.stringify(modulePages[module])}
     .filter(page => document.querySelector('[data-testid="${module}-' + page + '"]')?.getClientRects().length))()`)
-  if (visible.length !== 1 || visible[0] !== expected) {
-    throw new Error(`${module} should display only ${expected}: ${JSON.stringify(visible)}`)
+  if (visiblePages.length !== 1 || visiblePages[0] !== expected) {
+    throw new Error(`${module} should display only ${expected}: ${JSON.stringify(visiblePages)}`)
   }
 }
 
@@ -875,30 +904,36 @@ async function verifyInterviewAnswerDraft(client, completedSession) {
 }
 
 async function verifyRetrievalOnlyKnowledge(client) {
-  const query = 'Java Redis'
+  const query = `Java 集合 E2E ${Date.now()}`
   await navigate(client, `${baseUrl}/student/knowledge`)
-  await waitForExpression(client, "Boolean(document.querySelector('.knowledge-mode .el-switch'))")
-  const retrievalOnly = await elementBox(client, `(() => {
-    const control = document.querySelector('.knowledge-mode .el-switch');
-    const input = control?.querySelector('input');
-    return control?.getAttribute('aria-checked') === 'false' || Boolean(input && !input.checked);
-  })()`)
-  if (!retrievalOnly) {
-    throw new Error('Knowledge search defaults to AI generation instead of retrieval-only mode')
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"knowledge-query\"]'))")
+  await waitForExpression(client, "document.querySelector('[data-testid=\"knowledge-workspace\"]')?.getAttribute('aria-busy') !== 'true'")
+  if (await elementBox(client, "Boolean(document.querySelector('.knowledge-mode .el-switch'))")) {
+    throw new Error('Knowledge workspace still exposes the removed mode switch')
   }
-  await fillInput(client, '.knowledge-search input', query)
-  await clickSelector(client, '.knowledge-search button')
-  await waitForExpression(client, "Boolean(document.querySelector('.knowledge-retrieval .retrieval-result'))")
-  await assertInputValue(client, '.knowledge-search input', query)
-  if (await elementBox(client, "Boolean(document.querySelector('.rag-answer, .citation-row'))")) {
-    throw new Error('Knowledge query page still contains full answers or citations')
+  await fillInput(client, '[data-testid="knowledge-query"]', query)
+  await clickSelector(client, '[data-testid="knowledge-submit"]')
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"knowledge-search\"] .results'))")
+  await waitForExpression(client, `new URLSearchParams(location.search).get('q') === ${JSON.stringify(query)}`)
+  if (await elementBox(client, "new URLSearchParams(location.search).has('historyId')")) {
+    const cleanSearchUrl = await elementBox(client, "(() => { const url = new URL(location.href); url.searchParams.delete('historyId'); return url.href })()")
+    await navigate(client, cleanSearchUrl)
   }
-  await clickSelector(client, '[data-testid="knowledge-nav-sources"]')
-  await waitForExpression(client, "location.pathname === '/student/knowledge/sources' && Boolean(document.querySelector('.citation-row'))")
+  await waitForExpression(client, "Boolean(document.querySelector('.results .result'))")
+  await assertInputValue(client, '[data-testid="knowledge-query"]', query)
   await waitForExpression(client, `new URLSearchParams(location.search).get('q') === ${JSON.stringify(query)} && new URLSearchParams(location.search).get('ai') === '0'`)
-  await setDetailsOpen(client, '.citation-row', true)
-  if (!await elementBox(client, "Boolean(document.querySelector('.citation-row div')?.textContent.trim())")) throw new Error('Source page does not expose citation text')
-  const citationsBeforeRefresh = await elementBox(client, "[...document.querySelectorAll('.citation-row summary')].map(item => item.innerText)")
+  if (await elementBox(client, "Boolean(document.querySelector('[data-testid=\"knowledge-answer\"]'))")) {
+    throw new Error('Retrieval-only knowledge search unexpectedly opened an AI answer page')
+  }
+  const firstResultTitle = await elementBox(client, "document.querySelector('.results .result-title strong')?.innerText || ''")
+  if (!firstResultTitle) throw new Error('Knowledge search returned no readable result')
+  await clickSelector(client, '.results .result-title')
+  await waitForExpression(client, "location.pathname === '/student/knowledge/library' && Boolean(document.querySelector('[data-testid=\"knowledge-reader\"]'))")
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"knowledge-reader\"] h2'))")
+  const documentId = await elementBox(client, "new URLSearchParams(location.search).get('documentId') || ''")
+  if (!documentId) throw new Error('Knowledge reader URL does not retain document identity')
+  const readerTextBeforeRefresh = await elementBox(client, "document.querySelector('[data-testid=\"knowledge-reader\"]')?.innerText || ''")
+  if (!readerTextBeforeRefresh.trim()) throw new Error('Knowledge reader is empty')
   const sourceUrl = await elementBox(client, 'location.href')
   const sourceCalls = []
   const stopSourceCalls = client.on('Network.requestWillBeSent', ({ request }) => {
@@ -906,88 +941,71 @@ async function verifyRetrievalOnlyKnowledge(client) {
   })
   try {
     await navigate(client, sourceUrl)
-    await waitForExpression(client, "Boolean(document.querySelector('.citation-row'))")
-    const restoredCitations = await elementBox(client, "[...document.querySelectorAll('.citation-row summary')].map(item => item.innerText)")
-    if (JSON.stringify(restoredCitations) !== JSON.stringify(citationsBeforeRefresh)) throw new Error('Citation source context changed after refresh')
-    await browserBack(client)
-    await waitForExpression(client, "location.pathname === '/student/knowledge'")
-    await assertInputValue(client, '.knowledge-search input', query)
+    await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"knowledge-reader\"] h2'))")
+    const restoredReaderText = await elementBox(client, "document.querySelector('[data-testid=\"knowledge-reader\"]')?.innerText || ''")
+    if (!restoredReaderText.includes(firstResultTitle)) throw new Error('Knowledge reader context changed after refresh')
     if (sourceCalls.length) throw new Error(`Knowledge source navigation repeats AI request: ${JSON.stringify(sourceCalls)}`)
+    await browserBack(client)
+    await waitForExpression(client, "location.pathname === '/student/knowledge' && Boolean(document.querySelector('[data-testid=\"knowledge-query\"]'))")
+    await assertInputValue(client, '[data-testid="knowledge-query"]', query)
   } finally { stopSourceCalls() }
   await navigate(client, `${baseUrl}/student/knowledge`)
-  await fillInput(client, '.knowledge-search input', '')
-  await clickSelector(client, '.knowledge-search button')
-  await waitForText(client, '请输入检索关键词')
+  await fillInput(client, '[data-testid="knowledge-query"]', '')
+  await clickSelector(client, '[data-testid="knowledge-submit"]')
+  await waitForExpression(client, "Boolean(document.querySelector('[role=\"alert\"]'))")
   await navigate(client, `${baseUrl}/student/knowledge/history`)
-  await waitForText(client, '最近查询')
-  await waitForText(client, query)
+  await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"knowledge-history\"]'))")
+  await waitForExpression(client, `Boolean([...document.querySelectorAll('.history-row strong')].find(item => item.innerText === ${JSON.stringify(query)}))`)
   await screenshot(client, '00f-retrieval-only-rag.png')
   await verifyKnowledgeLateResponse(client, query, 'history')
   await verifyKnowledgeLateResponse(client, query, 'edit')
-  await verifyKnowledgePermissionRevision(client, query)
-}
-
-async function knowledgeSnapshot(client, required = true) {
-  const snapshot = await elementBox(client, `(() => {
-    const key = 'aicampus.knowledge-result.' + localStorage.getItem('userId');
-    try { return JSON.parse(sessionStorage.getItem(key) || 'null') } catch { return null }
-  })()`)
-  if (required && (!snapshot?.answer?.citations?.length || !snapshot.answer.permissionVersion)) {
-    throw new Error('Knowledge navigation boundary tests require a current quoted answer snapshot')
-  }
-  return snapshot
+  await verifyKnowledgePermissionRevision(client, query, documentId)
 }
 
 async function verifyKnowledgeLateResponse(client, stableQuery, mode) {
-  const snapshot = await knowledgeSnapshot(client)
   const pendingQuery = `E2E pending ${mode} ${Date.now()}`
   const marker = `E2E_LATE_ANSWER_${Date.now()}`
   let paused
   let interceptionError
   let released = false
+  await navigate(client, `${baseUrl}/student/knowledge`)
+  await waitForExpression(client, "document.querySelector('[data-testid=\"knowledge-workspace\"]')?.getAttribute('aria-busy') !== 'true'")
+  await fillInput(client, '[data-testid="knowledge-query"]', stableQuery)
+  await clickSelector(client, '[data-testid="knowledge-submit"]')
+  await waitForExpression(client, "Boolean(document.querySelector('.results .result'))")
   const stopListening = client.on('Fetch.requestPaused', params => {
     void (async () => {
       try {
-        const body = JSON.parse(params.request.postData || '{}')
-        if (params.request.method === 'POST' && body.query === pendingQuery) paused = params
+        if (params.request.method === 'POST') paused = params
         else await client.send('Fetch.continueRequest', { requestId: params.requestId })
-      } catch (error) { interceptionError = error }
+      } catch (error) {
+        if (params.request.method === 'POST') paused = params
+        else interceptionError = error
+      }
     })()
   })
   try {
-    await client.send('Fetch.enable', { patterns: [{ urlPattern: '*/api/ai/knowledge/answer', requestStage: 'Request' }] })
-    await navigate(client, `${baseUrl}/student/knowledge?q=${encodeURIComponent(stableQuery)}&ai=0`)
-    await waitForExpression(client, "Boolean(document.querySelector('.knowledge-mode .el-switch'))")
-    await clickSelector(client, '.knowledge-mode .el-switch')
-    await waitForExpression(client, "document.querySelector('.knowledge-mode .el-switch')?.getAttribute('aria-checked') === 'true' || Boolean(document.querySelector('.knowledge-mode .el-switch input')?.checked)")
-    await fillInput(client, '.knowledge-search input', pendingQuery)
-    await clickSelector(client, '.knowledge-search button')
+    await client.send('Fetch.enable', { patterns: [{ urlPattern: '*/api/ai/knowledge/workspace/search', requestStage: 'Request' }] })
+    await fillInput(client, '[data-testid="knowledge-query"]', pendingQuery)
+    await clickSelector(client, '[data-testid="knowledge-submit"]')
     for (let index = 0; index < 40 && !paused && !interceptionError; index++) await sleep(100)
     if (interceptionError) throw interceptionError
     if (!paused) throw new Error(`Knowledge ${mode} delayed query was not intercepted`)
     if (mode === 'history') {
       await clickSelector(client, '[data-testid="knowledge-nav-history"]')
       await waitForExpression(client, "location.pathname === '/student/knowledge/history'")
-      await clickElementContaining(client, '.knowledge-history button.module-record', stableQuery)
-      await waitForExpression(client, `location.pathname === '/student/knowledge' && new URLSearchParams(location.search).get('q') === ${JSON.stringify(stableQuery)}`)
-      await waitForExpression(client, "Boolean(document.querySelector('.knowledge-retrieval .retrieval-result')) && !document.querySelector('.knowledge-search button.is-loading')")
     } else {
-      await fillInput(client, '.knowledge-search input', stableQuery)
+      await fillInput(client, '[data-testid="knowledge-query"]', stableQuery)
     }
-    const staleAnswer = { ...snapshot.answer, query: pendingQuery, answer: marker, generationMode: 'AI', provider: 'e2e' }
+    const staleAnswer = { query: pendingQuery, answer: marker, citations: [], generationMode: 'AI', provider: 'e2e' }
     await client.send('Fetch.fulfillRequest', { requestId: paused.requestId, responseCode: 200,
       responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
       body: Buffer.from(JSON.stringify({ code: 0, message: 'success', data: staleAnswer })).toString('base64') })
     released = true
     await sleep(800)
-    await waitForExpression(client, "location.pathname === '/student/knowledge'")
-    await assertInputValue(client, '.knowledge-search input', stableQuery)
+    await waitForExpression(client, `location.pathname === ${JSON.stringify(mode === 'history' ? '/student/knowledge/history' : '/student/knowledge')}`)
+    if (mode !== 'history') await assertInputValue(client, '[data-testid="knowledge-query"]', stableQuery)
     if ((await bodyText(client)).includes(marker)) throw new Error(`Late ${mode} answer overwrote current knowledge context`)
-    const saved = await knowledgeSnapshot(client, false)
-    if (saved?.query === pendingQuery || saved?.answer?.answer.includes(marker)) throw new Error(`Late ${mode} answer replaced the stored knowledge result`)
-    if (mode === 'history') {
-      await waitForExpression(client, `new URLSearchParams(location.search).get('q') === ${JSON.stringify(stableQuery)}`)
-    }
     await screenshot(client, `knowledge-late-${mode}-ignored.png`)
   } finally {
     if (paused && !released) {
@@ -997,36 +1015,25 @@ async function verifyKnowledgeLateResponse(client, stableQuery, mode) {
     stopListening()
   }
   await navigate(client, `${baseUrl}/student/knowledge`)
-  await fillInput(client, '.knowledge-search input', stableQuery)
-  await clickSelector(client, '.knowledge-search button')
-  await waitForExpression(client, "Boolean(document.querySelector('.knowledge-retrieval .retrieval-result'))")
+  await fillInput(client, '[data-testid="knowledge-query"]', stableQuery)
+  await clickSelector(client, '[data-testid="knowledge-submit"]')
+  await waitForExpression(client, "Boolean(document.querySelector('.results .result'))")
 }
 
-async function verifyKnowledgePermissionRevision(client, query) {
-  const snapshot = await knowledgeSnapshot(client)
-  const changedRevision = `e2e-changed-${snapshot.answer.permissionVersion}-${Date.now()}`
-  const answerCalls = []
-  const stopCalls = client.on('Network.requestWillBeSent', ({ request }) => {
-    if (request.method === 'POST' && new URL(request.url).pathname === '/api/ai/knowledge/answer') answerCalls.push(request.url)
+async function verifyKnowledgePermissionRevision(client, query, documentId) {
+  const libraryPath = `/api/ai/knowledge/library/${encodeURIComponent(documentId)}`
+  await withApiOverrides(client, [{ path: libraryPath, code: 403, message: 'E2E knowledge permission revoked' }], async () => {
+    await navigate(client, `${baseUrl}/student/knowledge/library?documentId=${encodeURIComponent(documentId)}`)
+    await assertOnlyModulePage(client, 'knowledge', 'reader')
+    await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"knowledge-workspace\"] [role=\"alert\"]'))")
+    if (await elementBox(client, "Boolean(document.querySelector('[data-testid=\"knowledge-reader\"] h2'))")) throw new Error('Revoked knowledge document still rendered as readable')
+    await screenshot(client, 'knowledge-permission-denied-reader.png')
   })
-  try {
-    await withApiOverrides(client, [{ path: '/api/ai/knowledge/revision', data: changedRevision }], async () => {
-      await navigate(client, `${baseUrl}/student/knowledge/sources?q=${encodeURIComponent(query)}&ai=0`)
-      await assertOnlyModulePage(client, 'knowledge', 'sources')
-      await waitForExpression(client, "Boolean(document.querySelector('.knowledge-error'))")
-      if (await elementBox(client, "Boolean(document.querySelector('.citation-row'))")) throw new Error('Changed knowledge revision restored stale citations')
-      await waitForText(client, '重新检索')
-      await screenshot(client, 'knowledge-revision-invalidated-sources.png')
-      if (answerCalls.length) throw new Error(`Knowledge revision validation repeated answer generation: ${JSON.stringify(answerCalls)}`)
-    })
-  } finally { stopCalls() }
   await navigate(client, `${baseUrl}/student/knowledge`)
-  await fillInput(client, '.knowledge-search input', query)
-  await clickSelector(client, '.knowledge-search button')
-  await waitForExpression(client, "Boolean(document.querySelector('.knowledge-retrieval .retrieval-result'))")
-  await clickSelector(client, '[data-testid="knowledge-nav-sources"]')
-  await waitForExpression(client, "Boolean(document.querySelector('.citation-row')) && !document.querySelector('.knowledge-error')")
-  await screenshot(client, 'knowledge-revision-fresh-search-restored.png')
+  await fillInput(client, '[data-testid="knowledge-query"]', query)
+  await clickSelector(client, '[data-testid="knowledge-submit"]')
+  await waitForExpression(client, "Boolean(document.querySelector('.results .result'))")
+  await screenshot(client, 'knowledge-permission-fresh-search-restored.png')
 }
 
 async function fetchFixtureData(client, route) {
@@ -1677,13 +1684,13 @@ async function assertStudentWorkspace(client, module) {
   }
 
   if (module === 'knowledge') {
-    await assertText(client, ['仅检索', 'AI 回答', '检索'])
+    await assertText(client, ['查知识', '我的学习', '查询历史'])
     await assertNoText(client, ['RAG KNOWLEDGE BASE', 'RAG 知识库问答'])
     const placeholder = await elementBox(client, "Boolean(document.querySelector('.knowledge-overview, .knowledge-intro, .knowledge-shell .el-empty'))")
     if (placeholder) {
       throw new Error('Initial knowledge page still contains decorative statistics or an empty illustration')
     }
-    await waitForExpression(client, "Boolean(document.querySelector('.knowledge-search input')?.getClientRects().length) && Boolean(document.querySelector('.knowledge-search button')?.getClientRects().length)")
+    await waitForExpression(client, "Boolean(document.querySelector('[data-testid=\"knowledge-query\"]')?.getClientRects().length) && Boolean(document.querySelector('[data-testid=\"knowledge-submit\"]')?.getClientRects().length)")
   }
 
   if (module === 'plan') {

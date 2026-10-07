@@ -132,8 +132,12 @@ function navigate(path: string, extra: Record<string, string | undefined> = {}) 
   return router.push({ path, query: Object.fromEntries(Object.entries({ ...context.value, ...extra }).filter(([, value]) => value)) })
 }
 function saveContextSelection() {
+  answer.value = undefined
+  queryRequest++
+  allowHistoryRestore = false
   const next = { ...context.value, jobId: chosenJobId.value || undefined, resumeId: chosenResumeId.value || undefined,
-    targetRole: chosenJob.value?.title || props.targetRole || undefined, matchId: requestContext.value.matchId }
+    targetRole: chosenJob.value?.title || props.targetRole || undefined, matchId: requestContext.value.matchId,
+    historyId: undefined }
   return router.replace({ path: route.path, query: Object.fromEntries(Object.entries(next).filter(([, value]) => value)) })
 }
 function fail(cause: unknown) { error.value = knowledgeErrorMessage(cause) }
@@ -192,7 +196,7 @@ async function loadPage() {
       answer.value = undefined
       const entry = await getKnowledgeHistoryEntry(context.value.historyId)
       if (token === readRequest) { answer.value = entry.answerSnapshot; form.query = entry.query }
-    } else if (allowHistoryRestore && context.value.q && !answer.value && ['search', 'answer'].includes(page.value)) {
+    } else if (context.value.q && !answer.value && ['search', 'answer'].includes(page.value)) {
       const next = await searchKnowledge({ query: context.value.q, useAi: context.value.ai === '1', roleDirection: form.roleDirection || undefined,
         skill: form.skill || undefined, difficulty: form.difficulty || undefined, contentType: form.contentType || undefined, ...requestContext.value })
       if (token === readRequest) answer.value = next
@@ -210,14 +214,17 @@ async function runSearch(ai = false) {
   loading.value = true; error.value = ''; notice.value = ''
   try {
     const next = await searchKnowledge({ query: text, useAi: ai, roleDirection: form.roleDirection || undefined, skill: form.skill || undefined, difficulty: form.difficulty || undefined, contentType: form.contentType || undefined, ...requestContext.value })
-    if (token !== queryRequest || route.fullPath !== searchPath) return
-    answer.value = next; form.useAi = ai; allowHistoryRestore = true
+    // A student may edit the query while the request is in flight. The
+    // response must not restore the old query or navigate away from that
+    // draft, even when no second search has been submitted yet.
+    if (token !== queryRequest || route.fullPath !== searchPath || form.query.trim() !== text) return
     let historyId: string | undefined
     if (next.inputFingerprint) {
       const historyRows = await getKnowledgeHistory(100).catch(() => [])
       historyId = historyRows.find(entry => entry.query === text && entry.answerSnapshot?.inputFingerprint === next.inputFingerprint && entry.permissionVersion === next.permissionVersion && entry.answerSnapshot?.generationMode === next.generationMode)?.historyId
     }
-    if (token !== queryRequest || route.fullPath !== searchPath) return
+    if (token !== queryRequest || route.fullPath !== searchPath || form.query.trim() !== text) return
+    answer.value = next; form.useAi = ai; allowHistoryRestore = true
     await navigate(ai ? '/student/knowledge/answer' : '/student/knowledge', { q: text, ai: ai ? '1' : '0', historyId, direction: form.roleDirection || undefined, skill: form.skill || undefined, difficulty: form.difficulty || undefined, contentType: form.contentType || undefined })
   } catch (cause) { if (token === queryRequest) fail(cause) }
   finally { if (token === queryRequest) loading.value = false }
@@ -358,15 +365,34 @@ function clearOriginal() {
 watch(() => [route.fullPath, props.userId], () => {
   if (props.userId !== lastUserId) { lastUserId = props.userId || ''; answer.value = undefined; topic.value = undefined; practice.value = undefined; items.value = []; history.value = []; topicDirectory.value = {} }
   if (page.value !== 'reader') clearOriginal()
+  const nextJobId = context.value.jobId || props.jobId || ''
+  const nextResumeId = context.value.resumeId || props.resumeId || ''
+  const contextChanged = chosenJobId.value !== nextJobId || chosenResumeId.value !== nextResumeId
+  if (contextChanged) { answer.value = undefined; queryRequest++; allowHistoryRestore = false }
+  chosenJobId.value = nextJobId
+  chosenResumeId.value = nextResumeId
   if (context.value.q && answer.value?.query !== context.value.q) answer.value = undefined
-  if (context.value.historyId) allowHistoryRestore = true
+  if (context.value.historyId && !contextChanged) allowHistoryRestore = true
   form.query = context.value.q || form.query; form.useAi = context.value.ai === '1'; void loadPage()
 }, { immediate: true })
 watch(() => props.targetRole, value => { if (!form.roleDirection) form.roleDirection = knowledgeDirection(value) })
-watch(() => props.resumeId, value => { if (!chosenResumeId.value) chosenResumeId.value = value || '' })
-watch(() => JSON.stringify(requestContext.value), () => { answer.value = undefined; queryRequest++; allowHistoryRestore = false; if (page.value === 'search' || page.value === 'topics') void loadPage() })
+watch(() => props.jobId, value => { chosenJobId.value = value || context.value.jobId || '' })
+watch(() => props.resumeId, value => { chosenResumeId.value = value || context.value.resumeId || '' })
+watch(() => JSON.stringify(requestContext.value), () => {
+  const query = form.query.trim()
+  const isCurrentQuery = Boolean(query && answer.value?.query === query)
+  const restoringHistory = Boolean(context.value.historyId)
+  if (!isCurrentQuery && !restoringHistory) { answer.value = undefined; queryRequest++; allowHistoryRestore = false }
+  if (page.value === 'search' || page.value === 'topics') void loadPage()
+})
 watch(() => [form.roleDirection, form.skill, form.difficulty, form.contentType], () => {
   answer.value = undefined; queryRequest++; allowHistoryRestore = false
+  if (context.value.historyId) {
+    void router.replace({ path: route.path, query: Object.fromEntries(Object.entries({ ...context.value,
+      historyId: undefined, direction: form.roleDirection || undefined, skill: form.skill || undefined,
+      difficulty: form.difficulty || undefined, contentType: form.contentType || undefined }).filter(([, value]) => value)) })
+    return
+  }
   if (page.value === 'search' || page.value === 'topics') void loadPage()
   else { readRequest++; loading.value = false }
 })

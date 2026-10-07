@@ -35,6 +35,8 @@ Desktop.ini
 # Browser verification artifacts
 output/playwright/
 output/pdf/
+frontend/output/playwright/
+reports/system-*/
 scripts/__pycache__/
 
 # Original user supplied resume materials (adapted assets are tracked separately)

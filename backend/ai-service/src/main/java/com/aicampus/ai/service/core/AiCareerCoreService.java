@@ -1440,12 +1440,7 @@ public class AiCareerCoreService {
                 throw new IllegalStateException(
                         "AI learning tasks exceed the requested weekly budget");
             List<LearningReference> references =
-                    referenceCache.computeIfAbsent(skill, value -> aiCoachService.learningReferences(value).stream()
-                            .map(reference -> {
-                                var document = validateKnowledgeReference(reference);
-                                return new LearningReference(reference.documentId(), reference.title(), reference.source(),
-                                        reference.snippet(), document.version());
-                            }).toList());
+                    referenceCache.computeIfAbsent(skill, value -> currentLearningReferences(value));
             tasks.add(
                     new LearningTask(
                             planId + "-W" + task.week() + "-T" + (tasks.size() + 1),
@@ -1475,6 +1470,28 @@ public class AiCareerCoreService {
                 throw new IllegalStateException(
                         "AI learning tasks must cover every requested week");
         return List.copyOf(tasks);
+    }
+
+    /**
+     * A normal plan is allowed to proceed when a retrieved knowledge citation
+     * became stale while the plan was being generated. The task remains useful
+     * and is marked without a reference; strict validation is still applied when
+     * a knowledge action draft is confirmed.
+     */
+    private List<LearningReference> currentLearningReferences(String skill) {
+        List<LearningReference> current = new ArrayList<>();
+        for (LearningReference reference : safeList(aiCoachService.learningReferences(skill))) {
+            try {
+                var document = validateKnowledgeReference(reference);
+                current.add(new LearningReference(reference.documentId(), reference.title(), reference.source(),
+                        reference.snippet(), document.version()));
+            } catch (IllegalArgumentException ignored) {
+                // Knowledge indexing can advance between retrieval and plan
+                // generation. Omit only the stale citation instead of failing
+                // the entire plan; the student can select current material later.
+            }
+        }
+        return List.copyOf(current);
     }
 
     static List<String> effectiveSkillGaps(
