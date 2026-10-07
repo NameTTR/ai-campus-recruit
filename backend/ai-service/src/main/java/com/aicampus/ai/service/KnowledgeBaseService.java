@@ -1069,7 +1069,13 @@ public class KnowledgeBaseService {
     private Map<String, Long> countBy(List<String> values) {
         return values.stream()
                 .map(value -> valueOr(value, "unknown"))
-                .collect(Collectors.groupingBy(value -> value, java.util.TreeMap::new, Collectors.counting()));
+                // JSON clients such as PowerShell commonly compare object
+                // names case-insensitively. Merge labels like `Java` and
+                // `JAVA` in aggregate statistics so a valid stats response
+                // cannot become unparsable for those clients.
+                .collect(Collectors.groupingBy(value -> value,
+                        () -> new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER),
+                        Collectors.counting()));
     }
 
     private List<String> tokens(String query) {

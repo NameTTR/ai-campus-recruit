@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
 
 import com.aicampus.ai.AiServiceApplication;
 import org.junit.jupiter.api.Test;
@@ -54,6 +55,45 @@ class InterviewPracticeControllerTest {
         mockMvc.perform(post("/api/ai/interview/sessions/IS-unknown/questions/Q-unknown/evaluate")
                         .header("X-User-Id", "S-INTERVIEW-CONTROLLER")
                         .header("X-User-Role", "STUDENT"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(org.hamcrest.Matchers.not(0)));
+    }
+
+    @Test
+    void nullAnswerBodyReturnsBadRequestInsteadOfServerError() throws Exception {
+        mockMvc.perform(post("/api/ai/interview/sessions/IS-unknown/questions/Q-unknown/attempts")
+                        .header("X-User-Id", "S-INTERVIEW-CONTROLLER")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(APPLICATION_JSON)
+                        .content("null"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(org.hamcrest.Matchers.not(0)));
+    }
+
+    @Test
+    void nullActionBodiesReturnBadRequestInsteadOfServerError() throws Exception {
+        mockMvc.perform(post("/api/ai/interview/sessions/IS-unknown/next-actions/preview")
+                        .header("X-User-Id", "S-INTERVIEW-CONTROLLER")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(APPLICATION_JSON)
+                        .content("null"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(org.hamcrest.Matchers.not(0)));
+
+        mockMvc.perform(post("/api/ai/interview/sessions/IS-unknown/next-actions/confirm")
+                        .header("X-User-Id", "S-INTERVIEW-CONTROLLER")
+                        .header("X-User-Role", "STUDENT")
+                        .contentType(APPLICATION_JSON)
+                        .content("null"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(org.hamcrest.Matchers.not(0)));
+    }
+
+    @Test
+    void nullSearchBodyReturnsBadRequestInsteadOfServerError() throws Exception {
+        mockMvc.perform(post("/api/ai/search")
+                        .contentType(APPLICATION_JSON)
+                        .content("null"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(org.hamcrest.Matchers.not(0)));
     }

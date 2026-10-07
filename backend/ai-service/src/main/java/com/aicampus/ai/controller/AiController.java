@@ -321,10 +321,13 @@ public class AiController {
     public ApiResponse<AiSearchResponse> search(
             @RequestBody AiSearchRequest request,
             @RequestHeader(value = X_USER_ROLE, required = false) String userRole) {
+        if (request == null) {
+            return ApiResponse.fail("Search request is required");
+        }
         return ApiResponse.ok(aiCoachService.search(new AiSearchRequest(
-                request == null ? null : request.query(),
-                resolveKnowledgeRole(request == null ? null : request.role(), userRole),
-                request == null ? null : request.limit())));
+                request.query(),
+                resolveKnowledgeRole(request.role(), userRole),
+                request.limit())));
     }
 
     @Operation(summary = "Create a RAG knowledge document")

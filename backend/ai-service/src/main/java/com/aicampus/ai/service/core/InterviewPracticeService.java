@@ -96,6 +96,7 @@ public final class InterviewPracticeService {
 
     public InterviewSession createKnowledgePractice(String student, String role, InterviewSessionCreateRequest request,
             String sourceId, String material, List<InterviewSourceReference> references, List<String> gaps, String stableSessionId) {
+        if (request == null) throw new IllegalArgumentException("Interview request is required");
         if (material == null || material.isBlank() || references == null || references.isEmpty())
             throw new IllegalArgumentException("Knowledge practice requires authorized source material");
         return create(student, role, request, stableSessionId, new Source(sourceId, material, references, gaps, request.targetRole()));

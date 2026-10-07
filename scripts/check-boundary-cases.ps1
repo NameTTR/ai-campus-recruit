@@ -18,7 +18,10 @@ param(
     [string]$Vm2Ip = "192.168.6.141",
     [string]$Vm3Ip = "192.168.6.142",
     [string]$DemoPassword = "",
-    [int]$TimeoutSeconds = 15,
+    # AI advice can legitimately wait for the configured DashScope timeout;
+    # keep the default above the normal model latency so a healthy request is
+    # not reported as a boundary failure.
+    [int]$TimeoutSeconds = 90,
     [string]$ReportDirectory = "",
     [switch]$SkipMonitoring,
     [switch]$SkipRestoreSafety
@@ -491,7 +494,7 @@ try {
 
 Test-Api -Category "Resume" -Name "upload without file returns ApiResponse" -Method "POST" -Path "/api/resumes/upload" -Token $studentToken -ExpectedStatus @(400) -ExpectedCode 400 | Out-Null
 Test-Api -Category "Resume" -Name "unknown resume detail fails" -Method "GET" -Path "/api/resumes/R-NOT-FOUND-BOUNDARY" -Token $studentToken -ExpectedStatus @(200) -ExpectedCode 1 | Out-Null
-Test-Api -Category "Resume" -Name "unknown resume analyze fails" -Method "POST" -Path "/api/resumes/R-NOT-FOUND-BOUNDARY/analyze" -Token $studentToken -ExpectedStatus @(200) -ExpectedCode 1 | Out-Null
+Test-Api -Category "Resume" -Name "unknown resume analyze fails" -Method "POST" -Path "/api/resumes/R-NOT-FOUND-BOUNDARY/analyze" -Token $studentToken -ExpectedStatus @(200) -ExpectedCode 1 -Body @{} | Out-Null
 
 Test-Api -Category "Delivery" -Name "invalid status returns ApiResponse" -Method "PUT" -Path "/api/deliveries/$deliveryId/status?status=NOT_A_STATUS" -Token $companyToken -ExpectedStatus @(400) -ExpectedCode 400 | Out-Null
 Test-Api -Category "Delivery" -Name "unknown delivery status update fails" -Method "PUT" -Path "/api/deliveries/D-NOT-FOUND-BOUNDARY/status?status=INTERVIEW" -Token $companyToken -ExpectedStatus @(200) -ExpectedCode 1 | Out-Null

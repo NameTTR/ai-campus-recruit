@@ -383,8 +383,9 @@ public class KnowledgeWorkspaceService {
 
     public KnowledgeActionPreview previewAction(KnowledgeActionRequest request, String studentId, String role) {
         requireStudent(studentId, role);
+        if (request == null) throw new IllegalArgumentException("Action preview request is required");
         if (actionBridge == null) throw new IllegalStateException("Action integration is unavailable");
-        KnowledgeTopic topic = catalog.topic(request == null ? null : request.topicId(), role);
+        KnowledgeTopic topic = catalog.topic(request.topicId(), role);
         if (topic == null) throw new IllegalArgumentException("Topic is not available");
         if (request.practiceId() != null && !request.practiceId().isBlank()) {
             KnowledgePractice selected = practice(request.practiceId(), studentId, role);
@@ -411,6 +412,7 @@ public class KnowledgeWorkspaceService {
         KnowledgeActionPreview preview = store.get(ACTION, id, studentId, KnowledgeActionPreview.class)
                 .orElseThrow(() -> new IllegalArgumentException("Action preview not found"));
         KnowledgeTopic current = catalog.topic(preview.topicId(), role);
+        if (current == null) throw new IllegalArgumentException("Knowledge topic is not available");
         Object version = preview.payload().get("topicVersion");
         if (version != null && Integer.parseInt(version.toString()) != current.version()) throw new IllegalStateException("资料已更新，请重新预览行动");
         if (!"DRAFT".equalsIgnoreCase(preview.status())) return publicAction(preview);

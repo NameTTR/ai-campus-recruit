@@ -109,13 +109,20 @@ const historyGroups = computed(() => [
 const retryStatus = computed(() => Boolean(session.value && interviewEvaluationCanRetry(session.value, viewingAttempt.value)))
 
 function persistDraft() {
-  if (lastDraftOwner && session.value) writeStudentDraft(localStorage, lastDraftOwner, 'interview-practice', session.value.sessionId, draft.value)
+  const owner = props.userId.trim()
+  if (!owner || !session.value) return
+  // Use the current authenticated owner. During a page refresh the profile can
+  // arrive after the interview session; never write a draft under an empty or
+  // stale owner in that window.
+  lastDraftOwner = owner
+  writeStudentDraft(localStorage, owner, 'interview-practice', session.value.sessionId, draft.value)
 }
 function hydrateDraft(next: InterviewSession) {
-  lastDraftOwner = props.userId
+  const owner = props.userId.trim()
+  lastDraftOwner = owner
   draft.value = {
-    ...readStudentDraft(sessionStorage, props.userId, 'interview', next.sessionId),
-    ...readStudentDraft(localStorage, props.userId, 'interview-practice', next.sessionId)
+    ...readStudentDraft(sessionStorage, owner, 'interview', next.sessionId),
+    ...readStudentDraft(localStorage, owner, 'interview-practice', next.sessionId)
   }
 }
 function apply(next: InterviewSession, keepQuestion = true) {
@@ -123,7 +130,7 @@ function apply(next: InterviewSession, keepQuestion = true) {
   session.value = next
   loadedId.value = next.sessionId
   emit('session', next)
-  if (previous !== next.sessionId || lastDraftOwner !== props.userId) hydrateDraft(next)
+  if (previous !== next.sessionId || lastDraftOwner !== props.userId.trim()) hydrateDraft(next)
   if (!keepQuestion || previous !== next.sessionId) {
     questionIndex.value = interviewDraftQuestionIndex(next, draft.value)
   }
@@ -377,6 +384,22 @@ watch(() => form.sourceType, () => { if (!sourceOptions.value.some(item => item.
 watch(() => form.sourceId, () => { if (source.value?.targetRole) form.targetRole = source.value.targetRole })
 watch(() => form.jobId, () => { if (job.value) form.targetRole = job.value.title })
 watch(() => [id.value, props.page, props.userId], () => { void loadSession() }, { immediate: true })
+watch(() => props.userId, (value, previous) => {
+  const owner = value.trim()
+  if (!owner) {
+    lastDraftOwner = ''
+    return
+  }
+  // The session request and the profile request resolve independently. If the
+  // session won the race, reload the draft as soon as the real owner is known.
+  if (owner !== previous?.trim() && session.value) {
+    hydrateDraft(session.value)
+    questionIndex.value = Math.min(
+      interviewDraftQuestionIndex(session.value, draft.value),
+      Math.max(0, interviewPracticeQuestions(session.value).length - 1)
+    )
+  }
+}, { immediate: true })
 watch(questionIndex, () => { viewingAttemptId.value = ''; error.value = '' })
 </script>
 

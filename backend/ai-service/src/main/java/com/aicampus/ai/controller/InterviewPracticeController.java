@@ -37,6 +37,7 @@ public class InterviewPracticeController {
     public ApiResponse<InterviewSession> answer(@PathVariable String id, @PathVariable String qid,
             @RequestHeader("X-User-Id") String uid, @RequestHeader("X-User-Role") String role,
             @RequestBody InterviewSessionAnswerRequest request) {
+        requireBody(request, "Interview answer is required");
         return ApiResponse.ok(service.view(service.answer(id, qid, student(uid, role), request, true)));
     }
 
@@ -88,6 +89,7 @@ public class InterviewPracticeController {
     public ApiResponse<InterviewActionPreview> preview(@PathVariable String id,
             @RequestHeader("X-User-Id") String uid, @RequestHeader("X-User-Role") String role,
             @RequestBody PreviewRequest request) {
+        requireBody(request, "Action preview request is required");
         return ApiResponse.ok(service.previewAction(id, student(uid, role), request.actionId(), request.planId()));
     }
 
@@ -96,6 +98,7 @@ public class InterviewPracticeController {
     public ApiResponse<InterviewActionPreview> confirm(@PathVariable String id,
             @RequestHeader("X-User-Id") String uid, @RequestHeader("X-User-Role") String role,
             @RequestBody ConfirmRequest request) {
+        requireBody(request, "Action confirmation request is required");
         return ApiResponse.ok(service.confirmAction(id, student(uid, role), request.previewId()));
     }
 
@@ -104,6 +107,11 @@ public class InterviewPracticeController {
     public ApiResponse<InterviewResumeCandidate> candidate(@PathVariable String id,
             @RequestHeader("X-User-Id") String uid, @RequestHeader("X-User-Role") String role,
             @RequestBody CandidateRequest request) {
+        requireBody(request, "Resume candidate request is required");
         return ApiResponse.ok(service.resumeCandidate(id, student(uid, role), request.questionId(), request.attemptId()));
+    }
+
+    private static void requireBody(Object request, String message) {
+        if (request == null) throw new IllegalArgumentException(message);
     }
 }
