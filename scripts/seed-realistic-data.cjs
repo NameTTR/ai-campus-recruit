@@ -2,10 +2,10 @@
 'use strict'
 const fs=require('node:fs'), path=require('node:path'), crypto=require('node:crypto')
 const {buildStudents,roles,label}=require('./data/student-scenarios.cjs')
-const ROOT=path.resolve(__dirname,'..'), TAG='seed-realistic-20261007', VERSION='20261007-v2'
+const ROOT=path.resolve(__dirname,'..'), TAG='seed-realistic-20261007', VERSION='20261007-v3'
 const hash=value=>crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex')
 function options(args) {
-  const out={students:60,activities:12,baseUrl:process.env.SEED_BASE_URL||'http://localhost:18080',timeoutMs:180000,dryRun:false,verifyOnly:false}
+  const out={students:180,activities:24,baseUrl:process.env.SEED_BASE_URL||'http://localhost:18080',timeoutMs:180000,dryRun:false,verifyOnly:false}
   const keys={'--students':'students','--activities':'activities','--base-url':'baseUrl','--timeout-ms':'timeoutMs'}
   for(let i=0;i<args.length;i++) {
     if(args[i]==='--dry-run')out.dryRun=true
@@ -13,7 +13,7 @@ function options(args) {
     else if(keys[args[i]]) { const key=keys[args[i]],value=args[++i];if(!value||value.startsWith('--'))throw Error('Missing value');out[key]=key==='baseUrl'?value:Number(value) }
     else throw Error('Unknown option: '+args[i])
   }
-  if(!Number.isInteger(out.students)||out.students<1||out.students>60)throw Error('students must be 1..60')
+  if(!Number.isInteger(out.students)||out.students<1||out.students>180)throw Error('students must be 1..180')
   if(!Number.isInteger(out.activities)||out.activities<0||out.activities>out.students)throw Error('activities must be 0..students')
   if(!Number.isInteger(out.timeoutMs)||out.timeoutMs<1000||out.timeoutMs>300000)throw Error('timeout must be 1000..300000')
   const url=new URL(out.baseUrl);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid base URL')
@@ -47,7 +47,7 @@ function docx(text) {
   return Buffer.concat([...files,directory,end])
 }
 function buildJobs() {
-  const companies=['知序软件','南桥信息','青禾数字','微帆科技','澄光产品','云栈服务','拾光内容','方格互动'],cities=['杭州','南京','成都','武汉','广州','上海','苏州','深圳']
+  const companies=['知序软件','南桥信息','青禾数字','微帆科技','澄光产品','云栈服务','拾光内容','方格互动','栖木科技','远川数据','禾木智能','星桥网络','松果互动','墨羽信息','云起软件','青藤咨询','澜图科技','启程数字','森屿服务','知行产品','谷雨内容','镜湖科技','微澜数据','向阳互动'],cities=['杭州','南京','成都','武汉','广州','上海','苏州','深圳','合肥','西安','厦门','福州']
   return companies.flatMap((name,i)=>Array.from({length:6},(_,j)=>{
     const role=roles[j%3],senior=j>=3,skills=role.skills.slice(0,senior?6:3),city=cities[(i+(senior?1:0))%cities.length]
     const task=role.key==='Java'?'参与内部业务接口开发、参数校验和测试，阅读已有代码并记录问题':role.key==='前端'?'参与表单与列表页面开发，处理加载、异常和移动端交互':'协助选题、活动执行和匿名数据整理，统一统计口径并完成复盘'
@@ -74,7 +74,7 @@ class Client {
 async function run(opt) {
   const catalog=readJson(path.join(__dirname,'data/verified-public-sources.json'),{knowledgeMaterials:[],recruitmentJobs:[]})
   const students=buildStudents(opt.students),jobs=[...buildJobs(),...catalog.recruitmentJobs.map(publicJob)]
-  if(opt.dryRun){console.log(JSON.stringify({dryRun:true,students:students.length,syntheticJobs:48,publicJobs:catalog.recruitmentJobs.length,knowledge:catalog.knowledgeMaterials.length,activityStudents:opt.activities,roles:Object.fromEntries(roles.map(r=>[r.key,students.filter(s=>s.roleKey===r.key).length]))},null,2));return}
+  if(opt.dryRun){console.log(JSON.stringify({dryRun:true,students:students.length,syntheticJobs:144,publicJobs:catalog.recruitmentJobs.length,knowledge:catalog.knowledgeMaterials.length,activityStudents:opt.activities,roles:Object.fromEntries(roles.map(r=>[r.key,students.filter(s=>s.roleKey===r.key).length]))},null,2));return}
   if(!catalog.knowledgeMaterials.length)throw Error('Verified public source catalog is required before importing')
   const env=envConfig(),accessFile=path.join(ROOT,'logs/seed-realistic-access.json'),stateFile=path.join(ROOT,'logs/seed-realistic-state.json')
   let access=readJson(accessFile,null)
@@ -143,6 +143,9 @@ async function run(opt) {
     const templates=await api('/api/resumes/templates',(await account(students[0].username,students[0].studentProfile.displayName,'STUDENT')).token)
     for(let i=0;i<students.length;i++)await step('student',students[i].username,async()=>{
       const s=students[i],auth=await account(s.username,s.studentProfile.displayName,'STUDENT'),token=auth.token,record=state.students[s.username]||{}
+      const activityBaseComplete=Boolean(record.deliveryId&&record.draftId&&record.planId&&record.sessionId&&record.answerSaved&&record.partialReportSaved)
+      const activityComplete=Boolean(activityBaseComplete&&(
+        i<3 || i>=9 || i>=3&&i<6&&record.finalReportSaved || i>=6&&i<9&&record.evidenceId&&record.reviewSaved))
       await api('/api/students/profile',token,'PUT',{...s.studentProfile,userId:auth.userId,role:'STUDENT'})
       const previous=await api('/api/resumes/master-profile',token)
       if(record.profileHash!==hash(s.profileData)) {
@@ -162,7 +165,7 @@ async function run(opt) {
       const matches=[]
       for(const job of selected){const saved=state.jobs[job.key];if(!saved)throw Error('Job import missing: '+job.key);matches.push(await api('/api/matches/resume-job',token,'POST',{resumeId:resume.resumeId,jobId:saved.jobId}));bump('matchesReadOrCreated')}
       record.matchIds=matches.map(m=>m.matchId);record.jobId=state.jobs[selected[0].key].jobId;save()
-      if(i<opt.activities) {
+      if(i<opt.activities && !activityComplete) {
         if(!record.deliveryId){const list=await api('/api/deliveries/my',token);let delivery=list.find(d=>d.resumeId===resume.resumeId&&d.jobId===record.jobId)
           if(!delivery){delivery=await api('/api/deliveries',token,'POST',{studentId:auth.userId,resumeId:resume.resumeId,jobId:record.jobId,resumeSourceFormat:resume.sourceFormat,resumeParseStatus:resume.parseStatus,resumeParsedTextLength:resume.parsedTextLength});bump('syntheticDeliveriesCreated')}
           record.deliveryId=delivery.deliveryId;save()}
@@ -207,6 +210,7 @@ async function run(opt) {
           await api('/api/ai/learning/plans/'+plan.planId+'/reviews',token,'POST',{week:1,plannedMinutes:weekTasks.reduce((sum,t)=>sum+t.estimatedMinutes,0),actualMinutes:45,completedTasks:weekTasks.filter(t=>t.status==='COMPLETED').length,incompleteReason:'合成教学复盘：课程作业集中，练习没有完成验证',hardestTask:weekTasks[0]?.title||'基础练习',needsSplit:true,mastery:2,nextWeekMinutes:s.studySettings.weeklyHours*60,newProblems:['需要先补充一个可复现的小实验，再提交成果']});record.reviewSaved=true;bump('weeklyReviewsSaved');save()
         }
       }
+      if(i<opt.activities && !activityComplete) { record.activitySeedVersion=VERSION; save() }
       const topics=await api('/api/ai/knowledge/topics?roleDirection='+encodeURIComponent(s.roleKey),token),topic=topics[i%topics.length]
       if(topic&&!record.knowledgeItemId){const items=await api('/api/ai/knowledge/me/items',token);let item=items.find(x=>x.topicId===topic.id&&x.kind==='BOOKMARK')
         if(!item)item=await api('/api/ai/knowledge/me/items',token,'POST',{topicId:topic.id,kind:'BOOKMARK',status:['TO_LEARN','LEARNING','TO_REVIEW'][Math.floor(i/3)%3],note:'匿名教学笔记：'+(s.roleKey==='Java'?'先做小实验，再记录异常路径和测试结果。':s.roleKey==='前端'?'先检查交互、空值和网络失败，再整理组件设计。':'先明确用户目标和数据口径，再做小范围活动复盘。')+'还没有形成可提交的正式实践成果。',intervalDays:[1,3,7,14],reviewEnabled:true,expectedRevision:0})

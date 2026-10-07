@@ -1,12 +1,12 @@
 const {test}=require('node:test'),assert=require('node:assert/strict')
 const {options,buildJobs,docx,publicJob,Client}=require('./seed-realistic-data.cjs')
 const {buildStudents,label}=require('./data/student-scenarios.cjs')
-test('catalog has sixty distinct people, three directions and varied material',()=>{
-  const rows=buildStudents();assert.equal(rows.length,60);assert.equal(new Set(rows.map(x=>x.username)).size,60)
-  for(const role of ['Java','前端','运营'])assert.equal(rows.filter(s=>s.roleKey===role).length,20)
+test('catalog has one hundred eighty distinct people, three directions and varied material',()=>{
+  const rows=buildStudents();assert.equal(rows.length,180);assert.equal(new Set(rows.map(x=>x.username)).size,180)
+  for(const role of ['Java','前端','运营'])assert.equal(rows.filter(s=>s.roleKey===role).length,60)
   assert.equal(rows.filter(s=>!s.profileData.experiences.length).length,3)
   assert.ok(rows.some(s=>s.profileData.experiences.some(e=>e.type==='INTERNSHIP')))
-  assert.equal(new Set(rows.map(s=>s.resumeText)).size,60)
+  assert.equal(new Set(rows.map(s=>s.resumeText)).size,180)
   for(const s of rows){
     assert.ok(s.resumeText.includes(label));assert.ok(s.profileData.basics.email.endsWith('@example.invalid'))
     for(const e of s.profileData.education)assert.ok(e.startDate<e.endDate)
@@ -16,8 +16,8 @@ test('catalog has sixty distinct people, three directions and varied material',(
   assert.deepEqual(buildStudents(),rows)
 })
 test('synthetic vacancies never look like an actual public hiring offer',()=>{
-  const jobs=buildJobs();assert.equal(jobs.length,48);assert.equal(new Set(jobs.map(j=>j.key)).size,48)
-  assert.equal(new Set(jobs.map(j=>j.companyUsername)).size,8)
+  const jobs=buildJobs();assert.equal(jobs.length,144);assert.equal(new Set(jobs.map(j=>j.key)).size,144)
+  assert.equal(new Set(jobs.map(j=>j.companyUsername)).size,24)
   for(const j of jobs){assert.ok(j.description.includes('非真实招聘'));assert.ok(j.companyName.includes('合成'));assert.ok(j.salaryRange.includes('样例'))}
 })
 test('public jobs retain source, experience requirements and unknown salary',()=>{
@@ -32,7 +32,7 @@ test('public knowledge catalog only imports actually read official material',()=
   for(const j of c.recruitmentJobs){assert.equal(j.status,'VERIFIED_PUBLIC');assert.ok(j.requirements.length>60);assert.ok(j.skills.length);assert.ok(j.sourceUrl);assert.ok(j.verification.readToEnd)}
 })
 test('arguments reject unsafe destinations and invalid scale before API writes',()=>{
-  for(const args of [['--students','0'],['--students','61'],['--activities','61'],['--timeout-ms','NaN'],['--base-url','file:///tmp'],['--base-url','http://u:p@localhost'],['--oops'],['--students']])assert.throws(()=>options(args))
+  for(const args of [['--students','0'],['--students','181'],['--activities','181'],['--timeout-ms','NaN'],['--base-url','file:///tmp'],['--base-url','http://u:p@localhost'],['--oops'],['--students']])assert.throws(()=>options(args))
   assert.equal(options(['--students','3','--activities','0','--dry-run']).dryRun,true)
 })
 test('DOCX preserves Chinese and escapes XML',()=>{

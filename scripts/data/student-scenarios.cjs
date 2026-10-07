@@ -31,8 +31,8 @@ const roles = [
 ]
 const label = '匿名合成教学样例，不代表真实个人'
 function source(id, quote) { return {kind:'TEST_FIXTURE',sourceId:id,quote,confirmed:true,assessment:label} }
-function buildStudents(count=60) {
-  if (!Number.isInteger(count) || count<1 || count>60) throw new Error('students must be between 1 and 60')
+function buildStudents(count=180) {
+  if (!Number.isInteger(count) || count<1 || count>180) throw new Error('students must be between 1 and 180')
   return Array.from({length:count},(_,i)=>{
     const serial=String(i+1).padStart(2,'0'), username='seed_student_'+serial, role=roles[i%3]
     const stage=Math.floor(i/3), name=names[stage%names.length], city=cities[stage%cities.length], school=schools[stage%schools.length]
