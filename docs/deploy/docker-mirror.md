@@ -159,6 +159,42 @@ Invoke-RestMethod 'http://127.0.0.1:18080/actuator/health'
 最后重新启动并验证。恢复原 `EnableDockerAI` 设置可能再次触发原故障，应保留当前可用配置副本以便再次恢复。
 整个过程不删除运行目录，也不触碰 Docker 镜像、数据卷或 WSL 数据磁盘。
 
+### Windows `docker-secrets-engine\engine.sock` 残留
+
+如果 Docker Desktop 弹窗显示以下启动错误:
+
+```text
+initializing Secrets Engine: listening on
+...\docker-secrets-engine\engine.sock:
+remove ...\engine.sock:
+The file cannot be accessed by the system.
+```
+
+这通常是上一次异常退出留下的空 `reparse point`。先退出 Docker Desktop，确认后台进程已停止；只检查并删除这个明确的 socket 文件，然后重新启动 Docker Desktop。不要删除 `docker-secrets-engine` 目录、Docker Desktop 的运行目录或任何 Docker 数据卷。
+
+```powershell
+$taskSocket = Join-Path $env:LOCALAPPDATA 'docker-secrets-engine\engine.sock'
+Get-Process -Name 'Docker Desktop', 'com.docker.backend' -ErrorAction SilentlyContinue
+# 通过托盘菜单 Quit 后，再执行下面两行
+if (Test-Path -LiteralPath $taskSocket) {
+    $taskSocketItem = Get-Item -Force -LiteralPath $taskSocket
+    if (($taskSocketItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+        throw "目标不是 reparse point，停止自动删除: $taskSocket"
+    }
+    Remove-Item -LiteralPath $taskSocket -Force
+}
+Start-Process -FilePath (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe')
+```
+
+启动后验证 Docker Server 和项目容器:
+
+```powershell
+docker version
+docker compose ps
+```
+
+本机验证结果: Docker Desktop `4.54.0`、Docker Engine `29.1.2`，项目容器全部为 `healthy`；MySQL、Redis、MinIO 数据卷保持不变。
+
 ## Nginx 上传与 AI 响应等待
 
 前端 Nginx 配置见 [default.conf.template](../../frontend/nginx/default.conf.template)。
