@@ -305,16 +305,34 @@ public class MatchController {
                         : WorkspaceMatchRules.conditions(master.data(), job);
         Map<String, AvailableEvidence> available = new java.util.LinkedHashMap<>();
         WorkspaceMatchRules.evidence(master, resume, job).forEach(e -> available.put(SkillOntology.normalize(e.skill()), e));
+        Map<String, RequirementTier> tiers = new java.util.LinkedHashMap<>();
+        WorkspaceMatchRules.tiers(job).forEach(t -> tiers.put(SkillOntology.normalize(t.skill()), t));
         List<MatchRequirement> requirements = details.requirements().stream().map(r -> {
             AvailableEvidence e = available.get(SkillOntology.normalize(r.skill()));
             String suggestion = r.supported() ? "整理已有实践的职责、验证方式和成果"
                     : e != null && e.supportedInMaster() ? "主资料已有材料支撑，当前简历未体现；建议补充已有经历的表达"
                     : "资料中尚未体现可核对的实践材料；请补充已有经历，或安排学习与练习";
-            return new MatchRequirement(r.skill(), r.declared(), r.supported(), r.status(), r.evidence(), suggestion);
+            RequirementTier tier = tiers.get(SkillOntology.normalize(r.skill()));
+            String state = r.supported() ? "RESUME_EVIDENCE"
+                    : e != null && e.supportedInMaster() ? "MASTER_PROFILE_EVIDENCE_NOT_IN_RESUME"
+                    : r.declared() ? "STUDENT_DECLARED" : "NO_BASIS";
+            String next = r.supported() ? "整理已有实践的职责、验证方式和成果"
+                    : e != null && e.supportedInMaster() ? "主资料已有材料支撑，补充到当前简历"
+                    : r.declared() ? "补充已有经历的表达和成果材料" : "材料中尚未体现，安排学习或练习";
+            return new MatchRequirement(r.skill(), r.declared(), r.supported(), r.status(), r.evidence(), suggestion,
+                    tier == null ? "UNSPECIFIED" : tier.tier(), tier == null ? "" : tier.quote(), state, next);
         }).toList();
+        EvidenceContext context = new EvidenceContext(
+                master == null ? null : "master:" + master.revision(),
+                EvidenceContext.versionOfResume(resume), EvidenceContext.versionOfJob(job), WorkspaceMatchRules.VERSION, null, null, null,
+                fingerprint, WorkspaceMatchRules.VERSION,
+                details.stale() ? EvidenceContextStatus.STALE
+                        : job.requiredSkills() == null || job.requiredSkills().isEmpty()
+                        ? EvidenceContextStatus.INCOMPLETE : EvidenceContextStatus.CURRENT);
+        metadata = metadata.withEvidenceContext(context);
         return copyWithDetails(result, new MatchDetails(
                 details.skillsCoverage(), details.evidenceCoverage(), requirements, matchConditions,
-                metadata, details.jobSnapshot(), details.profileSnapshot(), details.stale()));
+                metadata, details.jobSnapshot(), details.profileSnapshot(), details.stale(), context));
     }
 
     private static MatchResult ruleMatch(ResumeSummary resume, JobSummary job, String studentId) {
@@ -413,17 +431,20 @@ public class MatchController {
                         match -> {
                             if (match.details() == null) return match;
                             boolean stale = match.details().stale();
+                            boolean sourceUnavailable = false;
                             ResourceResult<JobSummary> job = fetchJob(match.jobId(), userId, role);
-                            if (job.error() != null
-                                    || !Objects.equals(match.details().jobSnapshot(), job.value()))
+                            if (job.error() != null) {
+                                sourceUnavailable = true;
+                            } else if (!Objects.equals(match.details().jobSnapshot(), job.value()))
                                 stale = true;
                             if (isStudent(role) || isAdmin(role)) {
                                 ResourceResult<ResumeSummary> resume =
                                         fetchResume(match.resumeId(), userId, role);
-                                if (resume.error() != null
-                                        || !Objects.equals(
-                                                match.details().profileSnapshot(),
-                                                EvidenceMatchRules.profile(resume.value())))
+                                if (resume.error() != null) {
+                                    sourceUnavailable = true;
+                                } else if (!Objects.equals(
+                                        match.details().profileSnapshot(),
+                                        EvidenceMatchRules.profile(resume.value())))
                                     stale = true;
                             }
                             if ((isStudent(role) || isAdmin(role)) && match.details().metadata() != null
@@ -434,7 +455,9 @@ public class MatchController {
                                         match.details().metadata().inputFingerprint(),
                                         ResumeWorkspaceModelsFingerprint.compare(resume.value(), master, job.value()))) stale = true;
                             }
-                            return copyWithDetails(match, match.details().withStale(stale));
+                            return copyWithDetails(match, match.details().withContextStatus(
+                                    sourceUnavailable ? EvidenceContextStatus.SOURCE_UNAVAILABLE
+                                            : stale ? EvidenceContextStatus.STALE : EvidenceContextStatus.CURRENT));
                         })
                 .toList();
     }

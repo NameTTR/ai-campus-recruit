@@ -162,7 +162,7 @@ public class ResumeController {
             storageService.delete(stored.objectKey());
             throw ex;
         }
-        return ApiResponse.ok(summary);
+        return ApiResponse.ok(resumeStore.findById(resumeId).map(ResumeRecord::summary).orElse(summary));
     }
 
     @GetMapping("/{id}")
@@ -287,7 +287,7 @@ public class ResumeController {
                                                             || current.structuredDiagnosis()
                                                                     .stale()));
             resumeStore.save(new ResumeRecord(updated, record.parsedText(), record.diagnoses()));
-            return ApiResponse.ok(updated);
+            return ApiResponse.ok(resumeStore.findById(id).map(ResumeRecord::summary).orElse(updated));
         }
     }
 
@@ -438,12 +438,9 @@ public class ResumeController {
                                                 item.details() == null
                                                         ? null
                                                         : item.details()
-                                                                .withStale(
-                                                                        diagnosisStale(
-                                                                                item.details(),
-                                                                                record,
-                                                                                userId,
-                                                                                role))))
+                                                                .withEvidenceContext(
+                                                                        diagnosisContext(item.details(), record,
+                                                                                userId, role))))
                         .toList());
     }
 
@@ -619,25 +616,32 @@ public class ResumeController {
                         record.summary(),
                         record.summary().diagnosis(),
                         record.summary().score(),
-                        details.withStale(diagnosisStale(details, record, userId, role)));
+                        details.withEvidenceContext(diagnosisContext(details, record, userId, role)));
     }
 
-    private boolean diagnosisStale(
+    private EvidenceContext diagnosisContext(
             StructuredResumeDiagnosis details, ResumeRecord record, String userId, String role) {
-        if (!ResumeEvidenceRules.snapshot(record.summary(), record.parsedText())
-                .equals(details.profileSnapshot())) return true;
+        EvidenceContext context = details.evidenceContext();
+        if (context == null && details.metadata() != null) context = details.metadata().evidenceContext();
+        if (context == null) context = EvidenceContext.incomplete(
+                details.metadata() == null ? null : details.metadata().inputFingerprint(), ResumeEvidenceRules.VERSION);
+        boolean stale = !ResumeEvidenceRules.snapshot(record.summary(), record.parsedText())
+                .equals(details.profileSnapshot());
         if (details.jobSnapshot() != null && jobClient != null) {
             try {
                 ApiResponse<JobSummary> latest =
                         jobClient.detail(details.jobSnapshot().jobId(), userId, role);
-                return latest == null
-                        || latest.code() != 0
-                        || !Objects.equals(details.jobSnapshot(), latest.data());
+                if (latest == null || latest.code() != 0 || latest.data() == null)
+                    return context.withStatus(EvidenceContextStatus.SOURCE_UNAVAILABLE);
+                stale |= !Objects.equals(details.jobSnapshot(), latest.data());
             } catch (RuntimeException ex) {
-                return true;
+                return context.withStatus(EvidenceContextStatus.SOURCE_UNAVAILABLE);
             }
         }
-        return details.stale();
+        EvidenceContextStatus state = stale ? EvidenceContextStatus.STALE
+                : details.jobSnapshot() == null || details.profileSnapshot() == null
+                        ? EvidenceContextStatus.INCOMPLETE : EvidenceContextStatus.CURRENT;
+        return context.withStatus(state);
     }
 
     private static ResumeSummary summaryWithDiagnosis(
@@ -657,7 +661,8 @@ public class ResumeController {
                 current.sourceFormat(),
                 current.parseStatus(),
                 current.parsedTextLength(),
-                details);
+                details,
+                current.contentFingerprint());
     }
 
     private static Integer scoreFromAi(String content) {

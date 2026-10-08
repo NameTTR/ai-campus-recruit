@@ -5,11 +5,15 @@ import com.aicampus.common.dto.JobSummary;
 import com.aicampus.common.dto.MatchResult;
 import com.aicampus.common.dto.RecruitmentContextSnapshot;
 import com.aicampus.common.dto.ResumeSummary;
+import com.aicampus.common.dto.EvidenceContext;
+import com.aicampus.common.dto.EvidenceContextStatus;
 import com.aicampus.common.resume.ResumeWorkspaceModels.MasterProfile;
+import com.aicampus.common.evidence.EvidenceFingerprint;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -57,6 +61,13 @@ public class RecruitmentContextClient {
         MatchResult match = hasText(matchId) ? loadMatch(matchId, studentId, userRole) : null;
 
         if (match != null) {
+            // A persisted session can retain only its match id.  Resolve the
+            // match's owned sources before producing a status; otherwise a
+            // match-only context could incorrectly look CURRENT with no source.
+            if (resume == null && hasText(match.resumeId()))
+                resume = loadResume(match.resumeId(), studentId, userRole);
+            if (job == null && hasText(match.jobId()))
+                job = loadJob(match.jobId(), studentId, userRole);
             if (resume != null && !match.resumeId().equals(resume.resumeId())) {
                 throw new IllegalArgumentException("matchId does not belong to resumeId");
             }
@@ -93,6 +104,41 @@ public class RecruitmentContextClient {
         if (!studentId.equals(profile.userId()))
             throw new IllegalArgumentException("Master profile is not owned by the current student");
         return profile;
+    }
+
+    /**
+     * Checks the live sources without rewriting a historical snapshot.  Missing
+     * services or removed materials must never turn an old result into a fresh
+     * one; generic/legacy contexts remain explicitly incomplete.
+     */
+    public EvidenceContext refreshStatus(String studentId, RecruitmentContextSnapshot saved) {
+        EvidenceContext context = saved == null ? null : saved.evidenceContext();
+        if (context == null) return EvidenceContext.incomplete(null, "recruitment-context-v1");
+        if (!hasText(saved.resumeId()) && !hasText(saved.jobId()) && !hasText(saved.matchId()))
+            return context.withStatus(EvidenceContextStatus.INCOMPLETE);
+        try {
+            ValidatedContext current = validate(studentId, saved.resumeId(), saved.jobId(), saved.matchId(), "STUDENT");
+            if (context.resumeVersion() != null && !Objects.equals(context.resumeVersion(), EvidenceContext.versionOfResume(current.resume()))
+                    || context.jobSnapshotVersion() != null && !Objects.equals(context.jobSnapshotVersion(), EvidenceContext.versionOfJob(current.job())))
+                return context.withStatus(EvidenceContextStatus.STALE);
+            EvidenceContext matched = current.match() == null || current.match().details() == null
+                    ? null : current.match().details().evidenceContext();
+            if (matched != null && matched.status() == EvidenceContextStatus.STALE)
+                return context.withStatus(EvidenceContextStatus.STALE);
+            if (context.masterProfileVersion() != null && matched != null
+                    && !Objects.equals(context.masterProfileVersion(), matched.masterProfileVersion())
+                    || context.matchRuleVersion() != null && matched != null
+                    && !Objects.equals(context.matchRuleVersion(), matched.matchRuleVersion()))
+                return context.withStatus(EvidenceContextStatus.STALE);
+            boolean missingVersion = hasText(saved.resumeId()) && context.resumeVersion() == null
+                    || hasText(saved.jobId()) && context.jobSnapshotVersion() == null
+                    || hasText(saved.matchId()) && matched == null
+                    || context.masterProfileVersion() != null && matched == null
+                    || context.matchRuleVersion() != null && matched == null;
+            return context.withStatus(missingVersion ? EvidenceContextStatus.INCOMPLETE : EvidenceContextStatus.CURRENT);
+        } catch (RuntimeException ex) {
+            return context.withStatus(EvidenceContextStatus.SOURCE_UNAVAILABLE);
+        }
     }
 
     private ResumeSummary loadResume(String resumeId, String studentId, String userRole) {
@@ -231,6 +277,18 @@ public class RecruitmentContextClient {
             List<String> requiredSkills,
             List<String> missingSkills) {
         public RecruitmentContextSnapshot snapshot(String resumeId, String jobId, String matchId) {
+            EvidenceContext previous = match == null || match.details() == null ? null : match.details().evidenceContext();
+            EvidenceContext evidenceContext = new EvidenceContext(
+                    previous == null ? null : previous.masterProfileVersion(),
+                    EvidenceContext.versionOfResume(resume), EvidenceContext.versionOfJob(job),
+                    previous == null ? null : previous.matchRuleVersion(), null, null,
+                    previous == null ? null : previous.knowledgePermissionVersion(),
+                    EvidenceFingerprint.of(resumeId, jobId, matchId,
+                            EvidenceContext.versionOfResume(resume), EvidenceContext.versionOfJob(job),
+                            previous == null ? null : previous.matchRuleVersion()),
+                    "recruitment-context-v1",
+                    previous != null && previous.status() == EvidenceContextStatus.STALE ? EvidenceContextStatus.STALE
+                            : job == null || resume == null ? EvidenceContextStatus.INCOMPLETE : EvidenceContextStatus.CURRENT);
             return new RecruitmentContextSnapshot(
                     resumeId,
                     resume == null ? null : resume.fileName(),
@@ -241,7 +299,7 @@ public class RecruitmentContextClient {
                     missingSkills,
                     matchId,
                     match == null ? null : match.score(),
-                    java.time.Instant.now());
+                    java.time.Instant.now(), evidenceContext);
         }
     }
 }

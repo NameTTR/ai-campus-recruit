@@ -5,6 +5,8 @@ import com.aicampus.ai.service.knowledge.DashScopeKnowledgeClient;
 import com.aicampus.ai.service.knowledge.KnowledgeSemanticChunker;
 import com.aicampus.common.dto.KnowledgeAnswerClaim;
 import com.aicampus.common.dto.AnalysisMetadata;
+import com.aicampus.common.dto.EvidenceContext;
+import com.aicampus.common.dto.EvidenceContextStatus;
 import com.aicampus.ai.service.knowledge.KnowledgeBaseProperties;
 import com.aicampus.ai.service.knowledge.KnowledgeChunkRecord;
 import com.aicampus.ai.service.knowledge.KnowledgeVectorIndex;
@@ -501,12 +503,17 @@ public class KnowledgeBaseService {
             answer = noEvidenceAnswerText(query); citations = List.of(); claims = List.of(); mocked = true;
             evidenceStatus = "PERMISSIONS_CHANGED"; generationMode = "RETRIEVAL_ONLY";
         }
+        EvidenceContextStatus contextStatus = "PERMISSIONS_CHANGED".equals(evidenceStatus)
+                ? EvidenceContextStatus.SOURCE_UNAVAILABLE
+                : citations == null || citations.isEmpty() ? EvidenceContextStatus.INCOMPLETE : EvidenceContextStatus.CURRENT;
+        EvidenceContext context = new EvidenceContext(null, null, null, null, null, null,
+                retrieval.permissionVersion(), inputFingerprint, ALGORITHM_VERSION, contextStatus);
         return new KnowledgeAnswerResponse(query, answer, citations, mocked,
                 mocked ? "local-rag-fallback" : "dashscope", Instant.now(), retrieval.mode(), generationMode,
                 evidenceStatus, ALGORITHM_VERSION, retrieval.permissionVersion(), claims, inputFingerprint,
                 new AnalysisMetadata(inputFingerprint, ALGORITHM_VERSION,
                         mocked ? retrieval.mode() : dashScopeClient.status().model(), mocked ? "none" : PROMPT_VERSION,
-                        generationMode, Instant.now()));
+                        generationMode, Instant.now(), context));
     }
 
     private List<KnowledgeAnswerClaim> verifiedClaims(String raw, List<ScoredChunk> chunks) throws IOException {

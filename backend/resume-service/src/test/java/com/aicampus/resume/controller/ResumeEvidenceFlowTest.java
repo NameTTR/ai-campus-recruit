@@ -135,6 +135,37 @@ class ResumeEvidenceFlowTest {
     }
 
     @Test
+    void sameLengthParsedTextChangeMarksExistingDiagnosisStale() {
+        prepare();
+        controller.analyze("R1", new ResumeAnalyzeRequest("R1", "", "Java", "J1"), "S1", "STUDENT");
+        ResumeRecord current = store.findById("R1").orElseThrow();
+        String original = current.parsedText();
+        String changed = original.substring(0, original.length() - 1) + "X";
+        assertThat(changed).hasSize(original.length());
+        store.save(new ResumeRecord(current.summary(), changed, current.diagnoses()));
+        ResumeSummary detail = controller.detail("R1", "S1", "STUDENT").data();
+        assertThat(detail.structuredDiagnosis().stale()).isTrue();
+        assertThat(detail.contentFingerprint()).isNotEqualTo(current.summary().contentFingerprint());
+    }
+
+    @Test
+    void unavailableJobKeepsSnapshotAndRestoresCurrentWhenSourceReturns() {
+        prepare();
+        controller.analyze("R1", new ResumeAnalyzeRequest("R1", "", "Java", "J1"), "S1", "STUDENT");
+        JobSummary source = store.findById("R1").orElseThrow().summary().structuredDiagnosis().jobSnapshot();
+        when(jobs.detail(anyString(), anyString(), anyString())).thenReturn(ApiResponse.fail("removed"));
+        var unavailable = controller.detail("R1", "S1", "STUDENT").data().structuredDiagnosis();
+        assertThat(unavailable.contextStatus()).isEqualTo(EvidenceContextStatus.SOURCE_UNAVAILABLE);
+        assertThat(unavailable.jobSnapshot()).isEqualTo(source);
+        var history = controller.diagnoses("R1", "S1", "STUDENT").data().get(0);
+        assertThat(history.details().contextStatus()).isEqualTo(EvidenceContextStatus.SOURCE_UNAVAILABLE);
+        when(jobs.detail(anyString(), anyString(), anyString())).thenReturn(ApiResponse.ok(source));
+        assertThat(controller.detail("R1", "S1", "STUDENT").data().structuredDiagnosis().contextStatus())
+                .isEqualTo(EvidenceContextStatus.CURRENT);
+        verify(ai, times(1)).analyze(any());
+    }
+
+    @Test
     void analysisDoesNotOverwriteProfileChangedWhileAiWasRunning() {
         prepare();
         doAnswer(

@@ -21,6 +21,7 @@ import {
   knowledgeContext, knowledgeDateLabel, knowledgeDirection, knowledgeDue, knowledgeErrorMessage, knowledgeExcerpt,
   knowledgeHighlightParts, knowledgeIsExplanation, knowledgeNoteStorageKey, knowledgePosition, knowledgePracticeQuestionIndex, knowledgePracticeStorageKey, knowledgeReadableFeedback, knowledgeSafeLink, knowledgeSearchExcerpt, knowledgeStateLabel
 } from './knowledgeWorkspace'
+import EvidenceContextHint from './EvidenceContextHint.vue'
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker
 const markdown = new MarkdownIt({ html: false, breaks: true, linkify: false })
@@ -443,7 +444,7 @@ onBeforeUnmount(() => { readRequest++; queryRequest++; clearOriginal() })
     </section>
     <section v-else-if="page === 'answer'" data-testid="knowledge-answer">
       <div class="page-actions"><el-button text @click="navigate('/student/knowledge')"><ArrowLeft :size="16" />查询结果</el-button></div>
-      <template v-if="answer"><h2>{{ answer.query }}</h2><p v-if="noEvidence" class="inline-alert neutral">资料不足的部分已保留为待确认项。</p><div class="answer-text" v-html="renderMarkdown(answer.answer)" /><div class="citation-links"><button v-for="(citation, index) in citations" :key="citation.chunkId" @click="openReader(citation.documentId, citation.chunkId)">[{{ index + 1 }}] {{ citation.title }} · {{ knowledgePosition(citation) }}</button></div><details v-if="answer.claims?.length || citations.length" class="advanced"><summary>核对回答依据</summary><article v-for="(claim, index) in answer.claims" :key="index"><p>{{ claim.text }}</p><blockquote>{{ claim.supportQuote }}</blockquote></article><p v-for="citation in citations" :key="citation.chunkId">{{ citation.title }} · {{ knowledgePosition(citation) }}<span v-if="citation.documentVersion"> · 资料版本 {{ citation.documentVersion }}</span></p></details></template>
+      <template v-if="answer"><h2>{{ answer.query }}</h2><EvidenceContextHint :value="answer" compact /><p v-if="noEvidence" class="inline-alert neutral">资料不足的部分已保留为待确认项。</p><div class="answer-text" v-html="renderMarkdown(answer.answer)" /><div class="citation-links"><button v-for="(citation, index) in citations" :key="citation.chunkId" @click="openReader(citation.documentId, citation.chunkId)">[{{ index + 1 }}] {{ citation.title }} · {{ knowledgePosition(citation) }}</button></div><details v-if="answer.claims?.length || citations.length" class="advanced"><summary>核对回答依据</summary><article v-for="(claim, index) in answer.claims" :key="index"><p>{{ claim.text }}</p><blockquote>{{ claim.supportQuote }}</blockquote></article><p v-for="citation in citations" :key="citation.chunkId">{{ citation.title }} · {{ knowledgePosition(citation) }}<span v-if="citation.documentVersion"> · 资料版本 {{ citation.documentVersion }}</span></p></details></template>
       <p v-else-if="!loading" class="empty">回答未保存在当前页面，可从查询历史恢复，或重新搜索。</p>
     </section>
     <section v-else-if="page === 'learning'" data-testid="knowledge-learning">

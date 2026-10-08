@@ -31,6 +31,21 @@ export interface AnalysisMetadata {
   promptVersion?: string
   source?: string
   generatedAt?: string
+  evidenceContext?: EvidenceContext
+}
+
+/** Shared version state returned by analysis endpoints. Optional fields keep old snapshots readable. */
+export interface EvidenceContext {
+  masterProfileVersion?: string | null
+  resumeVersion?: string | null
+  jobSnapshotVersion?: string | null
+  matchRuleVersion?: string | null
+  learningPlanVersion?: string | null
+  interviewReportVersion?: string | null
+  knowledgePermissionVersion?: string | null
+  inputFingerprint?: string | null
+  algorithmVersion?: string | null
+  status?: 'CURRENT' | 'STALE' | 'INCOMPLETE' | 'SOURCE_UNAVAILABLE' | string
 }
 
 export interface SkillEvidence {
@@ -57,6 +72,28 @@ export interface ResumeFinding {
   basis: string
   sourceReference: string
   requiredSkill?: string
+  priority?: number
+  requirementLevel?: string
+  factUnitId?: string | null
+  followUpQuestions?: string[]
+}
+
+export interface ResumeFactUnit {
+  id: string
+  sourceKind: string
+  sourceReference: string
+  sourceVersion: string
+  originalQuote: string
+  startOffset: number
+  endOffset: number
+  personalAction: string
+  methodOrTechnology: string
+  projectScope: string
+  validationProcess: string
+  result: string
+  dataMissing: boolean
+  evidenceStatus: string
+  skills: string[]
 }
 
 export interface StructuredResumeDiagnosis {
@@ -69,6 +106,10 @@ export interface StructuredResumeDiagnosis {
   jobSnapshot?: JobSummary
   profileSnapshot?: ResumeProfileSnapshot
   stale: boolean
+  evidenceContext?: EvidenceContext | null
+  contextStatus?: string
+  factUnits?: ResumeFactUnit[]
+  topFindings?: ResumeFinding[]
 }
 
 export interface MatchRequirement {
@@ -78,6 +119,10 @@ export interface MatchRequirement {
   status: string
   evidence?: SkillEvidence
   suggestion: string
+  requirementTier?: 'REQUIRED' | 'PREFERRED' | 'UNSPECIFIED' | string
+  requirementQuote?: string
+  evidenceState?: 'STUDENT_DECLARED' | 'RESUME_EVIDENCE' | 'LEARNING_SUBMITTED' | 'LEARNING_PASSED' | 'NO_BASIS' | string
+  nextStep?: string
 }
 
 export interface MatchCondition {
@@ -97,6 +142,8 @@ export interface MatchDetails {
   jobSnapshot?: JobSummary
   profileSnapshot?: ResumeProfileSnapshot
   stale: boolean
+  evidenceContext?: EvidenceContext | null
+  contextStatus?: string
 }
 
 export interface ResumeSummary {
@@ -542,6 +589,8 @@ export interface LearningPlan {
   version: number
   revisionOfPlanId?: string
   contextSnapshot?: Record<string, unknown>
+  evidenceContext?: EvidenceContext | null
+  contextStatus?: string
   tasks: LearningTask[]
   mocked?: boolean
   createdAt: string
@@ -675,6 +724,8 @@ export interface InterviewSession {
   updatedAt: string
   completedAt?: string
   contextSnapshot?: Record<string, unknown>
+  analysisMetadata?: AnalysisMetadata
+  evidenceContext?: EvidenceContext | null
   mocked?: boolean
   mode?: 'COACHING' | 'MOCK'
   sourceType?: 'JOB' | 'PROJECT' | 'GAP'

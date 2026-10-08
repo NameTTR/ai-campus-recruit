@@ -18,6 +18,25 @@ const mode = options.get('mode') || 'all'
 const reportPath = path.resolve(root, options.get('output') || 'evaluation/reports/core-deepening.json')
 const read = name => JSON.parse(fs.readFileSync(path.join(evaluation, 'fixtures', name), 'utf8'))
 const fixtures = { resume: read('resume-job.json'), interview: read('interview-answers.json'), rag: read('knowledge-queries.json') }
+// Small, synthetic edge fixtures exercise the evidence boundary itself. They
+// are deliberately separate from the scored datasets and remain pending owner
+// review; they must never be treated as production facts or model labels.
+const evidenceEdgeCases = [
+  { id: 'EDGE-CONTEXT-CURRENT', kind: 'context', value: { evidenceContext: { status: 'CURRENT' } }, expected: 'CURRENT' },
+  { id: 'EDGE-CONTEXT-SOURCE', kind: 'context', value: { contextStatus: 'CURRENT', sourceAvailable: false }, expected: 'SOURCE_UNAVAILABLE' },
+  { id: 'EDGE-CONTEXT-STALE', kind: 'context', value: { contextStatus: 'CURRENT', stale: true }, expected: 'STALE' },
+  { id: 'EDGE-NEGATION', kind: 'resume', text: '未使用 Redis，计划学习 Redis', expected: 'NO_EVIDENCE' },
+  { id: 'EDGE-UNKNOWN-CONDITION', kind: 'match', condition: { status: 'UNKNOWN' }, expected: 'UNKNOWN' },
+  { id: 'EDGE-CONFLICT', kind: 'knowledge', sources: [{ version: 'v1', claim: '超时为 3 秒' }, { version: 'v2', claim: '超时为 5 秒' }], expected: 'SHOW_BOTH' }
+]
+function validateEvidenceEdgeCases() {
+  requireThat(evidenceEdgeCases.every(item => item.id && item.kind && item.expected), 'Evidence edge fixture incomplete')
+  requireThat(evidenceEdgeCases.filter(item => item.kind === 'context').length >= 3, 'Context states need current/stale/source cases')
+  requireThat(evidenceEdgeCases.some(item => item.kind === 'resume' && /未使用|计划/.test(item.text)), 'Negation/planned evidence boundary missing')
+  requireThat(evidenceEdgeCases.some(item => item.kind === 'match' && item.expected === 'UNKNOWN'), 'Unknown condition boundary missing')
+  requireThat(evidenceEdgeCases.some(item => item.kind === 'knowledge' && item.sources.length > 1), 'Conflicting source boundary missing')
+  return { total: evidenceEdgeCases.length, reviewStatus: 'OWNER_REVIEW_PENDING', origin: 'SYNTHETIC_ANONYMOUS' }
+}
 function requireThat(value, reason) { if (!value) throw new Error(reason) }
 function validateFixtures() {
   const manifest = JSON.parse(fs.readFileSync(path.join(evaluation, 'manifest.json'), 'utf8'))
@@ -62,6 +81,7 @@ function validateFixtures() {
   requireThat(positionCheck({ chunkId: 'c', chunkIndex: 1, startOffset: 0, endOffset: 3, snippet: 'abc', roles: ['STUDENT'] }, { content: 'abc', roles: ['STUDENT'] }).length === 0, 'Citation validator positive case')
   requireThat(positionCheck({ chunkId: 'c', chunkIndex: 1, startOffset: 0, endOffset: 4, snippet: 'abc', roles: ['STUDENT'] }, { content: 'abc', roles: ['STUDENT'] }).length > 0, 'Citation validator must reject invalid offsets')
   requireThat(positionCheck({ chunkId: 'c', chunkIndex: 1, startOffset: 0, endOffset: 3, snippet: 'abc', roles: ['ADMIN'] }, { content: 'abc', roles: ['ADMIN'] }).includes('not readable to student'), 'Citation validator must reject restricted evidence')
+  counts.evidenceEdgeCases = validateEvidenceEdgeCases()
   return counts
 }
 function positionCheck(citation, document) {

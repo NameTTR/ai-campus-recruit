@@ -32,12 +32,13 @@ public final class EvidenceFingerprint {
                 resume.education(),
                 resume.skills(),
                 resume.projects(),
+                resume.contentFingerprint(),
                 text);
     }
 
     public static String diagnosis(
             ResumeSummary resume, String text, String targetJob, JobSummary job) {
-        return of(profile(resume, text), targetJob, job, "resume-evidence-v1");
+        return of(profile(resume, text), targetJob, job, ResumeEvidenceRules.VERSION);
     }
 
     public static String match(ResumeSummary resume, JobSummary job) {
@@ -54,6 +55,7 @@ public final class EvidenceFingerprint {
         return of(
                 resume.studentId(),
                 resume.resumeId(),
+                resume.contentFingerprint(),
                 ResumeEvidenceRules.snapshot(resume, text),
                 job,
                 "match-evidence-v1",

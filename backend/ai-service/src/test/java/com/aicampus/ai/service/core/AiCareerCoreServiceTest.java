@@ -31,6 +31,22 @@ import java.util.List;
 
 class AiCareerCoreServiceTest {
     @Test
+    void completedTaskCannotBeRolledBackAndRecordedMinutesAreBounded() {
+        AiCareerCoreService service = service();
+        LearningPlan plan = service.createLearningPlan("S-STATE", "STUDENT",
+                new LearningPlanCreateRequest("S-STATE", null, null, null, "Java", 2, 1));
+        LearningTask first = plan.tasks().get(0);
+        service.updateLearningTask(plan.planId(), first.taskId(), "S-STATE",
+                new LearningTaskUpdateRequest("COMPLETED", "verified"));
+        assertThatThrownBy(() -> service.updateLearningTask(plan.planId(), first.taskId(), "S-STATE",
+                new LearningTaskUpdateRequest("IN_PROGRESS", "rollback")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("不可回退");
+        LearningTask second = plan.tasks().stream().skip(1).findFirst().orElseThrow();
+        assertThatThrownBy(() -> service.updateLearningTask(plan.planId(), second.taskId(), "S-STATE",
+                new LearningTaskUpdateRequest("IN_PROGRESS", "too long", 10081, null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("actualMinutes");
+    }
+    @Test
     void scheduledTasksTrackDailyProgressAndConfirmedEvidenceSeparately() {
         AiCareerCoreService service = service();
         LearningPlan plan =
@@ -96,6 +112,63 @@ class AiCareerCoreServiceTest {
         assertThat(candidate.resumeCandidate()).isTrue();
         assertThat(service.getLearningPlan(plan.planId(), plan.studentId()).tasks().get(0).status())
                 .isEqualTo("IN_PROGRESS");
+    }
+
+    @Test
+    void newPlanFallsBackWhenConfiguredAiOmitsStructuredTasks() {
+        AiCareerCoreService service = serviceWithMissingStructuredTasks();
+
+        LearningPlan plan =
+                service.createLearningPlan(
+                        "S-CORE-MISSING-TASKS-001",
+                        "STUDENT",
+                        new LearningPlanCreateRequest(
+                                "S-CORE-MISSING-TASKS-001",
+                                null,
+                                null,
+                                null,
+                                "Java Backend Intern",
+                                null,
+                                null));
+
+        assertThat(plan.tasks()).hasSize(16);
+        assertThat(plan.tasks()).allSatisfy(task -> assertThat(task.title()).isNotBlank());
+        assertThat(plan.mocked()).isTrue();
+        assertThat(plan.analysisMetadata()).isNotNull();
+        assertThat(plan.analysisMetadata().source()).isEqualTo("RULES");
+        assertThat(plan.analysisMetadata().model()).isEqualTo("rules");
+    }
+
+    @Test
+    void replanFallsBackWhenConfiguredAiOmitsStructuredTasks() {
+        AiCareerCoreService service = serviceWithMissingStructuredTasks();
+        LearningPlan initial =
+                service.createLearningPlan(
+                        "S-CORE-REPLAN-MISSING-TASKS-001",
+                        "STUDENT",
+                        new LearningPlanCreateRequest(
+                                "S-CORE-REPLAN-MISSING-TASKS-001",
+                                null,
+                                null,
+                                null,
+                                "Java Backend Intern",
+                                null,
+                                null));
+
+        LearningPlan revised =
+                service.replan(
+                        initial.planId(),
+                        initial.studentId(),
+                        "STUDENT",
+                        new LearningPlanReplanRequest("Rebalance the practice sequence.", null, null, null));
+
+        assertThat(revised.version()).isEqualTo(2);
+        assertThat(revised.tasks()).hasSize(16);
+        assertThat(revised.mocked()).isTrue();
+        assertThat(revised.analysisMetadata()).isNotNull();
+        assertThat(revised.analysisMetadata().source()).isEqualTo("RULES");
+        assertThat(service.getLearningPlan(initial.planId(), initial.studentId()).status())
+                .isEqualTo("SUPERSEDED");
     }
 
     @Test
@@ -546,6 +619,14 @@ class AiCareerCoreServiceTest {
                 contextClient());
     }
 
+    private static AiCareerCoreService serviceWithMissingStructuredTasks() {
+        return new AiCareerCoreService(
+                new MissingStructuredTaskAiCoachService(),
+                new InMemoryLearningPlanStore(),
+                new InMemoryInterviewSessionStore(),
+                contextClient());
+    }
+
     private static RecruitmentContextClient contextClient() {
         return new RecruitmentContextClient(
                 "http://localhost:18103",
@@ -696,6 +777,32 @@ class AiCareerCoreServiceTest {
                     java.util.List.of("完成一个与岗位要求直接相关的练习并记录证据。"),
                     java.util.List.of("整理一项可展示成果。"),
                     java.util.List.of("用 STAR 结构复盘成果。"),
+                    false);
+        }
+    }
+
+    private static final class MissingStructuredTaskAiCoachService extends AiCoachService {
+        private MissingStructuredTaskAiCoachService() {
+            super(new DashScopeClient("", "qwen-plus", "http://localhost"));
+        }
+
+        @Override
+        public boolean isModelConfigured() {
+            return true;
+        }
+
+        @Override
+        public CareerPlanResponse careerPlan(CareerPlanRequest request) {
+            return new CareerPlanResponse(
+                    request.studentId(),
+                    request.targetRole(),
+                    72,
+                    "AI returned a valid summary without structured learning tasks.",
+                    List.of(),
+                    List.of("Java", "Spring Boot"),
+                    List.of("Practice one measurable backend improvement."),
+                    List.of("Publish a short implementation report."),
+                    List.of("Explain the trade-offs and verification steps."),
                     false);
         }
     }

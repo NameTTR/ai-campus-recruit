@@ -2,6 +2,10 @@
 import {
   citationLocation,
   comparableInterviewSessions,
+  evidenceContextStatus,
+  evidenceContextStatusHint,
+  evidenceContextStatusLabel,
+  evidenceContextStatusType,
   evaluationCanRetry,
   firstActionableQuestionIndex,
   matchContextIsCurrent,
@@ -11,6 +15,38 @@ import {
 } from './coreDeepening'
 
 describe('deepened student workflow evidence helpers', () => {
+  it('normalizes evidence context states and legacy stale/source flags', () => {
+    expect(evidenceContextStatus({ contextStatus: 'CURRENT' })).toBe('CURRENT')
+    expect(evidenceContextStatus({ stale: true })).toBe('STALE')
+    expect(evidenceContextStatus({ sourceAvailable: false })).toBe('SOURCE_UNAVAILABLE')
+    expect(evidenceContextStatus({ contextSnapshot: { resumeVersion: 'r1' } })).toBeUndefined()
+    expect(evidenceContextStatus({ contextSnapshot: { evidenceContext: {} } })).toBe('INCOMPLETE')
+    expect(evidenceContextStatus({})).toBeUndefined()
+    expect(evidenceContextStatusLabel('STALE')).toContain('重新分析')
+    expect(evidenceContextStatusType('SOURCE_UNAVAILABLE')).toBe('danger')
+    expect(evidenceContextStatusHint('CURRENT')).toContain('当前资料')
+  })
+
+  it('prefers explicit status over legacy flags so a server decision is not hidden', () => {
+    expect(evidenceContextStatus({ contextStatus: 'CURRENT', stale: true })).toBe('STALE')
+    expect(evidenceContextStatus({ analysisMetadata: { contextStatus: 'STALE' }, sourceAvailable: false })).toBe('SOURCE_UNAVAILABLE')
+  })
+
+  it('reads production nested evidenceContext and does not require unrelated module versions', () => {
+    expect(evidenceContextStatus({ metadata: { evidenceContext: { status: 'CURRENT', knowledgePermissionVersion: 'p1' } } })).toBe('CURRENT')
+    expect(evidenceContextStatus({ analysisMetadata: { evidenceContext: { status: 'STALE' } } })).toBe('STALE')
+    expect(evidenceContextStatus({ contextSnapshot: { evidenceContext: { status: 'SOURCE_UNAVAILABLE' } } })).toBe('SOURCE_UNAVAILABLE')
+    expect(evidenceContextStatus({ evidenceContext: { status: 'INCOMPLETE' } })).toBe('INCOMPLETE')
+    expect(evidenceContextStatusLabel('CURRENT')).toBe('资料版本一致')
+    expect(evidenceContextStatusHint('CURRENT')).toContain('仍需核对事实')
+  })
+
+  it('combines both metadata carriers using safety-first precedence', () => {
+    expect(evidenceContextStatus({ metadata: { evidenceContext: { status: 'CURRENT' } }, analysisMetadata: { evidenceContext: { status: 'INCOMPLETE' } } })).toBe('INCOMPLETE')
+    expect(evidenceContextStatus({ metadata: { evidenceContext: { status: 'CURRENT' } }, analysisMetadata: { evidenceContext: { status: 'STALE' } } })).toBe('STALE')
+    expect(evidenceContextStatus({ metadata: { evidenceContext: { status: 'CURRENT' } }, analysisMetadata: { sourceAvailable: false } })).toBe('SOURCE_UNAVAILABLE')
+  })
+
   it('detects stale match context instead of treating an old score as current', () => {
     const match = {
       details: {
@@ -24,6 +60,17 @@ describe('deepened student workflow evidence helpers', () => {
     expect(matchContextIsCurrent(match, { education: '本科', skills: ['Redis'], projects: ['订单项目'] }, match.details.jobSnapshot)).toBe(false)
     match.details.stale = true
     expect(matchContextIsCurrent(match, { education: '本科', skills: ['Java'], projects: ['订单项目'] }, match.details.jobSnapshot)).toBe(false)
+  })
+
+  it('keeps requirement evidence states distinct from the declaration flag', () => {
+    const match = { details: { evidenceContext: { status: 'CURRENT' }, requirements: [
+      { skill: 'Redis', declared: true, supported: false, evidenceState: 'STUDENT_DECLARED', requirementTier: 'REQUIRED' },
+      { skill: 'Docker', declared: false, supported: false, evidenceState: 'NO_BASIS', requirementTier: 'PREFERRED' }
+    ] } } as any
+    expect(evidenceContextStatus(match.details)).toBe('CURRENT')
+    expect(match.details.requirements[0].evidenceState).toBe('STUDENT_DECLARED')
+    expect(match.details.requirements[0].supported).toBe(false)
+    expect(match.details.requirements[1].evidenceState).toBe('NO_BASIS')
   })
 
   it('requires answer evaluation before moving to the next interview question', () => {

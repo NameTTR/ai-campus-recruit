@@ -269,10 +269,15 @@ public class AiCareerCoreService {
                     tasks.add(task);
                     continue;
                 }
+                validateTaskTransition(task, status, plan.tasks());
                 Instant completedAt =
                         "COMPLETED".equals(status)
                                 ? (task.completedAt() == null ? now : task.completedAt())
                                 : null;
+                Integer actualMinutes = request == null || request.actualMinutes() == null
+                        ? task.actualMinutes() : request.actualMinutes();
+                if (actualMinutes != null && (actualMinutes < 0 || actualMinutes > 7 * 24 * 60))
+                    throw new IllegalArgumentException("actualMinutes must be between 0 and 10080");
                 updatedTask =
                         new LearningTask(
                                 task.taskId(),
@@ -296,8 +301,7 @@ public class AiCareerCoreService {
                                 task.estimatedMinutes(),
                                 safeList(task.dependencies()),
                                 task.source(),
-                                request == null || request.actualMinutes() == null
-                                        ? task.actualMinutes() : request.actualMinutes(),
+                                actualMinutes,
                                 request != null && request.deferredUntil() != null,
                                 request == null ? task.deferredUntil() : request.deferredUntil());
                 tasks.add(updatedTask);
@@ -315,6 +319,23 @@ public class AiCareerCoreService {
         }
         throw new IllegalStateException(
                 "Learning plan was changed before the task could be updated");
+    }
+
+    /** Keep completed work immutable and enforce declared prerequisite order. */
+    private static void validateTaskTransition(LearningTask task, String next, List<LearningTask> all) {
+        String current = valueOr(task.status());
+        if (current == null || "LEGACY".equalsIgnoreCase(current)) current = "PENDING";
+        if ("COMPLETED".equals(current) && !"COMPLETED".equals(next))
+            throw new IllegalArgumentException("已完成任务不可回退；如需补充请提交成果或重新规划");
+        if (!"COMPLETED".equals(next)) return;
+        Set<String> prerequisites = new LinkedHashSet<>(safeList(task.dependencies()));
+        if (prerequisites.isEmpty()) prerequisites.addAll(safeList(task.prerequisites()));
+        for (String dependency : prerequisites) {
+            LearningTask prior = safeTasks(all).stream()
+                    .filter(candidate -> dependency.equals(candidate.taskId())).findFirst().orElse(null);
+            if (prior != null && !"COMPLETED".equals(prior.status()))
+                throw new IllegalArgumentException("请先完成前置任务：" + dependency);
+        }
     }
 
     public LearningPlan replan(
@@ -617,8 +638,10 @@ public class AiCareerCoreService {
         List<String> effectiveGaps = effectiveSkillGaps(context, targetRole);
         List<String> gaps =
                 effectiveGaps.isEmpty() ? usefulStrings(generated.skillGaps()) : effectiveGaps;
+        boolean hasStructuredTasks = !safeList(generated.tasks()).isEmpty();
+        boolean missingStructuredTasks = !generated.mocked() && !hasStructuredTasks;
         List<LearningTask> tasks;
-        if (!generated.mocked() && !safeList(generated.tasks()).isEmpty()) {
+        if (!generated.mocked() && hasStructuredTasks) {
             tasks =
                     structuredTasks(
                             planId,
@@ -628,9 +651,11 @@ public class AiCareerCoreService {
                             context.resumeSkills(),
                             context.requiredSkills());
         } else {
-            if (aiCoachService.isModelConfigured() && !generated.mocked())
-                throw new IllegalStateException(
-                        "Structured learning tasks are missing from the AI response");
+            // A newly-created plan can remain useful when a valid AI response
+            // omitted its structured tasks. The same deterministic fallback is
+            // safe for a revision because completed tasks are preserved below;
+            // an explicitly mocked AI response still fails above to retain the
+            // existing strict replan semantics.
             tasks =
                     createTasks(
                             planId,
@@ -640,9 +665,11 @@ public class AiCareerCoreService {
                             gaps,
                             generated.weeklyActions());
         }
+        boolean planMocked = generated.mocked() || missingStructuredTasks;
         if (previous != null) {
             tasks = preserveCompletedTasks(tasks, previous.tasks(), weeklyHours, durationWeeks);
         }
+        RecruitmentContextSnapshot contextSnapshot = context.snapshot(resumeId, jobId, matchId);
         LearningPlan plan =
                 new LearningPlan(
                         planId,
@@ -652,14 +679,14 @@ public class AiCareerCoreService {
                         jobId,
                         matchId,
                         targetRole,
-                        context.snapshot(resumeId, jobId, matchId),
+                        contextSnapshot,
                         weeklyHours,
                         durationWeeks,
                         "ACTIVE",
                         previous == null ? 1 : previous.version() + 1,
                         previous == null ? null : previous.planId(),
                         tasks,
-                        generated.mocked(),
+                        planMocked,
                         now,
                         now,
                         additionalContext,
@@ -671,8 +698,9 @@ public class AiCareerCoreService {
                                         weeklyHours,
                                         durationWeeks,
                                         additionalContext),
-                                generated.mocked(),
-                                "learning-plan-v2"));
+                                planMocked,
+                                "learning-plan-v2",
+                                contextSnapshot.evidenceContext()));
         return plan;
     }
 
@@ -1076,7 +1104,8 @@ public class AiCareerCoreService {
                             metadata(
                                     input,
                                     !aiCoachService.isModelConfigured(),
-                                    "learning-evaluation-v1"),
+                                    "learning-evaluation-v1",
+                                    plan.contextSnapshot() == null ? null : plan.contextSnapshot().evidenceContext()),
                             submitted,
                             null);
             learningEvidenceStore.save(pending);
@@ -1099,7 +1128,8 @@ public class AiCareerCoreService {
                                         : (evaluation.score() < 70 ? "NEEDS_REVISION" : "SUCCEEDED"),
                                 evaluation,
                                 null,
-                                metadata(input, evaluation.mocked(), "learning-evaluation-v1"),
+                                metadata(input, evaluation.mocked(), "learning-evaluation-v1",
+                                        plan.contextSnapshot() == null ? null : plan.contextSnapshot().evidenceContext()),
                                 submitted,
                                 evaluation.mocked() ? null : Instant.now());
             } catch (RuntimeException ex) {
@@ -1369,7 +1399,7 @@ public class AiCareerCoreService {
                                                 t.deferredUntil()))
                         .map(this::knowledgePublicTask)
                         .toList();
-        LearningPlan result = copyPlan(plan, plan.status(), tasks, plan.updatedAt());
+        LearningPlan result = withReadContext(copyPlan(plan, plan.status(), tasks, plan.updatedAt()));
         if (tasks.stream().anyMatch(task -> "SOURCE_UNAVAILABLE".equals(task.referenceStatus())))
             return new LearningPlan(result.planId(), result.rootPlanId(), result.studentId(), result.resumeId(), result.jobId(),
                     result.matchId(), result.targetRole(), result.contextSnapshot(), result.weeklyHours(), result.durationWeeks(),
@@ -1377,6 +1407,22 @@ public class AiCareerCoreService {
                     result.revisionOfPlanId(), result.tasks(), result.mocked(), result.createdAt(), result.updatedAt(),
                     "部分知识来源已更新或不可用，保留任务进度与学生成果", result.analysisMetadata());
         return result;
+    }
+
+    private LearningPlan withReadContext(LearningPlan plan) {
+        EvidenceContext live = contextClient.refreshStatus(plan.studentId(), plan.contextSnapshot());
+        if (live == null) return plan; // Test doubles and older service adapters.
+        if (plan.tasks().stream().anyMatch(task -> "SOURCE_UNAVAILABLE".equals(task.referenceStatus())))
+            live = live.withStatus(EvidenceContextStatus.SOURCE_UNAVAILABLE);
+        AnalysisMetadata saved = plan.analysisMetadata();
+        AnalysisMetadata metadata = saved == null
+                ? new AnalysisMetadata(null, "legacy", null, null, "LEGACY", plan.createdAt(), live)
+                : saved.withEvidenceContext(live);
+        return new LearningPlan(plan.planId(), plan.rootPlanId(), plan.studentId(), plan.resumeId(), plan.jobId(),
+                plan.matchId(), plan.targetRole(), plan.contextSnapshot(), plan.weeklyHours(), plan.durationWeeks(),
+                plan.startDate(), plan.studyDays(), plan.dailyMinutesCap(), plan.status(), plan.version(),
+                plan.revisionOfPlanId(), plan.tasks(), plan.mocked(), plan.createdAt(), plan.updatedAt(),
+                plan.revisionReason(), metadata);
     }
 
     private String learningEvidenceSummary(LearningPlan plan) {
@@ -1638,13 +1684,18 @@ public class AiCareerCoreService {
     }
 
     private AnalysisMetadata metadata(String input, boolean mocked, String prompt) {
+        return metadata(input, mocked, prompt, null);
+    }
+
+    private AnalysisMetadata metadata(String input, boolean mocked, String prompt, EvidenceContext evidenceContext) {
         return new AnalysisMetadata(
                 input,
                 ALGORITHM_VERSION,
                 mocked ? "rules" : aiCoachService.configuredModel(),
                 prompt,
                 mocked ? "RULES" : "DASHSCOPE",
-                Instant.now());
+                Instant.now(),
+                evidenceContext);
     }
 
     private static String fingerprint(String... parts) {
@@ -1922,7 +1973,8 @@ public class AiCareerCoreService {
                 plan.durationWeeks(), plan.startDate(), safeList(plan.studyDays()), plan.dailyMinutesCap(),
                 plan.status(), plan.version(), plan.revisionOfPlanId(), safeTasks(plan.tasks()), mocked,
                 plan.createdAt(), plan.updatedAt(), plan.revisionReason(),
-                metadata(inputFingerprint, mocked, modelVersion));
+                metadata(inputFingerprint, mocked, modelVersion,
+                        plan.contextSnapshot() == null ? null : plan.contextSnapshot().evidenceContext()));
     }
 
     private static LearningPlan copyPlan(

@@ -20,6 +20,12 @@ public final class EvidenceMatchRules {
         for (String skill : requirements) {
             boolean stated = declared.containsKey(SkillOntology.normalize(skill));
             SkillEvidence evidence = ResumeEvidenceRules.findEvidence(profile, skill);
+            String quote = requirementQuote(job.description(), skill);
+            String tier = requirementTier(quote);
+            String evidenceState = evidence.supported() ? "RESUME_EVIDENCE" : stated ? "STUDENT_DECLARED" : "NO_BASIS";
+            String nextStep = evidence.supported()
+                    ? "整理已有实践的职责、验证方式和成果"
+                    : stated ? "补充已有经历的表达和成果材料" : "材料中尚未体现；确认已有经历，或安排学习与练习";
             items.add(
                     new MatchRequirement(
                             skill,
@@ -31,25 +37,42 @@ public final class EvidenceMatchRules {
                             evidence,
                             evidence.supported()
                                     ? "整理已有实践的职责与验证方式"
-                                    : stated ? "补充已有经历的表达和成果材料" : "材料中尚未体现：确认已有经历，或安排学习与练习"));
+                                    : stated ? "补充已有经历的表达和成果材料" : "材料中尚未体现：确认已有经历，或安排学习与练习",
+                            tier, quote, evidenceState, nextStep));
         }
         int covered = (int) items.stream().filter(MatchRequirement::declared).count();
         int supported = (int) items.stream().filter(MatchRequirement::supported).count();
+        EvidenceContext context = new EvidenceContext(
+                null, EvidenceContext.versionOfResume(resume), EvidenceContext.versionOfJob(job), VERSION, null, null, null,
+                EvidenceFingerprint.match(resume, job), VERSION,
+                job.requiredSkills() == null || job.requiredSkills().isEmpty()
+                        ? EvidenceContextStatus.INCOMPLETE : EvidenceContextStatus.CURRENT);
+        AnalysisMetadata metadata = new AnalysisMetadata(
+                EvidenceFingerprint.match(resume, job), VERSION, "", "match-evidence-rules-v1",
+                "RULE_SKILL_AND_EVIDENCE", Instant.now(), context);
         return new MatchDetails(
                 ResumeEvidenceRules.percent(covered, requirements.size()),
                 ResumeEvidenceRules.percent(supported, requirements.size()),
                 items,
                 conditions(profile, job),
-                new AnalysisMetadata(
-                        EvidenceFingerprint.match(resume, job),
-                        VERSION,
-                        "",
-                        "match-evidence-rules-v1",
-                        "RULE_SKILL_AND_EVIDENCE",
-                        Instant.now()),
+                metadata,
                 job,
                 profile,
-                false);
+                false,
+                context);
+    }
+
+    private static String requirementQuote(String description, String skill) {
+        if (description == null || description.isBlank()) return "";
+        return Arrays.stream(description.split("[。！？；;，,\\r\\n]+"))
+                .map(String::trim).filter(value -> !value.isBlank() && SkillOntology.mentions(value, skill))
+                .findFirst().orElse("");
+    }
+
+    private static String requirementTier(String quote) {
+        if (quote.matches("(?isu).*(优先|加分|preferred|nice to have|plus).*")) return "PREFERRED";
+        if (quote.matches("(?isu).*(必须|必需|必备|要求|需具备|需要|熟悉|熟练|掌握|required|must|proficient).*")) return "REQUIRED";
+        return "UNSPECIFIED";
     }
 
     public static ResumeProfileSnapshot profile(ResumeSummary resume) {

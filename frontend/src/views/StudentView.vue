@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ElPagination } from 'element-plus/es/components/pagination/index'
 import MarkdownIt from 'markdown-it'
+import EvidenceContextHint from '../features/student/EvidenceContextHint.vue'
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -1923,6 +1924,7 @@ watch(targetRole, (value) => {
       <p v-if="selectedContextMatch" class="plan-context">已关联岗位匹配 · 技能覆盖 {{ matchScoreLabel(selectedContextMatch) }}</p>
       <div v-if="invalidPlan && !moduleLoadError" class="jobs-unavailable" data-testid="plan-unavailable"><p>这份学习计划已不存在或不可访问。</p><RouterLink to="/student/plan/history">查看学习计划</RouterLink></div>
       <div v-else-if="selectedPlan && planPage !== 'create' && planPage !== 'history'" class="module-context-bar"><strong>{{ selectedPlan.targetRole }}</strong><span>V{{ selectedPlan.version }} · {{ planStatusLabel(selectedPlan.status) }} · {{ selectedPlanCompletedTasks }}/{{ selectedPlan.tasks.length }} 已完成</span><el-button v-if="planPage === 'today'" text @click="openPlanPage('create')"><Plus :size="15" />新计划</el-button></div>
+      <EvidenceContextHint v-if="selectedPlan && planPage !== 'create' && planPage !== 'history'" :value="selectedPlan" compact />
 
       <section v-if="planPage === 'create'" class="plan-builder module-form-page" data-testid="plan-create" v-loading="planLoading">
         <div class="module-actions"><el-button text @click="openPlanPage('today')"><ArrowLeft :size="15" />返回今日</el-button></div>

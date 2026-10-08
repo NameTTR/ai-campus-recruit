@@ -171,7 +171,8 @@ public final class InterviewPracticeService {
                 mocked, now, now, null, mode, type, sourceId, selected.label(), material,
                 requirements, gaps, selected.references(), List.of(), timer, null, List.of(), false,
                 new AnalysisMetadata(hash(join(student, target, mode, type, sourceId, material, String.valueOf(count), String.valueOf(minutes))),
-                        "interview-practice-v2", mocked ? "RULES" : coach.configuredModel(), "interview-generation-context-v3", mocked ? "RULES" : "DASHSCOPE", now), List.of());
+                        "interview-practice-v2", mocked ? "RULES" : coach.configuredModel(), "interview-generation-context-v3", mocked ? "RULES" : "DASHSCOPE", now,
+                        context.snapshot(resumeId, jobId, matchId).evidenceContext()), List.of());
         store.save(session);
         return session;
     }
@@ -370,14 +371,16 @@ public final class InterviewPracticeService {
                     feedback = new InterviewQuestionFeedback(qid, result.score(), list(result.strengths()), list(result.gaps()),
                             list(result.suggestions()), result.summary(), result.mocked(), result.dimensions(), result.evidence(), RUBRIC,
                             result.followUpQuestion(), new AnalysisMetadata(input, "interview-practice-v2",
-                            result.mocked() ? "RULES" : coach.configuredModel(), PROMPT, result.mocked() ? "RULES" : "DASHSCOPE", Instant.now()), Instant.now());
+                            result.mocked() ? "RULES" : coach.configuredModel(), PROMPT, result.mocked() ? "RULES" : "DASHSCOPE", Instant.now(),
+                            session.contextSnapshot() == null ? null : session.contextSnapshot().evidenceContext()), Instant.now());
                 } catch (RuntimeException ex) {
                     error = "模型评价暂时不可用，回答已保存。以下为演示规则反馈，可重试正式评价。";
                     InterviewFeedback fallback = coach.ruleInterviewFeedback(new InterviewFeedbackRequest(student, qid,
                             question.question(), attempt.answer(), session.targetRole()), question.referencePoints());
                     feedback = new InterviewQuestionFeedback(qid, fallback.score(), fallback.strengths(), fallback.gaps(), fallback.suggestions(),
                             fallback.summary(), true, fallback.dimensions(), fallback.evidence(), RUBRIC, null,
-                            new AnalysisMetadata(input, "interview-practice-v2", "RULES", PROMPT, "RULES", Instant.now()), Instant.now());
+                            new AnalysisMetadata(input, "interview-practice-v2", "RULES", PROMPT, "RULES", Instant.now(),
+                                    session.contextSnapshot() == null ? null : session.contextSnapshot().evidenceContext()), Instant.now());
                 }
                 validateKnowledgeSources(session);
                 InterviewSessionQuestion followUp = null;
@@ -469,15 +472,20 @@ public final class InterviewPracticeService {
             session = get(id, student);
             List<InterviewAnswerAttempt> selected = session.attempts().stream().filter(InterviewAnswerAttempt::selectedForReport).toList();
             List<InterviewQuestionFeedback> feedback = selected.stream().map(InterviewAnswerAttempt::evaluation).filter(Objects::nonNull).toList();
+            String target = session.targetRole(), mode = session.mode();
+            boolean reportMocked = feedback.stream().anyMatch(InterviewQuestionFeedback::mocked);
+            String completionScope = selected.size() + "/" + session.questions().stream()
+                    .filter(q -> !"MOCK".equals(mode) || !q.followUp()).count();
             int score = (int) Math.round(feedback.stream().mapToInt(InterviewQuestionFeedback::score).average().orElse(0));
             List<String> strengths = feedback.stream().flatMap(f -> list(f.strengths()).stream()).distinct().limit(6).toList();
             List<String> gaps = feedback.stream().flatMap(f -> list(f.gaps()).stream()).distinct().limit(6).toList();
             List<String> recommendations = feedback.stream().flatMap(f -> list(f.suggestions()).stream()).distinct().limit(6).toList();
-            String target = session.targetRole(), mode = session.mode();
             List<String> comparable = partial ? List.of() : listSessions(student, 100).stream()
                     .filter(s -> !id.equals(s.sessionId()) && s.report() != null && "FINAL".equals(s.report().reportType())
                             && "COMPLETED".equals(s.status()) && RUBRIC.equals(s.report().rubricVersion())
                             && mode.equals(s.mode()) && normalize(target).equals(normalize(s.targetRole()))
+                            && reportMocked == s.report().mocked()
+                            && Objects.equals(completionScope, s.report().completionScope())
                             && Objects.equals(s.jobId(), get(id, student).jobId())
                             && (!"MOCK".equals(mode) || (!s.feedbackViewedAfterPartial() && !get(id, student).feedbackViewedAfterPartial())))
                     .map(InterviewSession::sessionId).toList();
@@ -496,11 +504,10 @@ public final class InterviewPracticeService {
             if (timer != null && timer.runningSince() != null)
                 timer = new InterviewTimer(timer.startedAt(), Instant.now(), timer.accumulatedSeconds(), timer.timerMinutes(), timer.timeoutReached(), timer.pausedSeconds(), null);
             InterviewSessionReport report = new InterviewSessionReport(id, score, strengths, gaps, recommendations, feedback,
-                    Instant.now(), feedback.stream().anyMatch(InterviewQuestionFeedback::mocked), RUBRIC,
+                    Instant.now(), reportMocked, RUBRIC,
                     partial ? "阶段报告不参与历史成绩比较" : "仅比较相同岗位、模式和评价版本的完整报告", comparable,
                     "本次题目难度：" + session.questions().stream().map(InterviewSessionQuestion::difficulty).distinct().reduce((a,b) -> a + "、" + b).orElse("未知") + "；不同题目的分数仅供练习参考",
-                    partial ? "PARTIAL" : "FINAL", selected.size() + "/" + session.questions().stream()
-                    .filter(q -> !"MOCK".equals(mode) || !q.followUp()).count(), unanswered(session), selected,
+                    partial ? "PARTIAL" : "FINAL", completionScope, unanswered(session), selected,
                     comparisons, actions(session, gaps));
             InterviewTimer finalTimer = timer;
             update(id, student, s -> copy(s, s.questions(), s.answers(), s.attempts(), partial ? null : report,
@@ -622,8 +629,20 @@ public final class InterviewPracticeService {
         List<InterviewAnswerAttempt> attempts = hidden ? session.attempts().stream().map(a -> new InterviewAnswerAttempt(
                 a.attemptId(), a.questionId(), a.attemptNo(), a.answer(), a.submittedAt(), "PENDING", null, null,
                 a.inputFingerprint(), a.selectedForReport(), a.selectedAt(), a.selectionReason())).toList() : session.attempts();
-        return copyAt(session, questions, answers, attempts, hidden ? null : session.report(), hidden ? null : session.partialReport(),
+        InterviewSession result = copyAt(session, questions, answers, attempts, hidden ? null : session.report(), hidden ? null : session.partialReport(),
                 elapsed(session.timer(), Instant.now()), hidden ? List.of() : session.actionPreviews(), session.status(), session.updatedAt(), !hidden);
+        EvidenceContext live = contexts.refreshStatus(session.studentId(), session.contextSnapshot());
+        if (live == null) return result;
+        AnalysisMetadata saved = result.analysisMetadata();
+        AnalysisMetadata metadata = saved == null
+                ? new AnalysisMetadata(null, "legacy", null, null, "LEGACY", result.createdAt(), live)
+                : saved.withEvidenceContext(live);
+        return new InterviewSession(result.sessionId(), result.studentId(), result.resumeId(), result.jobId(), result.matchId(),
+                result.targetRole(), result.contextSnapshot(), result.status(), result.questions(), result.answers(), result.report(),
+                result.mocked(), result.createdAt(), result.updatedAt(), result.completedAt(), result.mode(), result.sourceType(),
+                result.sourceId(), result.sourceLabel(), result.sourceMaterial(), result.sourceRequirements(), result.sourceGaps(),
+                result.sourceReferences(), result.attempts(), result.timer(), result.partialReport(), result.actionPreviews(),
+                result.feedbackViewedAfterPartial(), metadata, result.partialReports());
     }
 
     public static boolean liveMock(InterviewSession s) {

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.aicampus.common.dto.*;
 
 import org.junit.jupiter.api.Test;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
 
@@ -134,6 +135,80 @@ class ResumeEvidenceRulesTest {
         assertThat(ResumeEvidenceRules.containsEvidence(planned, "TypeScript")).isFalse();
         assertThat(ResumeEvidenceRules.containsEvidence("We developed Java APIs but never used Redis", "Java")).isTrue();
         assertThat(ResumeEvidenceRules.containsEvidence("We developed Java APIs but never used Redis", "Redis")).isFalse();
+    }
+
+    @Test
+    void factsKeepPlannedAndNegatedStatementsOutsideMaterialEvidence() {
+        ResumeProfileSnapshot profile = new ResumeProfileSnapshot(
+                "Bachelor", List.of("Redis"),
+                List.of("使用 Java 开发接口并通过测试；计划学习 Redis"),
+                "Skills: Redis\n项目使用 Java 开发接口并通过测试\n没有使用 MySQL");
+        List<ResumeFactUnit> facts = ResumeEvidenceRules.factUnits(profile, "resume-v1");
+        assertThat(facts).anyMatch(f -> f.evidenceStatus().equals("MATERIAL_SUPPORTED")
+                && f.validationProcess().contains("测试"));
+        assertThat(facts).anyMatch(f -> f.evidenceStatus().equals("PLANNED"));
+        assertThat(facts).anyMatch(f -> f.evidenceStatus().equals("NEGATED"));
+        assertThat(ResumeEvidenceRules.containsEvidence("项目没有使用 MySQL", "MySQL")).isFalse();
+    }
+
+    @Test
+    void diagnosisRanksThreeActionableFindingsAndBindsSourceVersions() {
+        ResumeSummary sparse = new ResumeSummary("R-facts", "S-facts", "r.docx", "", List.of("Redis"),
+                List.of(), "", 0, "", "", "", "DOCX", "TEXT_EXTRACTED", 120);
+        StructuredResumeDiagnosis diagnosis = ResumeEvidenceRules.baseline(
+                sparse, "Skills: Redis", "Java 后端实习生", null, "input-fp", "RULE_FALLBACK", "");
+        assertThat(diagnosis.topFindings()).hasSizeLessThanOrEqualTo(3);
+        assertThat(diagnosis.topFindings()).isSortedAccordingTo(
+                java.util.Comparator.comparingInt(ResumeFinding::priority).reversed());
+        assertThat(diagnosis.evidenceContext().resumeVersion()).isNotBlank();
+        assertThat(diagnosis.evidenceContext().jobSnapshotVersion()).isNull();
+        assertThat(diagnosis.factUnits()).isNotEmpty();
+    }
+
+    @Test
+    void rewriteNeverAddsUnverifiedNumbersOrTechnologies() {
+        assertThat(ResumeEvidenceRules.safeRewrite("使用 Java 开发接口", "使用 Java 开发接口，性能提升 200%"))
+                .doesNotContain("200%").contains("待填写");
+        assertThat(ResumeEvidenceRules.safeRewrite("使用 Java 开发接口", "使用 Java 开发接口"))
+                .isEqualTo("使用 Java 开发接口");
+    }
+
+    @Test
+    void sameLengthSourceChangesHaveDifferentResumeVersions() {
+        ResumeSummary base = resume();
+        ResumeSummary first = base.withContentFingerprint(EvidenceFingerprint.of("abcd"));
+        ResumeSummary second = base.withContentFingerprint(EvidenceFingerprint.of("abce"));
+        assertThat(first.parsedTextLength()).isEqualTo(second.parsedTextLength());
+        assertThat(EvidenceContext.versionOfResume(first))
+                .isNotEqualTo(EvidenceContext.versionOfResume(second));
+    }
+
+    @Test
+    void legacyResumeJsonWithoutContentFingerprintStillReads() throws Exception {
+        String legacy = "{\"resumeId\":\"R-old\",\"studentId\":\"S-old\",\"fileName\":\"r.docx\","
+                + "\"education\":\"Bachelor\",\"skills\":[\"Java\"],\"projects\":[],"
+                + "\"diagnosis\":\"\",\"score\":0,\"objectKey\":\"\",\"storageProvider\":\"\","
+                + "\"storageStatus\":\"\",\"sourceFormat\":\"DOCX\",\"parseStatus\":\"TEXT\","
+                + "\"parsedTextLength\":10}";
+        ResumeSummary parsed = new ObjectMapper().readValue(legacy, ResumeSummary.class);
+        assertThat(parsed.resumeId()).isEqualTo("R-old");
+        assertThat(parsed.contentFingerprint()).isNull();
+    }
+
+    @Test
+    void croppedNegativeQuoteCannotUpgradeRuleEvidence() {
+        ResumeSummary record = new ResumeSummary("R-neg", "S-neg", "r.docx", "Bachelor",
+                List.of("Redis"), List.of("项目没有使用 Redis"), "", 0, "", "", "", "DOCX", "TEXT", 12);
+        var job = new JobSummary("J-neg", "C1", "C", "Java", "", "", List.of("Redis"), "必须使用 Redis", "");
+        var baseline = ResumeEvidenceRules.baseline(record, "项目没有使用 Redis", "Java", job, "fp", "AI", "qwen-plus");
+        var proposal = new StructuredResumeDiagnosis(null, 100, 100, 100,
+                List.of(new SkillEvidence("Redis", "RESUME_TEXT", "使用 Redis", "fake", true, "fake")),
+                List.of(new ResumeFinding("EXPRESSION", "使用 Redis", "fake", "使用 Redis 提升性能", "fake", "fake", "Redis")),
+                job, baseline.profileSnapshot(), false);
+        var checked = ResumeEvidenceRules.validate(proposal, baseline);
+        assertThat(checked.evidenceCoverage()).isZero();
+        assertThat(checked.findings()).filteredOn(f -> !f.originalQuote().isBlank())
+                .allMatch(f -> f.originalQuote().contains("没有使用"));
     }
 
     private ResumeSummary resume() {
