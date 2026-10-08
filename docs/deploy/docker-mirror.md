@@ -175,7 +175,7 @@ The file cannot be accessed by the system.
 ```powershell
 $taskSocket = Join-Path $env:LOCALAPPDATA 'docker-secrets-engine\engine.sock'
 Get-Process -Name 'Docker Desktop', 'com.docker.backend' -ErrorAction SilentlyContinue
-# 通过托盘菜单 Quit 后，再执行下面两行
+# 通过托盘菜单 Quit 后，再执行下面脚本
 if (Test-Path -LiteralPath $taskSocket) {
     $taskSocketItem = Get-Item -Force -LiteralPath $taskSocket
     if (($taskSocketItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
