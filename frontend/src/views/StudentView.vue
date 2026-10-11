@@ -1827,7 +1827,7 @@ watch(targetRole, (value) => {
 
       <section v-else-if="jobsPage === 'detail'" class="jobs-detail-page" data-testid="jobs-detail" v-loading="jobsLoading">
         <template v-if="selectedJob">
-          <header class="jobs-detail-heading"><h2>{{ selectedJob.title }}</h2><el-tag :type="selectedJob.status === 'CLOSED' ? 'info' : 'success'">{{ selectedJob.status === 'CLOSED' ? '已关闭' : '招聘中' }}</el-tag></header>
+          <header class="jobs-detail-heading"><h2>{{ selectedJob.title }}</h2><el-tag :type="selectedJob.companyName.includes('公开岗位参考') || selectedJob.companyName.includes('合成企业') || selectedJob.status === 'CLOSED' ? 'info' : 'success'">{{ selectedJob.companyName.includes('公开岗位参考') ? '公开岗位参考' : selectedJob.companyName.includes('合成企业') ? '教学样例' : selectedJob.status === 'CLOSED' ? '已关闭' : '招聘中' }}</el-tag></header>
           <div class="job-detail-meta"><span><BriefcaseBusiness :size="15" />{{ selectedJob.companyName }}</span><span><MapPin :size="15" />{{ selectedJob.city }}</span><strong>{{ selectedJob.salaryRange }}</strong></div>
           <div class="job-description">{{ selectedJob.description || '岗位暂未提供详细说明。' }}</div>
           <div v-if="selectedJob.requiredSkills.length" class="tag-row"><el-tag v-for="skill in selectedJob.requiredSkills" :key="skill">{{ skill }}</el-tag></div>

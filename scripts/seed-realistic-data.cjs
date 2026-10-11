@@ -5,12 +5,13 @@ const {buildStudents,roles,label}=require('./data/student-scenarios.cjs')
 const ROOT=path.resolve(__dirname,'..'), TAG='seed-realistic-20261007', VERSION='20261007-v3'
 const hash=value=>crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex')
 function options(args) {
-  const out={students:180,activities:24,baseUrl:process.env.SEED_BASE_URL||'http://localhost:18080',timeoutMs:180000,dryRun:false,verifyOnly:false}
-  const keys={'--students':'students','--activities':'activities','--base-url':'baseUrl','--timeout-ms':'timeoutMs'}
+  const out={students:180,activities:24,baseUrl:process.env.SEED_BASE_URL||'http://localhost:18080',timeoutMs:180000,dryRun:false,verifyOnly:false,publicOnly:false,publicCatalog:null}
+  const keys={'--students':'students','--activities':'activities','--base-url':'baseUrl','--timeout-ms':'timeoutMs','--public-catalog':'publicCatalog'}
   for(let i=0;i<args.length;i++) {
     if(args[i]==='--dry-run')out.dryRun=true
     else if(args[i]==='--verify-only')out.verifyOnly=true
-    else if(keys[args[i]]) { const key=keys[args[i]],value=args[++i];if(!value||value.startsWith('--'))throw Error('Missing value');out[key]=key==='baseUrl'?value:Number(value) }
+    else if(args[i]==='--public-only')out.publicOnly=true
+    else if(keys[args[i]]) { const key=keys[args[i]],value=args[++i];if(!value||value.startsWith('--'))throw Error('Missing value');out[key]=['baseUrl','publicCatalog'].includes(key)?value:Number(value) }
     else throw Error('Unknown option: '+args[i])
   }
   if(!Number.isInteger(out.students)||out.students<1||out.students>180)throw Error('students must be 1..180')
@@ -20,6 +21,15 @@ function options(args) {
   out.baseUrl=out.baseUrl.replace(/\/+$/,'');return out
 }
 function readJson(file,fallback) {return fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):fallback}
+function loadPublicCatalog(filename=null,root=ROOT) {
+  const file=filename?path.resolve(root,filename):path.join(root,'scripts/data/verified-public-sources.json')
+  let catalog
+  try{catalog=JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''))}
+  catch(error){throw Error('Cannot read public source catalog '+file+': '+(error.code||'invalid JSON'))}
+  if(!catalog||typeof catalog!=='object'||Array.isArray(catalog)||!Array.isArray(catalog.recruitmentJobs)||!Array.isArray(catalog.knowledgeMaterials))throw Error('Public catalog must contain recruitmentJobs and knowledgeMaterials arrays: '+file)
+  if([...catalog.recruitmentJobs,...catalog.knowledgeMaterials].some(row=>!row||typeof row!=='object'||Array.isArray(row)))throw Error('Public catalog rows must be objects: '+file)
+  return {catalog,file}
+}
 function writeJson(file,data) {fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+'.tmp';fs.writeFileSync(temp,JSON.stringify(data,null,2)+'\n');fs.renameSync(temp,file)}
 function envConfig() {
   const config={}
@@ -61,27 +71,78 @@ function buildJobs() {
 }
 function publicJob(row,index) {
   const company=row.company||row.companyName||'公开招聘资料',requirements=Array.isArray(row.requirements)?row.requirements.join('\n'):row.requirements||''
-  return {key:'public-'+hash(row.sourceUrl||row.title).slice(0,12),sourceUrl:row.sourceUrl,companyUsername:'seed_public_jobs',companyName:company+'（公开岗位参考）',title:row.title,city:row.city||'原页未注明',salaryRange:row.salaryRange||'未公开',requiredSkills:row.skills||row.requiredSkills||[],roleKey:row.category||row.roleDirection||(['Java','前端','运营'][index%3]),synthetic:false,
-    description:['【公开招聘资料镜像，学习与要求比较用途；招聘状态请以原网站为准】',row.recruitmentType||'公开岗位要求参考',row.recruitmentKind==='SOCIAL'?'工作经验：'+(row.workExperience||'原页未注明'):'适用范围：'+(row.eligibility||'以官方岗位页为准'),row.description||'',requirements,'来源：'+row.sourceUrl,'核对时间：'+(row.queriedAt||row.fetchedAt),'原页更新：'+(row.sourceUpdatedAt||'未注明'),row.recruitmentKind==='SOCIAL'?'保留原岗位年限和学历；社会招聘不能视为实习岗位。':'毕业年、地点和岗位要求以原招聘项目为准；未公开的出勤及薪酬不作推测。','样例标记：'+TAG].join('\n')}
+  return {key:'public-'+hash(row.sourceUrl||row.title).slice(0,12),sourceUrl:row.sourceUrl,companyUsername:'seed_public_jobs',companyName:company+'（公开岗位参考）',title:row.title.trim(),city:row.city||'原页未注明',salaryRange:row.salaryRange||'未公开',requiredSkills:row.skills||row.requiredSkills||[],roleKey:row.category||row.roleDirection||(['Java','前端','运营'][index%3]),synthetic:false,
+    description:['【公开招聘资料镜像，学习与要求比较用途；招聘状态请以原网站为准】',row.recruitmentType||'公开岗位要求参考',row.recruitmentKind==='SOCIAL'?'工作经验：'+(row.workExperience||'原页未注明'):'适用范围：'+(row.eligibility||'以官方岗位页为准'),row.description||'',requirements,'来源：'+row.sourceUrl,...(row.sourceApiUrl?['来源接口：'+row.sourceApiUrl]:[]),...(row.eligibilitySourceUrl?['招聘项目依据：'+row.eligibilitySourceUrl]:[]),'核对时间：'+(row.queriedAt||row.fetchedAt),'原页更新：'+(row.sourceUpdatedAt||'未注明'),row.recruitmentKind==='SOCIAL'?'保留原岗位年限和学历；社会招聘不能视为实习岗位。':'毕业年、地点和岗位要求以原招聘项目为准；未公开的出勤及薪酬不作推测。','样例标记：'+TAG].join('\n')}
+}
+function publicKnowledge(row) {
+  const content=row.content+'\n\n来源与核对\n'+row.sourceName+'\n'+row.sourceUrl+(row.applicableVersion?'\n适用版本：'+row.applicableVersion:'')+'\n读取核对时间：'+row.fetchedAt+'\n中文摘要为自编讲解；引用可定位不等同于全部事实已自动审核。'
+  return {title:row.title,content,category:row.category,source:row.sourceName.slice(0,128),tags:[TAG,'official-source',...(row.skills||[])],roles:['STUDENT','COMPANY','ADMIN']}
+}
+function publicDocumentMatches(row,doc) {
+  // A tag alone identifies a batch, never the identity of an individual source.
+  return Boolean(doc&&(doc.tags||[]).includes(TAG)&&doc.title===row.title&&doc.source===row.sourceName.slice(0,128)
+    &&String(doc.content||'').split(/\r?\n/).includes(row.sourceUrl))
+}
+function jobPayloadMatches(job,payload) {
+  return ['companyId','companyName','title','city','salaryRange','description'].every(k=>job[k]===payload[k])
+    &&JSON.stringify(job.requiredSkills||[])===JSON.stringify(payload.requiredSkills||[])
+}
+function validatePublicCatalog(catalog) {
+  if(!catalog||typeof catalog!=='object'||Array.isArray(catalog)||!Array.isArray(catalog.recruitmentJobs)||!Array.isArray(catalog.knowledgeMaterials))throw Error('Public catalog must contain recruitmentJobs and knowledgeMaterials arrays')
+  const jobKeys=new Set(),jobIds=new Set(),postIds=new Set(),documentKeys=new Set(),contents=new Set()
+  const string=(value,name,max=120000)=>{if(typeof value!=='string'||!value.trim()||value.length>max||value.includes('\0'))throw Error('Invalid public source '+name);return value}
+  const url=(value,name)=>{string(value,name,4096);let parsed;try{parsed=new URL(value)}catch{throw Error('Invalid public source '+name)}
+    if(value!==value.trim()||/[\s\u0000-\u001f\u007f]/.test(value)||parsed.protocol!=='https:'||!parsed.hostname||parsed.username||parsed.password)throw Error('Invalid public source '+name)
+    return parsed.href
+  }
+  const identity=(row,name,seen)=>{if(row[name]===undefined)return;const value=string(row[name],name,255).trim();if(seen.has(value))throw Error('Duplicate public job '+name+': '+value);seen.add(value)}
+  const fields=(row,names)=>{for(const name of names)if(row[name]!==undefined)string(row[name],name)}
+  const skills=row=>{for(const name of ['skills','requiredSkills'])if(row[name]!==undefined){if(!Array.isArray(row[name]))throw Error('Invalid public source '+name);for(const item of row[name])string(item,name,255)}}
+  const verification=row=>{const v=row.verification
+    if(!v||typeof v!=='object'||Array.isArray(v)||v.method!=='GET'||v.httpStatus!==200||v.readToEnd!==true||!Number.isSafeInteger(v.contentBytes)||v.contentBytes<=0||typeof v.sha256!=='string'||!/^[a-fA-F0-9]{64}$/.test(v.sha256))throw Error('Unverified public source response: '+row.title)
+    if(v.finalUrl!==undefined)url(v.finalUrl,'verification.finalUrl')
+  }
+  for(const row of catalog.recruitmentJobs) {
+    if(!row||typeof row!=='object'||Array.isArray(row))throw Error('Public catalog rows must be objects')
+    string(row.title,'title',255);const key=url(row.sourceUrl,'sourceUrl')
+    if(row.status!=='VERIFIED_PUBLIC')throw Error('Unverified public recruitment source: '+row.title)
+    verification(row);identity(row,'id',jobIds);identity(row,'sourcePostId',postIds)
+    if(jobKeys.has(key))throw Error('Duplicate public job source: '+row.sourceUrl);jobKeys.add(key)
+    if(Array.isArray(row.requirements)){if(!row.requirements.length)throw Error('Invalid public source requirements');for(const requirement of row.requirements)string(requirement,'requirements')}
+    else string(row.requirements,'requirements')
+    fields(row,['company','companyName','city','salaryRange','salary','category','roleDirection','description','originalRequirements','recruitmentType','recruitmentKind','workExperience','eligibility','queriedAt','fetchedAt','sourceUpdatedAt','sourceName'])
+    for(const name of ['sourceApiUrl','eligibilitySourceUrl'])if(row[name]!==undefined)url(row[name],name)
+    skills(row)
+  }
+  for(const row of catalog.knowledgeMaterials) {
+    if(!row||typeof row!=='object'||Array.isArray(row))throw Error('Public catalog rows must be objects')
+    string(row.title,'title',255);string(row.content,'content');string(row.sourceName,'sourceName');const source=url(row.sourceUrl,'sourceUrl')
+    if(row.status!=='VERIFIED')throw Error('Unverified public knowledge source: '+row.title)
+    verification(row);fields(row,['id','category','fetchedAt','applicableVersion']);skills(row)
+    const key=hash(row.title+'|'+source);if(documentKeys.has(key))throw Error('Duplicate public knowledge source: '+row.title);documentKeys.add(key)
+    const contentHash=crypto.createHash('sha256').update(row.content,'utf8').digest('hex');if(contents.has(contentHash))throw Error('Duplicate public knowledge content: '+row.title);contents.add(contentHash)
+  }
 }
 class Client {
   constructor(opt){this.opt=opt}
   async api(route,token,method='GET',body){
     const form=body instanceof FormData,response=await fetch(this.opt.baseUrl+route,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(!form&&body?{'Content-Type':'application/json'}:{})},body:body?(form?body:JSON.stringify(body)):undefined,signal:AbortSignal.timeout(this.opt.timeoutMs)})
-    const value=await response.json();if(!response.ok||value.code!==0){const error=new Error(method+' '+route+': '+String(value.message||response.status).slice(0,500));error.status=response.status;throw error}return value.data
+    const value=await response.json();if(!response.ok||value.code!==0){const details=[token,body?.password].filter(Boolean).reduce((message,secret)=>message.split(secret).join('[redacted]'),String(value.message||response.status));const error=new Error(method+' '+route+': '+details.slice(0,500));error.status=response.status;throw error}return value.data
   }
 }
-async function run(opt) {
-  const catalog=readJson(path.join(__dirname,'data/verified-public-sources.json'),{knowledgeMaterials:[],recruitmentJobs:[]})
-  const students=buildStudents(opt.students),jobs=[...buildJobs(),...catalog.recruitmentJobs.map(publicJob)]
-  if(opt.dryRun){console.log(JSON.stringify({dryRun:true,students:students.length,syntheticJobs:144,publicJobs:catalog.recruitmentJobs.length,knowledge:catalog.knowledgeMaterials.length,activityStudents:opt.activities,roles:Object.fromEntries(roles.map(r=>[r.key,students.filter(s=>s.roleKey===r.key).length]))},null,2));return}
+async function run(opt,runtime={}) {
+  const root=runtime.root||ROOT,source=runtime.catalog?{catalog:runtime.catalog,file:opt.publicCatalog?path.resolve(root,opt.publicCatalog):path.join(ROOT,'scripts/data/verified-public-sources.json')}:loadPublicCatalog(opt.publicCatalog,root)
+  const catalog=source.catalog
+  if(opt.publicOnly)validatePublicCatalog(catalog)
+  const students=opt.publicOnly?[]:buildStudents(opt.students),jobs=[...(opt.publicOnly?[]:buildJobs()),...catalog.recruitmentJobs.map(publicJob)]
+  if(opt.dryRun){const summary={dryRun:true,publicOnly:opt.publicOnly,sourceCatalog:source.file,students:students.length,syntheticJobs:jobs.filter(j=>j.synthetic).length,publicJobs:catalog.recruitmentJobs.length,knowledge:catalog.knowledgeMaterials.length,activityStudents:opt.publicOnly?0:opt.activities,roles:Object.fromEntries(roles.map(r=>[r.key,students.filter(s=>s.roleKey===r.key).length]))};console.log(JSON.stringify(summary,null,2));return summary}
   if(!catalog.knowledgeMaterials.length)throw Error('Verified public source catalog is required before importing')
-  const env=envConfig(),accessFile=path.join(ROOT,'logs/seed-realistic-access.json'),stateFile=path.join(ROOT,'logs/seed-realistic-state.json')
+  const env=runtime.env||envConfig(),accessFile=path.join(root,'logs/seed-realistic-access.json'),stateFile=path.join(root,'logs/seed-realistic-state.json')
   let access=readJson(accessFile,null)
   if(!access){access={password:env.SEED_PASSWORD||crypto.randomBytes(18).toString('base64url')+'!aA1',legacyPassword:env.SEED_LEGACY_PASSWORD||null};writeJson(accessFile,access)}
   const state=readJson(stateFile,{baseUrl:opt.baseUrl,version:VERSION,students:{},jobs:{},documents:{}})
   if(state.baseUrl!==opt.baseUrl)throw Error('State belongs to a different API server; use a separate workspace')
-  const report={version:VERSION,startedAt:new Date().toISOString(),counts:{},failures:[],sourceCatalog:'scripts/data/verified-public-sources.json',studentIds:[],jobIds:[],documentIds:[]},client=new Client(opt)
+  const report={version:VERSION,publicOnly:opt.publicOnly,startedAt:new Date().toISOString(),counts:{},failures:[],sourceCatalog:source.file,studentIds:[],jobIds:[],documentIds:[]},client=runtime.client||new Client(opt)
   const api=(...a)=>client.api(...a),bump=key=>{report.counts[key]=(report.counts[key]||0)+1},save=()=>writeJson(stateFile,state)
   async function account(username,displayName,role) {
     let result
@@ -101,6 +162,21 @@ async function run(opt) {
   if(admin.role!=='ADMIN')throw Error('Knowledge import requires administrator')
   async function step(kind,name,fn){try{await fn();save()}catch(e){report.failures.push({kind,name,message:e.message});console.log('FAILED '+kind+' '+name+': '+e.message);save()} }
   if(opt.verifyOnly) {
+    if(opt.publicOnly) {
+      const existingJobs=await api('/api/jobs',admin.token)
+      for(const row of jobs)await step('verify-public-job',row.key,async()=>{
+        const record=state.jobs[row.key],job=record&&existingJobs.find(j=>j.jobId===record.jobId)
+        if(!job||!job.description.includes(row.sourceUrl))throw Error('Public job source missing')
+        bump('publicJobsVerified');report.jobIds.push(job.jobId)
+      })
+      for(const row of catalog.knowledgeMaterials)await step('verify-public-knowledge',row.title,async()=>{
+        const record=state.documents[hash(row.title+'|'+row.sourceUrl).slice(0,16)]
+        if(!record)throw Error('Public document state missing')
+        const doc=await api('/api/ai/knowledge/library/'+record.documentId,admin.token)
+        if(!publicDocumentMatches(row,doc)||doc.content!==publicKnowledge(row).content||doc.status!=='PUBLISHED')throw Error('Public document source mismatch')
+        bump('publicKnowledgeVerified');report.documentIds.push(doc.documentId)
+      })
+    }
     for(const s of students)await step('verify',s.username,async()=>{
       const auth=await account(s.username,s.studentProfile.displayName,'STUDENT'),record=state.students[s.username];if(!record?.resumeId)throw Error('No saved resume')
       const p=await api('/api/resumes/master-profile',auth.token),r=await api('/api/resumes/'+record.resumeId,auth.token)
@@ -115,32 +191,44 @@ async function run(opt) {
       if(!companies.has(row.companyUsername))companies.set(row.companyUsername,await account(row.companyUsername,row.synthetic?row.companyName:'公开招聘资料管理员（非企业官方账号）','COMPANY'))
       const owner=companies.get(row.companyUsername),list=await api('/api/jobs',owner.token)
       let current=state.jobs[row.key]&&list.find(j=>j.jobId===state.jobs[row.key].jobId)
-      if(!current)current=list.find(j=>j.title===row.title&&j.city===row.city&&j.description.includes(TAG)&&(row.synthetic||j.description.split(/\r?\n/).includes('来源：'+row.sourceUrl)))
+      if(current&&!row.synthetic&&(!current.description.split(/\r?\n/).includes('来源：'+row.sourceUrl)||current.companyId!==owner.userId))current=null
+      if(!current){
+        const candidates=list.filter(j=>j.companyId===owner.userId&&j.description.includes(TAG)&&(row.synthetic
+          ?j.title===row.title&&j.city===row.city:j.description.split(/\r?\n/).includes('来源：'+row.sourceUrl)))
+        if(candidates.length>1)throw Error('Duplicate jobs already exist for this public source; refusing to replace one arbitrarily')
+        current=candidates[0]
+      }
       const payload={companyId:owner.userId,companyName:row.companyName,title:row.title,city:row.city,salaryRange:row.salaryRange,requiredSkills:row.requiredSkills,description:row.description}
       if(!current){current=await api('/api/jobs',owner.token,'POST',payload);bump(row.synthetic?'syntheticJobsCreated':'publicJobsCreated')}
-      else if(current.companyName!==row.companyName||current.description!==row.description){current=await api('/api/jobs/'+current.jobId,owner.token,'PUT',payload);bump('jobsUpdated')}else bump('jobsReused')
-      state.jobs[row.key]={jobId:current.jobId,roleKey:row.roleKey,synthetic:row.synthetic,companyUsername:row.companyUsername};report.jobIds.push(current.jobId)
+      else if(!jobPayloadMatches(current,payload)){current=await api('/api/jobs/'+current.jobId,owner.token,'PUT',payload);bump('jobsUpdated')}else bump('jobsReused')
+      state.jobs[row.key]={jobId:current.jobId,roleKey:row.roleKey,synthetic:row.synthetic,companyUsername:row.companyUsername,...(!row.synthetic?{sourceUrl:row.sourceUrl}: {})};report.jobIds.push(current.jobId)
     })
-    // Repair only documents from the interrupted v1 seed batch; never alter unrelated documents.
+    // Recover missing state only from an exact source match, including older tagged documents.
     const allDocs=await api('/api/ai/knowledge/documents?limit=100&keyword='+TAG,admin.token)
     const legacyDocs=allDocs.filter(d=>(d.tags||[]).includes(TAG))
-    const used=new Set(Object.values(state.documents).map(d=>d.documentId))
+    const used=new Set()
     for(let i=0;i<catalog.knowledgeMaterials.length;i++) {
       const row=catalog.knowledgeMaterials[i],key=hash(row.title+'|'+row.sourceUrl).slice(0,16)
       await step('knowledge',row.title,async()=>{
-        const content=row.content+'\n\n来源与核对\n'+row.sourceName+'\n'+row.sourceUrl+'\n读取核对时间：'+row.fetchedAt+'\n中文摘要为自编讲解；引用可定位不等同于全部事实已自动审核。'
-        const payload={title:row.title,content,category:row.category,source:row.sourceName.slice(0,128),tags:[TAG,'official-source',...(row.skills||[])],roles:['STUDENT','COMPANY','ADMIN']}
+        const payload=publicKnowledge(row),content=payload.content
         let id=state.documents[key]?.documentId
-        if(!id){const old=legacyDocs.find(d=>!used.has(d.documentId));if(old){id=old.documentId;used.add(id)}}
-        let doc=id?await api('/api/ai/knowledge/library/'+id,admin.token):null
-        if(doc&&doc.content===content&&doc.title===row.title){bump('knowledgeReused')}
+        let doc=null
+        if(id)try{doc=await api('/api/ai/knowledge/library/'+id,admin.token)}catch(e){if(e.status!==404)throw e;id=null}
+        if(doc&&!publicDocumentMatches(row,doc)){id=null;doc=null}
+        if(!doc){
+          let candidates=legacyDocs.filter(d=>!used.has(d.documentId)&&publicDocumentMatches(row,d))
+          if(!candidates.length)candidates=(await api('/api/ai/knowledge/documents?limit=100&keyword='+encodeURIComponent(row.title),admin.token)).filter(d=>!used.has(d.documentId)&&publicDocumentMatches(row,d))
+          if(candidates.length>1)throw Error('Duplicate documents already exist for this exact public source; refusing to replace one arbitrarily')
+          if(candidates.length){id=candidates[0].documentId;doc=await api('/api/ai/knowledge/library/'+id,admin.token)}
+        }
+        if(doc&&doc.content===content&&doc.title===row.title&&doc.category===payload.category&&JSON.stringify(doc.tags||[])===JSON.stringify(payload.tags)&&JSON.stringify((doc.roles||[]).slice().sort())===JSON.stringify(payload.roles.slice().sort())){bump('knowledgeReused')}
         else if(doc){doc=await api('/api/ai/knowledge/publications/'+id,admin.token,'PUT',{...payload,expectedRevision:doc.version});bump('knowledgeCorrected')}
         else{doc=await api('/api/ai/knowledge/publications',admin.token,'POST',payload);id=doc.documentId;bump('knowledgeCreated')}
         if(doc.status!=='PUBLISHED')await api('/api/ai/knowledge/publications/'+id+'/publish',admin.token,'POST',{})
-        state.documents[key]={documentId:id,title:row.title,fingerprint:hash(payload)};report.documentIds.push(id)
+        used.add(id);state.documents[key]={documentId:id,title:row.title,sourceUrl:row.sourceUrl,fingerprint:hash(payload)};report.documentIds.push(id)
       })
     }
-    const templates=await api('/api/resumes/templates',(await account(students[0].username,students[0].studentProfile.displayName,'STUDENT')).token)
+    const templates=opt.publicOnly?[]:await api('/api/resumes/templates',(await account(students[0].username,students[0].studentProfile.displayName,'STUDENT')).token)
     for(let i=0;i<students.length;i++)await step('student',students[i].username,async()=>{
       const s=students[i],auth=await account(s.username,s.studentProfile.displayName,'STUDENT'),token=auth.token,record=state.students[s.username]||{}
       const activityBaseComplete=Boolean(record.deliveryId&&record.draftId&&record.planId&&record.sessionId&&record.answerSaved&&record.partialReportSaved)
@@ -220,8 +308,9 @@ async function run(opt) {
     })
   }
   report.finishedAt=new Date().toISOString();report.savedTotals={students:Object.keys(state.students).length,jobs:Object.keys(state.jobs).length,documents:Object.keys(state.documents).length}
-  writeJson(path.join(ROOT,'logs/seed-realistic-report.json'),report);console.log(JSON.stringify({counts:report.counts,savedTotals:report.savedTotals,failures:report.failures.length,report:'logs/seed-realistic-report.json'},null,2))
+  writeJson(path.join(root,'logs/seed-realistic-report.json'),report);console.log(JSON.stringify({counts:report.counts,savedTotals:report.savedTotals,failures:report.failures.length,report:'logs/seed-realistic-report.json'},null,2))
   if(report.failures.length)process.exitCode=1
+  return report
 }
-module.exports={options,buildJobs,docx,Client,publicJob,envConfig,hash}
+module.exports={options,buildJobs,docx,Client,publicJob,publicKnowledge,publicDocumentMatches,jobPayloadMatches,validatePublicCatalog,loadPublicCatalog,envConfig,hash,run}
 if(require.main===module)run(options(process.argv.slice(2))).catch(e=>{console.error(e.message);process.exitCode=1})

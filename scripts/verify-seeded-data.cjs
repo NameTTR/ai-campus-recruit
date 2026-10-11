@@ -9,6 +9,10 @@ async function login(username){
   catch(e){if(e.status!==401||!access.legacyPassword)throw e;return api('/api/auth/login',null,'POST',{username,password:access.legacyPassword})}
 }
 async function main(){
+  if(process.argv.includes('--public-only')){
+    const publicVerifier=require('./verify-public-expansion.cjs')
+    return publicVerifier.run(publicVerifier.options(process.argv.slice(2).filter(arg=>arg!=='--public-only')))
+  }
   if(process.argv[2]==='--browser'){
     const username=process.argv[3];assert.match(username,/^seed_student_\d{2}$/);assert.ok(state.students[username])
     const auth=await login(username),localStorage=['token','userId','role','displayName'].map(name=>({name,value:auth[name]}))

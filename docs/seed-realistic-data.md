@@ -11,7 +11,7 @@
 | 文件 | 用途 |
 | --- | --- |
 | `scripts/data/verified-public-sources.json` | 公开岗位、官方知识摘要及真实网络读取结果 |
-| `scripts/data/student-scenarios.cjs` | 确定性生成匿名学生资料，Java、前端、运营各 20 名 |
+| `scripts/data/student-scenarios.cjs` | 确定性生成匿名学生资料，Java、前端、运营各 60 名 |
 | `scripts/seed-realistic-data.cjs` | 通过已有业务 API 导入，不直接写数据库 |
 | `scripts/seed-realistic-data.test.cjs` | 资料一致性、规模参数、DOCX 和错误处理测试 |
 | `scripts/verify-seeded-data.cjs` | 校验实际业务记录、日程预算、资料引用、个人隔离与匹配幂等性 |
@@ -55,3 +55,42 @@ node scripts/verify-seeded-data.cjs
 结果保存在 `logs/seed-realistic-report.json`，只含数量、对象 ID 与失败原因，不包含密码、登录令牌或 AI 密钥。最终导入数量与页面检查记录见本批验收报告。
 
 本轮不更换 Docker、Maven、npm 中国镜像，不新增基础设施，也不批量复制第三方课程正文。
+
+## 公开资料扩容批次
+
+2026-10-11 批次使用独立目录，不覆盖原始 `verified-public-sources.json`。新增 126 条公开岗位和 102 篇官方资料中文讲解，公开资料总量分别为 168 条和 136 篇。匿名学生和合成教学岗位不随此批次增加。
+
+| 文件 | 用途 |
+| --- | --- |
+| `scripts/data/public-jobs-expansion-20261011.json` | 新增岗位原文、招聘类型、技能引用和来源 GET 校验 |
+| `scripts/data/knowledge-expansion-20261011.json` | 新增独立知识专题、中文讲解和官方正文核对 |
+| `scripts/build-public-source-catalog.cjs` | 合并批次并检查重复来源、采集完整性和数量 |
+| `scripts/data/public-sources-expansion-20261011.json` | 旧批次与新批次合并后的导入快照，含输入文件哈希 |
+| `scripts/verify-public-expansion.cjs` | 核对全部公开资料的唯一性、内容、学生权限与引用位置 |
+| `reports/data/public-expansion-sources-20261011.csv` | 本批 228 条新增来源、核对时间、范围及 SHA256 清单 |
+| `reports/data/public-expansion-20261011.md` | 实际导入、浏览器、检索及重启验收结果 |
+
+先构建目录，再执行公开资料专用导入。`--public-only` 不创建学生、简历、匹配、学习计划或面试，不请求生成回答。重复运行必须复用同一来源的已保存记录。
+
+```powershell
+node scripts/build-public-source-catalog.cjs
+node scripts/seed-realistic-data.cjs --public-only --public-catalog scripts/data/public-sources-expansion-20261011.json --dry-run
+node scripts/seed-realistic-data.cjs --public-only --public-catalog scripts/data/public-sources-expansion-20261011.json
+node scripts/seed-realistic-data.cjs --public-only --public-catalog scripts/data/public-sources-expansion-20261011.json
+node scripts/verify-public-expansion.cjs --public-catalog scripts/data/public-sources-expansion-20261011.json --expect-idempotent --search-per-role 1000
+```
+
+`--public-catalog` 接受相对仓库路径或绝对文件路径；未提供时仍使用旧目录。缺失目录、非法 JSON、重复岗位来源和未经完整读取的资料会在业务写入前报错。验证报告保存于忽略目录 `logs/public-expansion-verification.json`。
+
+新增岗位实际分类为 Java 51、前端 17、运营 58；官方未重复前端职位不足 42 条，未改写其他岗位凑分类数量。新增校招 6、实习 12、社会招聘参考 108。社会招聘保留原始经验要求，不可视为应届岗位。公开职位是否仍接受申请以官方最新页面为准。
+
+知识讲解为自编中文材料，练习是教学建议。来源读取、引用定位和内容审核是不同检查，不将 HTTP 200 或引用存在解释为全部事实已完成审核。各专题保留适用版本和核对时间。
+
+完整原响应属于本地审计资料，位于忽略目录 `logs/public-expansion/`。普通检出没有快照时，采集测试会明确跳过原响应核验；本机验收设置 `REQUIRE_SOURCE_SNAPSHOTS=1` 后执行以下测试，任意快照缺失、哈希变化或原句定位错误均失败：
+
+```powershell
+$env:REQUIRE_SOURCE_SNAPSHOTS='1'
+node --test scripts/build-public-source-catalog.test.cjs scripts/collect-public-jobs-expansion.test.cjs scripts/collect-knowledge-expansion.test.cjs scripts/seed-realistic-data.test.cjs
+```
+
+需要重新采集时，运行 `node scripts/collect-public-jobs-expansion.cjs` 和 `node scripts/collect-knowledge-expansion.cjs`，复核新目录及失败记录后再合并导入；网站内容可能变化，不能保证重新采集仍返回相同岗位及响应哈希。此次有效资料为 136 篇，另保留 1 条已下架的来源校正历史；详见验收报告。

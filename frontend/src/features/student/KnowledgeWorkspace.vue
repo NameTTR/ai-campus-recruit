@@ -123,6 +123,7 @@ const readerPages = computed(() => {
   })
 })
 const noEvidence = computed(() => ['NO_EVIDENCE', 'INSUFFICIENT_EVIDENCE', 'INSUFFICIENT'].includes(answer.value?.evidenceStatus || ''))
+const historyUnavailable = computed(() => answer.value?.evidenceStatus === 'PERMISSIONS_CHANGED')
 const sourceUrl = computed(() => knowledgeSafeLink(topic.value?.sourceUrl))
 const days = [
   { value: 'MONDAY', label: '一' }, { value: 'TUESDAY', label: '二' }, { value: 'WEDNESDAY', label: '三' },
@@ -431,9 +432,10 @@ onBeforeUnmount(() => { readRequest++; queryRequest++; clearOriginal() })
       </section>
       <section v-if="answer && page === 'search'" class="results">
         <div class="section-head"><strong>{{ citations.length }} 条资料</strong><el-button :loading="loading" data-testid="knowledge-explain" @click="runSearch(true)">通俗讲解 <ArrowRight :size="15" /></el-button></div>
-        <p v-if="noEvidence" class="inline-alert neutral">现有资料不足以支持完整回答，可核对原文或调整问题。</p>
+        <p v-if="historyUnavailable" class="inline-alert warning" role="status">资料已更新或权限已变化，请重新搜索。</p>
+        <p v-else-if="noEvidence" class="inline-alert neutral">现有资料不足以支持完整回答，可核对原文或调整问题。</p>
         <article v-for="citation in citations.slice(0, 5)" :key="citation.chunkId" class="result"><button class="result-title" @click="openReader(citation.documentId, citation.chunkId)"><strong>{{ citation.title }}</strong><ArrowRight :size="15" /></button><p v-if="knowledgeSearchExcerpt(citation.snippet)">{{ knowledgeSearchExcerpt(citation.snippet) }}</p><small>{{ citation.source }} · {{ knowledgePosition(citation) }}</small></article>
-        <p v-if="!citations.length" class="empty">没有找到可引用资料。</p>
+        <p v-if="!citations.length && !historyUnavailable" class="empty">没有找到可引用资料。</p>
       </section>
       <section v-else-if="page === 'topics'" class="topics" data-testid="knowledge-topics">
         <div class="section-head"><strong>全部专题</strong><el-button text @click="navigate('/student/knowledge')"><ArrowLeft :size="15" />查知识</el-button></div>
